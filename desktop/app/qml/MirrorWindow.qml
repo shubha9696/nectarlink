@@ -7,6 +7,8 @@ import app.nectarlink
 // the phone. One per mirroring (`mirrorKey`); closing it ends that one.
 Window {
     id: win
+    property int windowSizeMode: 0 // 0: phone 1:1, 1: medium stretched (760x830), 2: fullscreen
+
     required property string mirrorKey
     // This window's mirroring (see Mirror.windows).
     readonly property var info: {
@@ -368,6 +370,28 @@ Window {
                     : qsTr("Turn phone screen off while mirroring")
                 onClicked: Mirror.setScreenOff(win.mirrorKey, !(win.info.screenOff === true))
             }
+            IconButton {
+                id: resizeModeBtn
+                iconPath: Icons.window
+                hoverColor: "#22ffffff"
+                toolTipText: win.windowSizeMode === 0 ? qsTr("Size: Default Phone (1:1)") :
+                             win.windowSizeMode === 1 ? qsTr("Size: Stretched Medium") : qsTr("Size: Fullscreen")
+                onClicked: {
+                    win.windowSizeMode = (win.windowSizeMode + 1) % 3;
+                    if (win.windowSizeMode === 0) {
+                        win.visibility = Window.Windowed;
+                        let h = 820;
+                        let w = Math.round(h * win.targetRatio);
+                        win.resize(w, h);
+                    } else if (win.windowSizeMode === 1) {
+                        win.visibility = Window.Windowed;
+                        win.resize(760, 830);
+                    } else if (win.windowSizeMode === 2) {
+                        win.visibility = Window.Maximized;
+                    }
+                }
+            }
+
             IconButton {
                 id: soundBtn
                 visible: win.info.sound === true
