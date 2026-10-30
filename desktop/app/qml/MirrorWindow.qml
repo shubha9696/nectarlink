@@ -66,6 +66,8 @@ Window {
     onActiveChanged: if (win.active) Mirror.syncClipboardOnFocus(win.mirrorKey)
 
     onFrameChanged: {
+        if (win.windowSizeMode !== 0)
+            return
         if (frame.width <= 0)
             return
         const availW = Screen.desktopAvailableWidth > 0 ? Screen.desktopAvailableWidth : 1920
