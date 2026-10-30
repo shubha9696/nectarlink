@@ -894,12 +894,15 @@ fun PcMirrorView(
                             core.remoteButton(pcId, "right", "click")
                             lastTapUpTimeMs = 0L
                         } else if (maxPointers == 1 && elapsed <= tapTimeoutMs && totalMoved <= tapSlop * 1.5f) {
-                            // Single tap = Left Click at exact PC coordinate!
-                            core.remoteButton(pcId, "left", "click")
+                            // Single tap: Move cursor to touch position AND send Left Click at that exact coordinate!
+                            val (nx, ny) = mapToNormalized(downPos.x, downPos.y)
+                            touchPhase(TouchPhase.Began, downPos.x, downPos.y)
+                            touchPhase(TouchPhase.Ended, downPos.x, downPos.y)
                             lastTapUpTimeMs = upTime
                             lastTapPos = downPos
-                        } else if (maxPointers == 1 && elapsed > 500 && totalMoved <= tapSlop * 2f) {
-                            // Long press = Right Click on Windows!
+                        } else if (maxPointers == 1 && elapsed > 450 && totalMoved <= tapSlop * 2f) {
+                            // Long press: Move cursor to touch position AND send Right Click at that exact coordinate!
+                            touchPhase(TouchPhase.Moved, downPos.x, downPos.y)
                             core.remoteButton(pcId, "right", "click")
                             lastTapUpTimeMs = 0L
                         } else {
