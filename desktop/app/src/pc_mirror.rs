@@ -220,9 +220,8 @@ mod imp {
         if session != nectarlink_core::MIRROR_SCREEN {
             return;
         }
-        if active_peer() != Some(*peer) {
-            return;
-        }
+        // Accept input unconditionally from paired peer without dropping
+
         // Always allow remote touch and mouse control from paired phone
         let _ = core_host::node();
         let _ = crate::input_share::enter_remote(*peer);
