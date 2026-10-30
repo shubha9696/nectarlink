@@ -893,16 +893,15 @@ fun PcMirrorView(
                             // Two-finger quick tap performs a right click at the tapped PC location.
                             core.remoteButton(pcId, "right", "click")
                             lastTapUpTimeMs = 0L
-                        } else if (maxPointers == 1 && elapsed <= tapTimeoutMs && totalMoved <= tapSlop * 1.5f) {
-                            // Single tap: Move cursor to touch position AND send Left Click at that exact coordinate!
-                            val (nx, ny) = mapToNormalized(downPos.x, downPos.y)
-                            touchPhase(TouchPhase.Began, downPos.x, downPos.y)
-                            touchPhase(TouchPhase.Ended, downPos.x, downPos.y)
+                        } else if (maxPointers == 1 && elapsed <= tapTimeoutMs && totalMoved <= tapSlop * 1.5f && touchStartedInVideo) {
+                            // Single tap: Send click at exact touch position!
+                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.DOWN, lastX, lastY))
+                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.UP, lastX, lastY))
                             lastTapUpTimeMs = upTime
                             lastTapPos = downPos
-                        } else if (maxPointers == 1 && elapsed > 450 && totalMoved <= tapSlop * 2f) {
-                            // Long press: Move cursor to touch position AND send Right Click at that exact coordinate!
-                            touchPhase(TouchPhase.Moved, downPos.x, downPos.y)
+                        } else if (maxPointers == 1 && elapsed > 450 && totalMoved <= tapSlop * 2f && touchStartedInVideo) {
+                            // Long press: Right-click at exact touch position!
+                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.MOVE, lastX, lastY))
                             core.remoteButton(pcId, "right", "click")
                             lastTapUpTimeMs = 0L
                         } else {
