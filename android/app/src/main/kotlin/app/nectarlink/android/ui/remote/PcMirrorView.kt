@@ -765,9 +765,8 @@ fun PcMirrorView(
                 .semantics { contentDescription = viewportDescription }
                 .pointerInput(pcId, watch) {
                     if (watch != null) {
-                        // Watching: nothing goes to the PC.
-                        detectTapGestures(onTap = { onTap() })
-                        return@pointerInput
+                        // Touch enabled: tap to toggle bar + forward touch to PC
+                        onTap()
                     }
                     val tapSlop = viewConfiguration.touchSlop
                     val scrollStepPx = 16.dp.toPx().coerceAtLeast(1f)
