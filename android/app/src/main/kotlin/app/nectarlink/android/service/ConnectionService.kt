@@ -268,6 +268,7 @@ class ConnectionService : LifecycleService() {
             builder.addAction(0, "Lock PC", lockPcIntent)
             builder.addAction(0, "Restart PC", restartPcIntent)
             builder.addAction(0, getString(R.string.action_send_files), sendFiles)
+            builder.setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText("Connected to \"${status.connected}\""))
         }
         return builder.build()
     }
