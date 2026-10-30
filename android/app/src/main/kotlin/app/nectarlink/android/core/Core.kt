@@ -2010,7 +2010,7 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             startJob?.join()
             val node = node ?: return@launch
             try {
-                node.pcAction(id, "restart")
+                node.pcRestart(id)
             } catch (e: Exception) {
                 e.printStackTrace()
             }

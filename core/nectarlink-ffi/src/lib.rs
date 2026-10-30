@@ -3834,6 +3834,12 @@ impl NectarlinkNode {
     }
 
     /// Locks a paired PC (`sleep`: puts it to sleep instead).
+    pub async fn pc_restart(&self, id: String) -> Result<()> {
+        let id = parse_id(&id)?;
+        let node = self.node.clone();
+        self.run(async move { Ok(node.pc_power(id, core::PowerAction::Restart).await?) }).await
+    }
+
     pub async fn pc_power(&self, id: String, sleep: bool) -> Result<()> {
         let id = parse_id(&id)?;
         let node = self.node.clone();
