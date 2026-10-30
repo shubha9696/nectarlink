@@ -220,7 +220,7 @@ mod imp {
         if session != nectarlink_core::MIRROR_SCREEN {
             return;
         }
-        if active_peer() != Some(*peer) || is_watching() {
+        if active_peer() != Some(*peer) {
             return;
         }
         let remote_input_on = core_host::node()
