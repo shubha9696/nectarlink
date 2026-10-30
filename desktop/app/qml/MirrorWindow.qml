@@ -383,10 +383,14 @@ Window {
                         win.visibility = Window.Windowed;
                         let h = 820;
                         let w = Math.round(h * win.targetRatio);
-                        win.resize(w, h);
+                        win.width = w;
+                        win.height = h;
+                        Mirror.saveGeometry(win.mirrorKey, win.x, win.y, w, h);
                     } else if (win.windowSizeMode === 1) {
                         win.visibility = Window.Windowed;
-                        win.resize(760, 830);
+                        win.width = 760;
+                        win.height = 830;
+                        Mirror.saveGeometry(win.mirrorKey, win.x, win.y, 760, 830);
                     } else if (win.windowSizeMode === 2) {
                         win.visibility = Window.Maximized;
                     }
