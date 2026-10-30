@@ -490,7 +490,8 @@ Window {
                     else if (currentFps === 90) currentFps = 120;
                     else currentFps = 60;
                     // Trigger live FPS update
-                    Mirror.setFps(win.mirrorKey, currentFps);
+                    // Update currentFps
+                    win.currentFps = currentFps;
                 }
             }
             IconButton {

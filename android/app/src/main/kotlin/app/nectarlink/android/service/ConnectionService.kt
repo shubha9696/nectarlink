@@ -225,13 +225,24 @@ class ConnectionService : LifecycleService() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         if (status.connected.isNotEmpty()) {
-            val sendClip = PendingIntent.getActivity(
-                this, 2, SendActivity.sendClipboardIntent(this), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            val controlPcIntent = PendingIntent.getActivity(
+                this, 10,
+                Intent(this, app.nectarlink.android.ui.MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    putExtra("route", "remote/screen")
+                },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val lockPcIntent = PendingIntent.getService(
+                this, 11,
+                Intent(this, ConnectionService::class.java).setAction("ACTION_LOCK_PC"),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             val sendFiles = PendingIntent.getActivity(
                 this, 3, SendActivity.sendFilesIntent(this), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            builder.addAction(0, getString(R.string.action_send_clipboard), sendClip)
+            builder.addAction(0, "Control PC", controlPcIntent)
+            builder.addAction(0, "Lock PC", lockPcIntent)
             builder.addAction(0, getString(R.string.action_send_files), sendFiles)
         }
         val stopService = PendingIntent.getService(
