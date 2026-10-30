@@ -2209,8 +2209,8 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             it.startPcMirror(
                 id,
                 maxSize.coerceIn(320, 1920).toUInt(),
-                fps.coerceIn(10, 60).toUInt(),
-                bitrate.coerceIn(500_000, 20_000_000).toUInt(),
+                fps.coerceIn(10, 120).toUInt(),
+                bitrate.coerceIn(400_000, 30_000_000).toUInt(),
                 watch,
             )
         }

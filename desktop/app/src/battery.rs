@@ -36,6 +36,7 @@ pub fn set_enabled(on: bool) {
 enum Alert {
     Low(u8),
     Full,
+    Protection80(u8),
 }
 
 /// What a phone has been told about already.
@@ -43,6 +44,7 @@ enum Alert {
 struct Watch {
     told_low: bool,
     told_full: bool,
+    told_80: bool,
     /// The first report after connecting only sets the scene: a phone that
     /// was already low or full when it connected isn't news.
     seen: bool,
@@ -52,11 +54,15 @@ impl Watch {
     fn update(&mut self, battery: &Battery) -> Option<Alert> {
         let low = !battery.charging && battery.level <= LOW;
         let full = battery.charging && battery.level >= 100;
+        let protection = battery.charging && battery.level >= 80 && battery.level < 100;
         if battery.charging || battery.level >= RECOVERED {
             self.told_low = false;
         }
         if !battery.charging || battery.level < 100 {
             self.told_full = false;
+        }
+        if !battery.charging || battery.level < 80 {
+            self.told_80 = false;
         }
         let first = !self.seen;
         self.seen = true;
@@ -67,6 +73,9 @@ impl Watch {
         } else if full && !self.told_full {
             self.told_full = true;
             (!first).then_some(Alert::Full)
+        } else if protection && !self.told_80 {
+            self.told_80 = true;
+            (!first).then_some(Alert::Protection80(battery.level))
         } else {
             None
         }
@@ -88,6 +97,10 @@ pub fn on_event(event: &NodeEvent) {
     let (title, body) = match alert {
         Alert::Low(level) => (format!("{name}'s battery is low"), format!("{level}% left. Charge it soon.")),
         Alert::Full => (tr!("Battery", "%1 is fully charged", name), tr!("Battery", "You can unplug it.")),
+        Alert::Protection80(level) => (
+            tr!("Battery", "%1 reached %2% · Battery Health", name, level),
+            tr!("Battery", "Unplug now to preserve long-term battery health."),
+        ),
     };
     toast::show(Toast {
         device: TOAST_GROUP.into(),

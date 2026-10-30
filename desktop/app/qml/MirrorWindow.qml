@@ -7,8 +7,6 @@ import app.nectarlink
 // the phone. One per mirroring (`mirrorKey`); closing it ends that one.
 Window {
     id: win
-    property int windowSizeMode: 0 // 0: phone 1:1, 1: medium stretched (760x830), 2: fullscreen
-
     required property string mirrorKey
     // This window's mirroring (see Mirror.windows).
     readonly property var info: {
@@ -34,6 +32,106 @@ Window {
     readonly property size frame: video.frameSize
     property bool sized: false
     property bool readyForResize: false
+
+    // 3-Mode window sizing for mirrored apps:
+    // Mode 0: Phone default aspect ratio
+    // Mode 1: Stretched / expanded aspect ratio (tablet-width)
+    // Mode 2: Full screen / Maximized
+    property int windowSizeMode: 0
+    property bool switchingMode: false
+    property string localNotice: ""
+
+    Timer {
+        id: localNoticeTimer
+        interval: 2200
+        repeat: false
+        onTriggered: win.localNotice = ""
+    }
+
+    function showNotice(text) {
+        win.localNotice = text
+        localNoticeTimer.restart()
+    }
+
+    function getModeDimensions(mode) {
+        const availW = Screen.desktopAvailableWidth > 0 ? Screen.desktopAvailableWidth : 1920
+        const availH = Screen.desktopAvailableHeight > 0 ? Screen.desktopAvailableHeight : 1080
+        const targetH = Math.round(availH * 0.85)
+        if (mode === 0) {
+            // Default phone aspect ratio
+            const aspect = (frame.width > 0 && frame.height > 0) ? (frame.width / frame.height) : (9 / 19.5)
+            const targetW = Math.max(240, Math.round(targetH * aspect))
+            return { w: targetW, h: targetH }
+        } else if (mode === 1) {
+            // Stretched / expanded aspect ratio (wider tablet-like width)
+            const targetW = Math.max(360, Math.min(Math.round(availW * 0.75), Math.round(targetH * 0.76)))
+            return { w: targetW, h: targetH }
+        }
+        return { w: availW, h: availH }
+    }
+
+    function applyWindowSizeMode(mode) {
+        win.windowSizeMode = mode
+        win.switchingMode = true
+        if (mode === 2) {
+            win.showMaximized()
+            win.showNotice(qsTr("Mode: Full Screen (3/3)"))
+            Qt.callLater(() => { win.switchingMode = false })
+        } else {
+            if (win.visibility === Window.Maximized || win.visibility === Window.FullScreen) {
+                win.showNormal()
+            }
+            const dims = getModeDimensions(mode)
+            win.readyForResize = false
+            win.width = dims.w
+            win.height = dims.h
+            const availW = Screen.desktopAvailableWidth > 0 ? Screen.desktopAvailableWidth : 1920
+            const availH = Screen.desktopAvailableHeight > 0 ? Screen.desktopAvailableHeight : 1080
+            if (win.x + dims.w > availW) win.x = Math.max(0, availW - dims.w)
+            if (win.y + dims.h > availH) win.y = Math.max(0, availH - dims.h)
+            win.sized = true
+            win.showNotice(mode === 0 ? qsTr("Mode: Phone Default (1/3)") : qsTr("Mode: Stretched / Expanded (2/3)"))
+            Qt.callLater(() => {
+                win.readyForResize = true
+                win.switchingMode = false
+                if (win.phase === "showing") {
+                    Mirror.resize(win.mirrorKey, win.width, win.height)
+                }
+                Mirror.saveGeometry(win.mirrorKey, win.x, win.y, win.width, win.height)
+            })
+        }
+    }
+
+    function cycleWindowSizeMode() {
+        const next = (win.windowSizeMode + 1) % 3
+        applyWindowSizeMode(next)
+    }
+
+    onVisibilityChanged: {
+        if (switchingMode || !info.app)
+            return
+        if (visibility === Window.Maximized) {
+            if (windowSizeMode === 0) {
+                // User clicked maximize in phone default mode -> cycle to Mode 1 (stretched)
+                switchingMode = true
+                Qt.callLater(() => {
+                    win.showNormal()
+                    applyWindowSizeMode(1)
+                })
+            } else if (windowSizeMode === 1) {
+                // User clicked maximize in stretched mode -> proceed to Mode 2 (maximized)
+                windowSizeMode = 2
+                showNotice(qsTr("Mode: Full Screen (3/3)"))
+            }
+        } else if (visibility === Window.Windowed) {
+            if (windowSizeMode === 2) {
+                // User clicked restore from maximized -> cycle back to Mode 0 (phone default)
+                Qt.callLater(() => {
+                    applyWindowSizeMode(0)
+                })
+            }
+        }
+    }
 
     Timer {
         id: resizeTimer
@@ -310,7 +408,7 @@ Window {
         color: Qt.rgba(0, 0, 0, 0.68)
         visible: win.phase === "showing" && video.frameSize.width > 0
         readonly property bool toolbarHasFocus: copyShotBtn.activeFocus || saveShotBtn.activeFocus
-            || recordBtn.activeFocus || stayAwakeBtn.activeFocus || screenOffBtn.activeFocus || soundBtn.activeFocus
+            || recordBtn.activeFocus || stayAwakeBtn.activeFocus || screenOffBtn.activeFocus || soundBtn.activeFocus || windowModeBtn.activeFocus
         opacity: topZoneHover.hovered || toolbarHover.hovered || toolbarWakeTimer.running
             || win.info.recording === true || win.info.screenOff === true || toolbarHasFocus ? 1 : 0
         Behavior on opacity { enabled: !Theme.reduceMotion; NumberAnimation { duration: Theme.fadeFast } }
@@ -373,37 +471,24 @@ Window {
                 onClicked: Mirror.setScreenOff(win.mirrorKey, !(win.info.screenOff === true))
             }
             IconButton {
-                id: resizeModeBtn
-                iconPath: Icons.window
-                label: win.windowSizeMode === 0 ? qsTr("Size: Default Phone (1:1)") :
-                             win.windowSizeMode === 1 ? qsTr("Size: Stretched Medium") : qsTr("Size: Fullscreen")
-                onClicked: {
-                    win.windowSizeMode = (win.windowSizeMode + 1) % 3;
-                    if (win.windowSizeMode === 0) {
-                        win.visibility = Window.Windowed;
-                        let h = 820;
-                        let w = Math.round(h * win.targetRatio);
-                        win.width = w;
-                        win.height = h;
-                        Mirror.saveGeometry(win.mirrorKey, win.x, win.y, w, h);
-                    } else if (win.windowSizeMode === 1) {
-                        win.visibility = Window.Windowed;
-                        win.width = 760;
-                        win.height = 830;
-                        Mirror.saveGeometry(win.mirrorKey, win.x, win.y, 760, 830);
-                    } else if (win.windowSizeMode === 2) {
-                        win.visibility = Window.Maximized;
-                    }
-                }
-            }
-
-            IconButton {
                 id: soundBtn
                 visible: win.info.sound === true
                 iconPath: Mirror.muted ? Icons.soundOff : Icons.speaker
                 iconColor: "white"
                 label: Mirror.muted ? qsTr("Play the phone's sound here") : qsTr("Mute the phone's sound here")
                 onClicked: Mirror.toggleSound()
+            }
+            IconButton {
+                id: windowModeBtn
+                visible: win.info.app === true
+                iconPath: win.windowSizeMode === 2 ? Icons.desktop : (win.windowSizeMode === 1 ? Icons.island : Icons.phone)
+                iconColor: win.windowSizeMode > 0 ? Theme.primary : "white"
+                label: win.windowSizeMode === 0
+                    ? qsTr("Window mode: Phone default (Click for stretched)")
+                    : win.windowSizeMode === 1
+                    ? qsTr("Window mode: Stretched (Click for full screen)")
+                    : qsTr("Window mode: Full screen (Click for phone default)")
+                onClicked: win.cycleWindowSizeMode()
             }
         }
     }
@@ -439,7 +524,7 @@ Window {
         id: noticePill
         readonly property string pillText: mirrorDropArea.containsDrag
             ? qsTr("Release to send files to %1").arg(win.deviceName.length > 0 ? win.deviceName : qsTr("phone"))
-            : (win.info.notice || "")
+            : win.localNotice.length > 0 ? win.localNotice : (win.info.notice || "")
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: hintBanner.visible ? hintBanner.top : parent.bottom
         anchors.bottomMargin: hintBanner.visible ? 8 : 16

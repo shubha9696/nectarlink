@@ -47,8 +47,8 @@ fn pc_mirror_allowed(shared: &Shared, peer: &DeviceId) -> bool {
         || shared.pc_mirror_sessions.lock().unwrap_or_else(|e| e.into_inner()).contains(peer)
 }
 /// Packets waiting to go out, at most. Beyond this the network is behind:
-/// sending more would only add delay.
-const QUEUE: usize = 4;
+/// sending more would only add delay. 8 packets provides smooth routing over mobile relays.
+const QUEUE: usize = 8;
 /// Sound packets waiting to go out, at most (each is a few milliseconds).
 const AUDIO_QUEUE: usize = 24;
 /// Icons in a `mirror.apps` answer, at most, in bytes: the rest go without
@@ -652,10 +652,15 @@ impl Shared {
     /// stream (`op`) of a mirroring.
     fn new_mirror_stop(&self, peer: &DeviceId, mirroring: u32, op: &'static str) -> Arc<tokio::sync::Notify> {
         let signal = Arc::new(tokio::sync::Notify::new());
-        self.mirror_stops
+        let replaced = self
+            .mirror_stops
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert((*peer, mirroring, op), signal.clone());
+        // A stream this one replaces stops: nothing else could reach it now.
+        if let Some(replaced) = replaced {
+            replaced.notify_one();
+        }
         signal
     }
 

@@ -166,6 +166,8 @@
     <string name="transfer_off_for">Files are turned off for %1$s.</string>
     <string name="transfer_pick_pc">Send to which PC?</string>
     <string name="clip_tile_label">Send clipboard</string>
+    <string name="tile_lock_pc">Lock PC</string>
+    <string name="tile_mirror_pc">Screen Mirror</string>
     <string name="action_send_clipboard">Send clipboard</string>
     <string name="clip_sent_to">Sent to %1$s</string>
     <string name="clip_no_pc">No PC is connected right now.</string>

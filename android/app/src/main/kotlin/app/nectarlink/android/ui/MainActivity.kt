@@ -270,13 +270,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleRemoteIntent(intent: Intent?) {
-        val pc = intent?.getStringExtra("remote_pc") ?: return
-        val mode = intent.getStringExtra("remote_mode")
+        val app = application as? NectarlinkApplication
+        val defaultPc = app?.core?.devices?.value?.firstOrNull { it.online }?.id
+            ?: app?.core?.devices?.value?.firstOrNull()?.id
+        val pc = intent?.getStringExtra("remote_pc") ?: defaultPc ?: return
+        val mode = intent?.getStringExtra("remote_mode")
         requestedRemoteMode = when {
             mode.equals("presentation", ignoreCase = true) -> RemoteMode.Presentation
             mode.equals("air", ignoreCase = true) ||
                 mode.equals("air_mouse", ignoreCase = true) ||
                 mode.equals("airmouse", ignoreCase = true) -> RemoteMode.AirMouse
+            mode.equals("screen", ignoreCase = true) ||
+                mode.equals("mirror", ignoreCase = true) -> RemoteMode.Screen
             else -> RemoteMode.Touchpad
         }
         requestedRemotePc = pc

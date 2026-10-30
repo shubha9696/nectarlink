@@ -1255,4 +1255,51 @@ NativeWindow {
                 window.page = "calls"
         }
     }
+
+    DropArea {
+        id: globalWindowDropArea
+        anchors.fill: parent
+        enabled: window.currentDeviceId.length > 0 && window.page !== "home"
+        onEntered: (drag) => drag.accepted = drag.hasUrls
+        onDropped: (drag) => {
+            if (drag.hasUrls) {
+                const urls = drag.urls.map(url => url.toString())
+                if ((drag.modifiers & Qt.ShiftModifier) && urls.length === 1)
+                    TransferList.sendHandoff(window.currentDeviceId, urls)
+                else
+                    TransferList.send(window.currentDeviceId, urls)
+                drag.accept(Qt.CopyAction)
+            }
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: Theme.contentPadding / 2
+        radius: Theme.radiusXl
+        z: 9999
+        visible: opacity > 0
+        opacity: globalWindowDropArea.containsDrag ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.fadeFast } }
+        color: Qt.rgba(Theme.primaryContainer.r, Theme.primaryContainer.g, Theme.primaryContainer.b, 0.92)
+        border.width: 2
+        border.color: Theme.primary
+        Column {
+            anchors.centerIn: parent
+            spacing: 8
+            Icon {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 40; height: 40
+                stroke: 1.6
+                path: Icons.send
+                color: Theme.primaryContainerContent
+            }
+            Txt {
+                anchors.horizontalCenter: parent.horizontalCenter
+                role: "headline"
+                color: Theme.primaryContainerContent
+                text: qsTr("Drop files to send to phone")
+            }
+        }
+    }
 }

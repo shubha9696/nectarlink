@@ -326,8 +326,25 @@ fun PcMirrorView(
     val activeConfig = mirrorConfig?.takeIf { it.pcId == pcId }
     val effectiveCodec = activeConfig?.codec ?: "h264"
 
-    // Video looks its best at 1080p; the PC's desktop starts at 720p.
-    var highQuality by rememberSaveable { mutableStateOf(watch != null) }
+    // Video quality & FPS presets: 480p (mobile relay optimized), 720p, 1080p; 30/60/120 FPS
+    var qualityModeIndex by rememberSaveable { mutableIntStateOf(if (watch != null) 2 else 1) }
+    val qualityModes = remember {
+        listOf(
+            Triple("480p", 854, 1_800_000),
+            Triple("720p", 1280, 4_000_000),
+            Triple("1080p", 1920, 8_000_000),
+        )
+    }
+    val currentQuality = qualityModes[qualityModeIndex.coerceIn(0, 2)]
+    val maxSize = currentQuality.second
+    val bitrate = currentQuality.third
+    val qualityShortLabel = currentQuality.first
+
+    var mirrorFpsIndex by rememberSaveable { mutableIntStateOf(1) }
+    val fpsModes = remember { listOf(30, 60, 120) }
+    val currentFps = fpsModes[mirrorFpsIndex.coerceIn(0, 2)]
+
+    var showFloatingTouchpad by rememberSaveable { mutableStateOf(false) }
     var showKeyboardBar by rememberSaveable { mutableStateOf(false) }
     var typedText by rememberSaveable { mutableStateOf("") }
     var surface by remember { mutableStateOf<Surface?>(null) }
@@ -522,16 +539,13 @@ fun PcMirrorView(
         }
     }
 
-    val maxSize = if (highQuality) 1920 else 1280
-    val bitrate = if (highQuality) 8_000_000 else 4_000_000
-
-    LaunchedEffect(pcId, maxSize, bitrate) {
+    LaunchedEffect(pcId, maxSize, bitrate, currentFps, reconnectTick) {
         hasRenderedFrame = false
         android.util.Log.i(
             "PcMirrorView",
-            "startPcMirror maxSize=$maxSize fps=30 bitrate=$bitrate",
+            "startPcMirror maxSize=$maxSize fps=$currentFps bitrate=$bitrate",
         )
-        core.startPcMirror(pcId, maxSize = maxSize, fps = 30, bitrate = bitrate, watch = watch)
+        core.startPcMirror(pcId, maxSize = maxSize, fps = currentFps, bitrate = bitrate, watch = watch)
     }
 
     DisposableEffect(pcId) {
@@ -720,9 +734,6 @@ fun PcMirrorView(
     val keyboardLabel = stringResource(
         if (showKeyboardBar) R.string.pc_mirror_hide_keyboard else R.string.pc_mirror_keyboard,
     )
-    val qualityShortLabel = stringResource(
-        if (highQuality) R.string.pc_mirror_quality_1080p else R.string.pc_mirror_quality_720p,
-    )
     val qualityA11yLabel = stringResource(R.string.pc_mirror_quality_desc, qualityShortLabel)
 
     // Unified Column so AndroidView(TextureView) stays in the exact same composition slot
@@ -754,8 +765,9 @@ fun PcMirrorView(
                 .semantics { contentDescription = viewportDescription }
                 .pointerInput(pcId, watch) {
                     if (watch != null) {
-                        // Touch enabled: tap to toggle bar + forward touch to PC
-                        onTap()
+                        // Watching: nothing goes to the PC.
+                        detectTapGestures(onTap = { onTap() })
+                        return@pointerInput
                     }
                     val tapSlop = viewConfiguration.touchSlop
                     val scrollStepPx = 16.dp.toPx().coerceAtLeast(1f)
@@ -1084,7 +1096,28 @@ fun PcMirrorView(
                             TextButton(
                                 onClick = {
                                     bumpOverlay()
-                                    highQuality = !highQuality
+                                    showFloatingTouchpad = !showFloatingTouchpad
+                                },
+                                colors = ButtonDefaults.textButtonColors(
+                                    contentColor = if (showFloatingTouchpad) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        Color.White
+                                    },
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(36.dp),
+                            ) {
+                                Text(
+                                    if (showFloatingTouchpad) "Hide Pad" else "Touchpad",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1,
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    bumpOverlay()
+                                    qualityModeIndex = (qualityModeIndex + 1) % qualityModes.size
                                     reconnectTick++
                                 },
                                 colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
@@ -1095,6 +1128,22 @@ fun PcMirrorView(
                             ) {
                                 Text(
                                     qualityShortLabel,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1,
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    bumpOverlay()
+                                    mirrorFpsIndex = (mirrorFpsIndex + 1) % fpsModes.size
+                                    reconnectTick++
+                                },
+                                colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(36.dp),
+                            ) {
+                                Text(
+                                    "${currentFps}fps",
                                     style = MaterialTheme.typography.labelLarge,
                                     maxLines = 1,
                                 )
@@ -1110,6 +1159,143 @@ fun PcMirrorView(
                                     .semantics { contentDescription = exitFullScreenLabel },
                             ) {
                                 ExpandCollapseIcon(isFullScreen = true)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Live floating semi-transparent touchpad overlay (simultaneous mirror + trackpad)
+            if (showFloatingTouchpad && watch == null) {
+                var touchPos by remember { mutableStateOf<Offset?>(null) }
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color(0xDD12141A),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.28f)),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(if (isFullScreen) 16.dp else 12.dp)
+                        .size(width = 240.dp, height = 180.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Touchpad Control",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.9f),
+                            )
+                            IconButton(
+                                onClick = { showFloatingTouchpad = false },
+                                modifier = Modifier.size(24.dp),
+                            ) {
+                                Text("✕", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+
+                        // Trackpad surface
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .background(Color.White.copy(alpha = 0.10f), RoundedCornerShape(10.dp))
+                                .pointerInput(pcId) {
+                                    val tapSlop = viewConfiguration.touchSlop
+                                    val tapTimeoutMs = 240L
+                                    awaitEachGesture {
+                                        val firstDown = awaitFirstDown(requireUnconsumed = false)
+                                        val downTime = System.currentTimeMillis()
+                                        var totalMoved = 0f
+                                        var maxPointers = 1
+                                        var scrollAccumX = 0f
+                                        var scrollAccumY = 0f
+                                        touchPos = firstDown.position
+
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val changes = event.changes
+                                            var pressedCount = 0
+                                            var firstPressed: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                                            for (c in changes) {
+                                                if (c.pressed) {
+                                                    if (firstPressed == null) firstPressed = c
+                                                    pressedCount++
+                                                }
+                                            }
+                                            if (pressedCount > maxPointers) maxPointers = pressedCount
+                                            if (pressedCount == 0 || firstPressed == null) break
+
+                                            touchPos = firstPressed.position
+                                            if (pressedCount == 1) {
+                                                val d = firstPressed.positionChange()
+                                                val dist = hypot(d.x, d.y)
+                                                totalMoved += dist
+                                                if (dist > 0.2f) {
+                                                    core.remoteMove(pcId, d.x * 1.6f, d.y * 1.6f)
+                                                    firstPressed.consume()
+                                                }
+                                            } else if (pressedCount >= 2) {
+                                                var avgDx = 0f
+                                                var avgDy = 0f
+                                                for (c in changes) {
+                                                    if (c.pressed) {
+                                                        avgDx += c.positionChange().x
+                                                        avgDy += c.positionChange().y
+                                                        c.consume()
+                                                    }
+                                                }
+                                                avgDx /= pressedCount
+                                                avgDy /= pressedCount
+                                                totalMoved += hypot(avgDx, avgDy)
+                                                scrollAccumX += avgDx
+                                                scrollAccumY += avgDy
+                                                if (abs(scrollAccumX) >= 12f || abs(scrollAccumY) >= 12f) {
+                                                    core.remoteScroll(pcId, -(scrollAccumX / 36f), -(scrollAccumY / 24f), fast = true)
+                                                    scrollAccumX = 0f
+                                                    scrollAccumY = 0f
+                                                }
+                                            }
+                                        }
+
+                                        touchPos = null
+                                        val elapsed = System.currentTimeMillis() - downTime
+                                        if (elapsed <= tapTimeoutMs && totalMoved <= tapSlop * 1.5f) {
+                                            if (maxPointers == 1) {
+                                                core.remoteButton(pcId, "left", "click")
+                                            } else if (maxPointers == 2) {
+                                                core.remoteButton(pcId, "right", "click")
+                                            }
+                                        }
+                                    }
+                                },
+                        )
+
+                        // L and R Click buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Button(
+                                onClick = { core.remoteButton(pcId, "left", "click") },
+                                modifier = Modifier.weight(1f).height(30.dp),
+                                contentPadding = PaddingValues(0.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.22f)),
+                            ) {
+                                Text("Left", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                            }
+                            Button(
+                                onClick = { core.remoteButton(pcId, "right", "click") },
+                                modifier = Modifier.weight(1f).height(30.dp),
+                                contentPadding = PaddingValues(0.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.22f)),
+                            ) {
+                                Text("Right", color = Color.White, style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
@@ -1189,44 +1375,52 @@ fun PcMirrorView(
         if (!isFullScreen && watch == null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                FilledTonalButton(
+                    onClick = { showFloatingTouchpad = !showFloatingTouchpad },
+                    modifier = Modifier.weight(1.15f),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                ) {
+                    Text(if (showFloatingTouchpad) "Hide Pad" else "Touchpad", maxLines = 1)
+                }
                 OutlinedButton(
                     onClick = { core.remoteButton(pcId, "right", "click") },
                     modifier = Modifier
                         .weight(1f)
                         .semantics { contentDescription = rightClickLabel },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
                 ) {
                     Text(rightClickLabel, maxLines = 1)
                 }
                 OutlinedButton(
-                    onClick = { core.sendPcMirrorInput(pcId, MirrorInputEvent.Key("recents")) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .semantics { contentDescription = taskViewLabel },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
-                ) {
-                    Text(taskViewLabel, maxLines = 1)
-                }
-                FilledTonalButton(
                     onClick = { showKeyboardBar = !showKeyboardBar },
                     modifier = Modifier
                         .weight(1f)
                         .semantics { contentDescription = keyboardLabel },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
                 ) {
                     Text(keyboardLabel, maxLines = 1)
                 }
                 OutlinedButton(
                     onClick = {
-                        highQuality = !highQuality
+                        qualityModeIndex = (qualityModeIndex + 1) % qualityModes.size
                         reconnectTick++
                     },
-                    modifier = Modifier.semantics { contentDescription = qualityA11yLabel },
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                    modifier = Modifier.weight(0.95f).semantics { contentDescription = qualityA11yLabel },
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
                 ) {
                     Text(qualityShortLabel, maxLines = 1)
+                }
+                OutlinedButton(
+                    onClick = {
+                        mirrorFpsIndex = (mirrorFpsIndex + 1) % fpsModes.size
+                        reconnectTick++
+                    },
+                    modifier = Modifier.weight(0.95f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
+                ) {
+                    Text("${currentFps}fps", maxLines = 1)
                 }
             }
         }

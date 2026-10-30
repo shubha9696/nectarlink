@@ -241,6 +241,28 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".clipboard.LockPcTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_lock"
+            android:label="@string/tile_lock_pc"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".clipboard.MirrorPcTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_mirror"
+            android:label="@string/tile_mirror_pc"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- Mirroring notifications to PCs; the user grants access in Settings. -->
         <service
             android:name=".notifications.NotificationListener"

@@ -48,6 +48,7 @@ class ConnectionService : LifecycleService() {
     @Volatile private var screenWakeRegistered = false
     /** One pending screen return is enough. A burst must not queue a spin. */
     private val screenWake = Channel<Unit>(Channel.CONFLATED)
+    private var screenshotObserver: app.nectarlink.android.clipboard.ScreenshotObserver? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -67,6 +68,9 @@ class ConnectionService : LifecycleService() {
             ?.createMulticastLock("nectarlink-discovery")
             ?.apply { setReferenceCounted(false); acquire() }
         registerScreenWake()
+        screenshotObserver = app.nectarlink.android.clipboard.ScreenshotObserver(this, core, lifecycleScope).apply {
+            register()
+        }
 
         lifecycleScope.launch {
             core.state.map { Status.of(it) to (it.status is app.nectarlink.android.core.CoreStatus.Ready) }
@@ -139,6 +143,8 @@ class ConnectionService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        screenshotObserver?.unregister()
+        screenshotObserver = null
         unregisterScreenWake()
         multicastLock?.runCatching { release() }
         getSystemService(NotificationManager::class.java)?.cancel(ONGOING_ID)
