@@ -373,8 +373,7 @@ Window {
             IconButton {
                 id: resizeModeBtn
                 iconPath: Icons.window
-                hoverColor: "#22ffffff"
-                toolTipText: win.windowSizeMode === 0 ? qsTr("Size: Default Phone (1:1)") :
+                label: win.windowSizeMode === 0 ? qsTr("Size: Default Phone (1:1)") :
                              win.windowSizeMode === 1 ? qsTr("Size: Stretched Medium") : qsTr("Size: Fullscreen")
                 onClicked: {
                     win.windowSizeMode = (win.windowSizeMode + 1) % 3;
