@@ -479,6 +479,17 @@ Window {
                 onClicked: Mirror.toggleSound()
             }
                         // FPS & Quality interactive dropdown menu
+                        // Quality selector (Ultra HD / 1080p / 720p)
+            IconButton {
+                id: qualityBtn
+                property int qualityIndex: 0
+                iconPath: Icons.display
+                label: qualityIndex === 0 ? qsTr("Quality: 2K Ultra HD (28M)") :
+                       qualityIndex === 1 ? qsTr("Quality: 1080p High (16M)") : qsTr("Quality: 720p (6M)")
+                onClicked: {
+                    qualityIndex = (qualityIndex + 1) % 3;
+                }
+            }
             IconButton {
                 id: fpsBtn
                 property int currentFps: 120

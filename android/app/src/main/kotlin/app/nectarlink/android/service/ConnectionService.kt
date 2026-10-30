@@ -129,6 +129,25 @@ class ConnectionService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        when (intent?.action) {
+            "ACTION_LOCK_PC" -> {
+                val app = application as? NectarlinkApplication
+                val connectedPeers = app?.core?.state?.value?.connected ?: emptySet()
+                connectedPeers.firstOrNull()?.let { pcId ->
+                    app?.core?.pcPower(pcId, sleep = false)
+                }
+                return START_STICKY
+            }
+            "ACTION_RESTART_PC" -> {
+                val app = application as? NectarlinkApplication
+                val connectedPeers = app?.core?.state?.value?.connected ?: emptySet()
+                connectedPeers.firstOrNull()?.let { pcId ->
+                    // Trigger reboot via remoteButton or shell action
+                    app?.core?.remoteButton(pcId, "reboot", "click")
+                }
+                return START_STICKY
+            }
+        }
         if (intent?.action == ACTION_STOP_SERVICE) {
             Preferences.setBackgroundServiceEnabled(this, false)
             stopSelf()
@@ -238,12 +257,14 @@ class ConnectionService : LifecycleService() {
                 Intent(this, ConnectionService::class.java).setAction("ACTION_LOCK_PC"),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            val sendFiles = PendingIntent.getActivity(
-                this, 3, SendActivity.sendFilesIntent(this), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            val restartPcIntent = PendingIntent.getService(
+                this, 12,
+                Intent(this, ConnectionService::class.java).setAction("ACTION_RESTART_PC"),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             builder.addAction(0, "Control PC", controlPcIntent)
             builder.addAction(0, "Lock PC", lockPcIntent)
-            builder.addAction(0, getString(R.string.action_send_files), sendFiles)
+            builder.addAction(0, "Restart PC", restartPcIntent)
         }
         val stopService = PendingIntent.getService(
             this, 4, Intent(this, ConnectionService::class.java).setAction(ACTION_STOP_SERVICE),
