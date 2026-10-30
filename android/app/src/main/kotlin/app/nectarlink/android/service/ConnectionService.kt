@@ -142,7 +142,7 @@ class ConnectionService : LifecycleService() {
                 val app = application as? NectarlinkApplication
                 val onlineDevice = app?.core?.state?.value?.devices?.firstOrNull { it.online }
                 onlineDevice?.let { dev ->
-                    app?.core?.remoteButton(dev.id, "reboot", "click")
+                    app?.core?.pcRestart(dev.id)
                 }
                 return START_STICKY
             }
@@ -261,15 +261,14 @@ class ConnectionService : LifecycleService() {
                 Intent(this, ConnectionService::class.java).setAction("ACTION_RESTART_PC"),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
+            val sendFiles = PendingIntent.getActivity(
+                this, 3, SendActivity.sendFilesIntent(this), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
             builder.addAction(0, "Control PC", controlPcIntent)
             builder.addAction(0, "Lock PC", lockPcIntent)
             builder.addAction(0, "Restart PC", restartPcIntent)
+            builder.addAction(0, getString(R.string.action_send_files), sendFiles)
         }
-        val stopService = PendingIntent.getService(
-            this, 4, Intent(this, ConnectionService::class.java).setAction(ACTION_STOP_SERVICE),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        builder.addAction(0, getString(R.string.action_stop_service), stopService)
         return builder.build()
     }
 

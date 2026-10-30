@@ -2004,6 +2004,19 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
 
     fun ring(id: String, on: Boolean) = command { it.ring(id, on) }
 
+    /** Reboots a PC remotely */
+    fun pcRestart(id: String) {
+        scope.launch {
+            startJob?.join()
+            val node = node ?: return@launch
+            try {
+                node.pcAction(id, "restart")
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     /** Locks a PC, or puts it to sleep; says how it went. */
     fun pcPower(id: String, sleep: Boolean) {
         scope.launch {

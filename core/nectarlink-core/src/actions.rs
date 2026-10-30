@@ -169,6 +169,7 @@ pub(crate) async fn wake(
 pub enum PowerAction {
     Lock,
     Sleep,
+    Restart,
 }
 
 impl PowerAction {
@@ -176,6 +177,7 @@ impl PowerAction {
         match self {
             PowerAction::Lock => "lock",
             PowerAction::Sleep => "sleep",
+            PowerAction::Restart => "restart",
         }
     }
 
@@ -183,6 +185,7 @@ impl PowerAction {
         match action {
             "lock" => Some(PowerAction::Lock),
             "sleep" => Some(PowerAction::Sleep),
+            "restart" => Some(PowerAction::Restart),
             _ => None,
         }
     }

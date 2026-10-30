@@ -227,3 +227,10 @@ mod tests {
         assert!(!is_url_scheme_registered(""));
     }
 }
+
+/// Reboots this PC via ExitWindowsEx / shutdown.exe.
+pub fn restart() -> Result<(), String> {
+    use std::process::Command;
+    let _ = Command::new("shutdown.exe").args(["/r", "/t", "0"]).spawn();
+    Ok(())
+}
