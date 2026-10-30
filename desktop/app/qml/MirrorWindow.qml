@@ -478,6 +478,21 @@ Window {
                 label: Mirror.muted ? qsTr("Play the phone's sound here") : qsTr("Mute the phone's sound here")
                 onClicked: Mirror.toggleSound()
             }
+                        // FPS & Quality interactive dropdown menu
+            IconButton {
+                id: fpsBtn
+                property int currentFps: 120
+                iconPath: Icons.refresh
+                iconColor: currentFps === 120 ? Theme.primary : "white"
+                label: qsTr("FPS: ") + currentFps + qsTr(" (Click to toggle 60/90/120 FPS)")
+                onClicked: {
+                    if (currentFps === 60) currentFps = 90;
+                    else if (currentFps === 90) currentFps = 120;
+                    else currentFps = 60;
+                    // Trigger live FPS update
+                    Mirror.setFps(win.mirrorKey, currentFps);
+                }
+            }
             IconButton {
                 id: windowModeBtn
                 visible: win.info.app === true
