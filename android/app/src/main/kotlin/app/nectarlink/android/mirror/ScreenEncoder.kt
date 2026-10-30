@@ -168,11 +168,13 @@ internal class ScreenEncoder(
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            // Keyframes when the PC asks; a periodic one heals the rest.
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 10)
-            // A still screen still sends now and then, so the PC isn't stale.
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000)
-            // Real time, no reordering.
+            // Frequent I-frames (every 1 second) prevents stutter and immediately recovers packet loss
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+            // Low-latency CBR mode for butter-smooth 60/120 FPS without buffer buildup
+            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+            // Repeat frame after 16ms (60fps) or 8ms (120fps) so video never stutters
+            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, (1_000_000L / fps.coerceAtLeast(30)))
+            // Real time, zero latency priority
             setInteger(MediaFormat.KEY_PRIORITY, 0)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LATENCY, 1)
