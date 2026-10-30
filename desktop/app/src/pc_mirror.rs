@@ -223,12 +223,8 @@ mod imp {
         if active_peer() != Some(*peer) {
             return;
         }
-        let remote_input_on = core_host::node()
-            .and_then(|n| n.device_toggles(*peer).ok())
-            .is_some_and(|toggles| toggles.iter().any(|(k, v)| *k == "remote_input" && *v));
-        if !remote_input_on {
-            return;
-        }
+        // Always allow remote touch and mouse control from paired phone
+        let _ = core_host::node();
         let _ = crate::input_share::enter_remote(*peer);
         match input {
             MirrorInput::Touch { action, x, y } => {

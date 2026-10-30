@@ -330,9 +330,9 @@ fun PcMirrorView(
     var qualityModeIndex by rememberSaveable { mutableIntStateOf(if (watch != null) 2 else 1) }
     val qualityModes = remember {
         listOf(
-            Triple("480p", 854, 1_800_000),
-            Triple("720p", 1280, 4_000_000),
-            Triple("1080p", 1920, 8_000_000),
+            Triple("720p", 1280, 6_000_000),
+            Triple("1080p", 1920, 16_000_000),
+            Triple("2K Ultra", 2560, 28_000_000),
         )
     }
     val currentQuality = qualityModes[qualityModeIndex.coerceIn(0, 2)]
@@ -894,19 +894,14 @@ fun PcMirrorView(
                             core.remoteButton(pcId, "right", "click")
                             lastTapUpTimeMs = 0L
                         } else if (maxPointers == 1 && elapsed <= tapTimeoutMs && totalMoved <= tapSlop * 1.5f) {
-                            val isDoubleTap =
-                                (upTime - lastTapUpTimeMs) <= doubleTapWindowMs &&
-                                    hypot(downPos.x - lastTapPos.x, downPos.y - lastTapPos.y) <= tapSlop * 3f
-                            if (isDoubleTap && !currentIsFullScreen) {
-                                lastTapUpTimeMs = 0L
-                                enterFullScreen(fromButton = true)
-                            } else {
-                                lastTapUpTimeMs = upTime
-                                lastTapPos = downPos
-                                if (currentIsFullScreen) {
-                                    bumpOverlay()
-                                }
-                            }
+                            // Single tap = Left Click at exact PC coordinate!
+                            core.remoteButton(pcId, "left", "click")
+                            lastTapUpTimeMs = upTime
+                            lastTapPos = downPos
+                        } else if (maxPointers == 1 && elapsed > 500 && totalMoved <= tapSlop * 2f) {
+                            // Long press = Right Click on Windows!
+                            core.remoteButton(pcId, "right", "click")
+                            lastTapUpTimeMs = 0L
                         } else {
                             lastTapUpTimeMs = 0L
                         }
