@@ -1561,21 +1561,34 @@ mod imp {
                 return None;
             }
             let old = SelectObject(hdc_mem, hbm.into());
-            let _ = SetStretchBltMode(hdc_mem, HALFTONE);
-            let ok = StretchBlt(
-                hdc_mem,
-                0,
-                0,
-                dst_w as i32,
-                dst_h as i32,
-                Some(hdc_screen),
-                src_x,
-                src_y,
-                src_w as i32,
-                src_h as i32,
-                SRCCOPY,
-            )
-            .as_bool();
+            let ok = if dst_w == src_w && dst_h == src_h && src_x == 0 && src_y == 0 {
+                windows::Win32::Graphics::Gdi::BitBlt(
+                    hdc_mem,
+                    0,
+                    0,
+                    dst_w as i32,
+                    dst_h as i32,
+                    Some(hdc_screen),
+                    0,
+                    0,
+                    SRCCOPY,
+                ).as_bool()
+            } else {
+                let _ = SetStretchBltMode(hdc_mem, windows::Win32::Graphics::Gdi::COLORONCOLOR);
+                StretchBlt(
+                    hdc_mem,
+                    0,
+                    0,
+                    dst_w as i32,
+                    dst_h as i32,
+                    Some(hdc_screen),
+                    src_x,
+                    src_y,
+                    src_w as i32,
+                    src_h as i32,
+                    SRCCOPY,
+                ).as_bool()
+            };
 
             // Draw the mouse cursor at its scaled position so the phone user sees where they point.
             let mut ci = CURSORINFO {
