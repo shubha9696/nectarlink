@@ -132,18 +132,17 @@ class ConnectionService : LifecycleService() {
         when (intent?.action) {
             "ACTION_LOCK_PC" -> {
                 val app = application as? NectarlinkApplication
-                val connectedPeers = app?.core?.state?.value?.connected ?: emptySet()
-                connectedPeers.firstOrNull()?.let { pcId ->
-                    app?.core?.pcPower(pcId, sleep = false)
+                val onlineDevice = app?.core?.state?.value?.devices?.firstOrNull { it.online }
+                onlineDevice?.let { dev ->
+                    app?.core?.pcPower(dev.id, sleep = false)
                 }
                 return START_STICKY
             }
             "ACTION_RESTART_PC" -> {
                 val app = application as? NectarlinkApplication
-                val connectedPeers = app?.core?.state?.value?.connected ?: emptySet()
-                connectedPeers.firstOrNull()?.let { pcId ->
-                    // Trigger reboot via remoteButton or shell action
-                    app?.core?.remoteButton(pcId, "reboot", "click")
+                val onlineDevice = app?.core?.state?.value?.devices?.firstOrNull { it.online }
+                onlineDevice?.let { dev ->
+                    app?.core?.remoteButton(dev.id, "reboot", "click")
                 }
                 return START_STICKY
             }
