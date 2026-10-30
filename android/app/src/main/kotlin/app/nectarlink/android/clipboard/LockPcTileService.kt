@@ -1,7 +1,9 @@
 package app.nectarlink.android.clipboard
 
+import android.content.Intent
 import android.service.quicksettings.TileService
-import app.nectarlink.android.NectarApplication
+import app.nectarlink.android.NectarlinkApplication
+import app.nectarlink.android.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -11,14 +13,9 @@ class LockPcTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        scope.launch {
-            try {
-                val app = application as? NectarApplication
-                // Trigger Lock WorkStation via the node core connection
-                app?.node?.lockActivePc()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
+        startActivityAndCollapse(intent)
     }
 }

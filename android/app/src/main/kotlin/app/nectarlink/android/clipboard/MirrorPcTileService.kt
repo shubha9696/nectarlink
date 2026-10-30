@@ -2,7 +2,7 @@ package app.nectarlink.android.clipboard
 
 import android.content.Intent
 import android.service.quicksettings.TileService
-import app.nectarlink.android.MainActivity
+import app.nectarlink.android.ui.MainActivity
 
 class MirrorPcTileService : TileService() {
     override fun onClick() {
