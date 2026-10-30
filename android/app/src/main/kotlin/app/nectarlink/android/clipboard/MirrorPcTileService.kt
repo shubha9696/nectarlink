@@ -15,7 +15,7 @@ class MirrorPcTileService : TileService() {
     override fun onStartListening() {
         super.onStartListening()
         val app = application as? NectarlinkApplication ?: return
-        val online = app.core.devices.value.any { it.online }
+        val online = app.core.state.value.devices.any { it.online }
         qsTile?.state = if (online) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         qsTile?.updateTile()
     }
@@ -25,7 +25,7 @@ class MirrorPcTileService : TileService() {
         super.onClick()
         val app = application as? NectarlinkApplication ?: return
         val core = app.core
-        val pc = core.devices.value.firstOrNull { it.online } ?: core.devices.value.firstOrNull()
+        val pc = core.state.value.devices.firstOrNull { it.online } ?: core.state.value.devices.firstOrNull()
         val intent = Intent(this, MainActivity::class.java).apply {
             action = Intent.ACTION_MAIN
             addCategory(Intent.CATEGORY_LAUNCHER)

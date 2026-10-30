@@ -1281,21 +1281,19 @@ fun PcMirrorView(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Button(
+                            FilledTonalButton(
                                 onClick = { core.remoteButton(pcId, "left", "click") },
-                                modifier = Modifier.weight(1f).height(30.dp),
+                                modifier = Modifier.weight(1f).height(32.dp),
                                 contentPadding = PaddingValues(0.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.22f)),
                             ) {
-                                Text("Left", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                                Text("Left", style = MaterialTheme.typography.labelSmall)
                             }
-                            Button(
+                            FilledTonalButton(
                                 onClick = { core.remoteButton(pcId, "right", "click") },
-                                modifier = Modifier.weight(1f).height(30.dp),
+                                modifier = Modifier.weight(1f).height(32.dp),
                                 contentPadding = PaddingValues(0.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.22f)),
                             ) {
-                                Text("Right", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                                Text("Right", style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }

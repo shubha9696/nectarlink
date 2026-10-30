@@ -271,8 +271,8 @@ class MainActivity : ComponentActivity() {
 
     private fun handleRemoteIntent(intent: Intent?) {
         val app = application as? NectarlinkApplication
-        val defaultPc = app?.core?.devices?.value?.firstOrNull { it.online }?.id
-            ?: app?.core?.devices?.value?.firstOrNull()?.id
+        val defaultPc = app?.core?.state?.value?.devices?.firstOrNull { it.online }?.id
+            ?: app?.core?.state?.value?.devices?.firstOrNull()?.id
         val pc = intent?.getStringExtra("remote_pc") ?: defaultPc ?: return
         val mode = intent?.getStringExtra("remote_mode")
         requestedRemoteMode = when {
