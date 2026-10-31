@@ -4,21 +4,21 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="6dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingBottom="6dp">
+        android:paddingBottom="8dp">
 
         <ImageView
             android:id="@+id/notif_icon"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
             android:src="@drawable/ic_notification"
-            android:tint="?android:attr/textColorPrimary" />
+            android:tint="#FFFFFFFF" />
 
         <TextView
             android:id="@+id/notif_title"
@@ -28,7 +28,7 @@
             android:layout_marginStart="8dp"
             android:textStyle="bold"
             android:textSize="14sp"
-            android:textColor="?android:attr/textColorPrimary"
+            android:textColor="#FFFFFFFF"
             android:singleLine="true" />
     </LinearLayout>
 
@@ -36,55 +36,66 @@
         android:layout_width="match_parent"
         android:layout_height="36dp"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:gravity="center">
 
         <Button
             android:id="@+id/btn_control"
-            style="@android:style/Widget.DeviceDefault.Button.Borderless"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:layout_marginHorizontal="2dp"
+            android:background="@drawable/bg_widget_button"
             android:text="Control"
             android:textAllCaps="false"
-            android:textSize="11sp"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"
             android:singleLine="true"
-            android:padding="2dp" />
+            android:padding="0dp" />
 
         <Button
             android:id="@+id/btn_lock"
-            style="@android:style/Widget.DeviceDefault.Button.Borderless"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:layout_marginHorizontal="2dp"
+            android:background="@drawable/bg_widget_button"
             android:text="Lock"
             android:textAllCaps="false"
-            android:textSize="11sp"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"
             android:singleLine="true"
-            android:padding="2dp" />
+            android:padding="0dp" />
 
         <Button
             android:id="@+id/btn_restart"
-            style="@android:style/Widget.DeviceDefault.Button.Borderless"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:layout_marginHorizontal="2dp"
+            android:background="@drawable/bg_widget_button"
             android:text="Restart"
             android:textAllCaps="false"
-            android:textSize="11sp"
+            android:textColor="#FFFFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"
             android:singleLine="true"
-            android:padding="2dp" />
+            android:padding="0dp" />
 
         <Button
             android:id="@+id/btn_files"
-            style="@android:style/Widget.DeviceDefault.Button.Borderless"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:text="Files"
+            android:layout_marginHorizontal="2dp"
+            android:background="@drawable/bg_widget_button"
+            android:text="Send Files"
             android:textAllCaps="false"
+            android:textColor="#FFFFFFFF"
             android:textSize="11sp"
+            android:textStyle="bold"
             android:singleLine="true"
-            android:padding="2dp" />
+            android:padding="0dp" />
     </LinearLayout>
 </LinearLayout>
-

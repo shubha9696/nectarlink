@@ -73,7 +73,7 @@ mod imp {
 
     /// The lowest bitrate the stream backs off to on a slow link.
     #[cfg(any(windows, target_os = "linux"))]
-    const MIN_BITRATE: u32 = 600_000;
+    const MIN_BITRATE: u32 = 8_000_000;
 
     /// What a sharing session sent in the last stats window.
     #[cfg(any(windows, target_os = "linux"))]

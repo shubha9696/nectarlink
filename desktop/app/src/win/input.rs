@@ -70,9 +70,12 @@ fn vk_input(vk: VIRTUAL_KEY, extended: bool, up: bool) -> INPUT {
     if up {
         flags |= KEYEVENTF_KEYUP;
     }
+    let scan = unsafe {
+        windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(vk.0 as u32, windows::Win32::UI::Input::KeyboardAndMouse::MAPVIRTUALKEY_TYPE(0)) as u16
+    };
     INPUT {
         r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
+        Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, wScan: scan, dwFlags: flags, time: 0, dwExtraInfo: 0 } },
     }
 }
 

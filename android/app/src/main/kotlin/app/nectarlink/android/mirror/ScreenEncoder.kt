@@ -47,6 +47,7 @@ internal class ScreenEncoder(
 
     @Volatile private var running = true
     @Volatile private var keyframeWanted = false
+    @Volatile private var lastDropKeyframeMs = 0L
     @Volatile private var resizeWanted = false
     @Volatile private var size: Size = screenSize()
 
@@ -153,8 +154,14 @@ internal class ScreenEncoder(
                 if (key) parameters + bytes else bytes,
             )
             when (result) {
-                // A video stream never drops without asking for a keyframe.
-                MirrorSendResult.NEED_KEYFRAME, MirrorSendResult.DROPPED -> keyframeWanted = true
+                MirrorSendResult.NEED_KEYFRAME -> keyframeWanted = true
+                MirrorSendResult.DROPPED -> {
+                    val now = System.currentTimeMillis()
+                    if (now - lastDropKeyframeMs > 2000L) {
+                        lastDropKeyframeMs = now
+                        keyframeWanted = true
+                    }
+                }
                 MirrorSendResult.CLOSED -> return true
                 MirrorSendResult.QUEUED -> {}
             }
@@ -168,13 +175,9 @@ internal class ScreenEncoder(
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            // Frequent I-frames (every 1 second) prevents stutter and immediately recovers packet loss
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
-            // Low-latency CBR mode for butter-smooth 60/120 FPS without buffer buildup
-            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-            // Repeat frame after 16ms (60fps) or 8ms (120fps) so video never stutters
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, (1_000_000L / fps.coerceAtLeast(30)))
-            // Real time, zero latency priority
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 5)
+            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
             setInteger(MediaFormat.KEY_PRIORITY, 0)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LATENCY, 1)

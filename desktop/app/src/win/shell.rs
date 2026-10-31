@@ -243,23 +243,30 @@ pub fn unlock() -> Result<(), String> {
 pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
     // 1. Wake display and dismiss lock curtain
     super::input::press_key("space", &[]);
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    super::input::press_key("enter", &[]);
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    super::input::press_key("space", &[]);
 
-    // 2. Resolve PIN from argument or saved configuration
+    // 2. Allow Windows 11 lock screen slide animation to fully complete and focus PIN input
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+
+    // 3. Resolve PIN from argument or saved configuration
     let resolved_pin = pin.map(str::to_owned).or_else(|| {
         std::env::var("NECTARLINK_PIN").ok().filter(|s| !s.trim().is_empty())
     });
 
     if let Some(pin_str) = resolved_pin {
-        for ch in pin_str.trim().chars() {
-            let key_str = ch.to_string();
-            super::input::press_key(&key_str, &[]);
-            std::thread::sleep(std::time::Duration::from_millis(30));
+        let clean_pin = pin_str.trim();
+        if !clean_pin.is_empty() {
+            for ch in clean_pin.chars() {
+                let key_str = ch.to_string();
+                super::input::press_key(&key_str, &[]);
+                std::thread::sleep(std::time::Duration::from_millis(70));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            super::input::press_key("enter", &[]);
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            super::input::press_key("enter", &[]);
         }
-        std::thread::sleep(std::time::Duration::from_millis(60));
-        super::input::press_key("enter", &[]);
     }
     Ok(())
 }

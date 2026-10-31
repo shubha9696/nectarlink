@@ -1830,6 +1830,16 @@ private fun PcCard(
                             ) {
                                 ButtonLabel("Unlock PC")
                             }
+                            FilledTonalButton(
+                                contentPadding = CardButtonPadding,
+                                enabled = device.online,
+                                colors = tonal,
+                                onClick = {
+                                    app.nectarlink.android.biometric.BiometricUnlock.promptPinChange(context, device.id)
+                                },
+                            ) {
+                                ButtonLabel("PIN")
+                            }
                         } else {
                             OutlinedButton(
                                 contentPadding = CardButtonPadding,

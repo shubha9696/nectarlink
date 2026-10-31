@@ -41,9 +41,9 @@ use crate::{
 
 /// What the PC asks for: the phone scales its screen to fit.
 const OPTIONS: MirrorStart = MirrorStart {
-    max_size: 1920,
+    max_size: 2560,
     fps: 120,
-    bitrate: 24_000_000,
+    bitrate: 28_000_000,
     audio: true,
     session: MIRROR_SCREEN,
     app: None,

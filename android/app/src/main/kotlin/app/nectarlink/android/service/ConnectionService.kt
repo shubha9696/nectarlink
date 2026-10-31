@@ -291,28 +291,35 @@ class ConnectionService : LifecycleService() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
 
-            if (isLocked) {
-                val unlockPcIntent = PendingIntent.getActivity(
-                    this, 14,
-                    Intent(this, app.nectarlink.android.ui.BiometricUnlockActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    },
-                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-                )
-                builder.addAction(0, "Unlock", unlockPcIntent)
-                builder.addAction(0, "Control", controlPcIntent)
-                builder.addAction(0, "Restart", restartPcIntent)
-            } else {
-                val lockPcIntent = PendingIntent.getService(
-                    this, 11,
-                    Intent(this, ConnectionService::class.java).setAction("ACTION_LOCK_PC"),
-                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-                )
-                builder.addAction(0, "Control", controlPcIntent)
-                builder.addAction(0, "Lock", lockPcIntent)
-                builder.addAction(0, "Restart", restartPcIntent)
-                builder.addAction(0, "Files", sendFilesIntent)
+            val unlockPcIntent = PendingIntent.getActivity(
+                this, 14,
+                Intent(this, app.nectarlink.android.ui.BiometricUnlockActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val lockPcIntent = PendingIntent.getService(
+                this, 11,
+                Intent(this, ConnectionService::class.java).setAction("ACTION_LOCK_PC"),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+
+            val remoteViews = android.widget.RemoteViews(packageName, R.layout.notification_connected).apply {
+                setTextViewText(R.id.notif_title, text)
+                setOnClickPendingIntent(R.id.btn_control, controlPcIntent)
+                setOnClickPendingIntent(R.id.btn_restart, restartPcIntent)
+                setOnClickPendingIntent(R.id.btn_files, sendFilesIntent)
+                if (isLocked) {
+                    setTextViewText(R.id.btn_lock, "Unlock")
+                    setOnClickPendingIntent(R.id.btn_lock, unlockPcIntent)
+                } else {
+                    setTextViewText(R.id.btn_lock, "Lock")
+                    setOnClickPendingIntent(R.id.btn_lock, lockPcIntent)
+                }
             }
+            builder.setCustomContentView(remoteViews)
+            builder.setCustomBigContentView(remoteViews)
+            builder.setStyle(NotificationCompat.DecoratedCustomViewStyle())
         }
         return builder.build()
     }
