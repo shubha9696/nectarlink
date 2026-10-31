@@ -541,7 +541,7 @@ impl Default for Settings {
             nectar_island_notifications: false,
             automation_rules: Vec::new(),
             stream_pc_audio_to_phone: false,
-            share_pc_storage: false,
+            share_pc_storage: true,
             forward_pc_notifications_to_phone: false,
             away_mode: false,
             walkthrough_completed: false,

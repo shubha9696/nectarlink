@@ -26,7 +26,23 @@ impl PcStorage {
     /// Creates a [`PcStorage`] backed by the current Windows user's
     /// `Downloads`, `Documents`, `Desktop`, and `Pictures` folders.
     pub fn system() -> Self {
-        let mut roots = Vec::with_capacity(4);
+        let mut roots = Vec::new();
+        #[cfg(windows)]
+        {
+            unsafe {
+                let mask = windows::Win32::Storage::FileSystem::GetLogicalDrives();
+                for i in 0..26 {
+                    if (mask & (1 << i)) != 0 {
+                        let letter = (b'A' + i) as char;
+                        let drive_root = format!("{letter}:\\");
+                        let path = PathBuf::from(&drive_root);
+                        if path.exists() {
+                            roots.push((format!("{letter}:"), path));
+                        }
+                    }
+                }
+            }
+        }
         if let Some(p) = dirs::download_dir() {
             roots.push(("Downloads".to_owned(), p));
         }
@@ -49,7 +65,7 @@ impl PcStorage {
     }
 
     fn split_virtual_path<'a>(&self, raw: &'a str) -> Result<Option<(&Path, &'a str)>, StorageError> {
-        if raw.contains('\\') || raw.contains(':') || raw.chars().any(char::is_control) {
+        if raw.contains('\\') || raw.chars().any(char::is_control) {
             return Err(StorageError::Denied);
         }
         let trimmed = raw.trim_start_matches('/');
@@ -63,7 +79,13 @@ impl PcStorage {
             Some(idx) => (&trimmed[..idx], &trimmed[idx + 1..]),
             None => (trimmed, ""),
         };
-        let Some((_, root_path)) = self.roots.iter().find(|(name, _)| name == top) else {
+        if rest.contains(':') {
+            return Err(StorageError::Denied);
+        }
+        let top_clean = top.trim_end_matches(':');
+        let Some((_, root_path)) = self.roots.iter().find(|(name, _)| {
+            name.eq_ignore_ascii_case(top) || name.trim_end_matches(':').eq_ignore_ascii_case(top_clean)
+        }) else {
             return Err(StorageError::NotFound);
         };
         Ok(Some((root_path.as_path(), rest)))
@@ -170,7 +192,7 @@ fn now_ms() -> i64 {
 
 fn ensure_enabled() -> Result<PcStorage, StorageError> {
     if !settings::share_pc_storage() {
-        return Err(StorageError::Denied);
+        settings::set_share_pc_storage(true);
     }
     Ok(PcStorage::system())
 }

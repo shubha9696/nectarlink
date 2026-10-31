@@ -729,32 +729,37 @@ object InputServer {
 
         private fun setHotspot(enable: Boolean) {
             val shellCmd = if (enable) {
-                "cmd tethering start-tethering --caller-pkg com.android.shell 0 || cmd tethering start-tethering --caller-pkg com.android.shell wifi || cmd tethering start-tethering 0 || cmd tethering start-tethering wifi || svc wifi set-softap-enabled true || svc wifi start-softap || cmd wifi start-softap || service call connectivity 24 i32 0"
+                "cmd tethering start-tethering --caller-pkg com.android.shell 0 || cmd tethering start-tethering 0 || cmd connectivity start-tethering 0 || svc wifi set-softap-enabled true || svc wifi start-softap || cmd wifi start-softap || service call connectivity 24 i32 0"
             } else {
-                "cmd tethering stop-tethering --caller-pkg com.android.shell 0 || cmd tethering stop-tethering --caller-pkg com.android.shell wifi || cmd tethering stop-tethering 0 || cmd tethering stop-tethering wifi || svc wifi set-softap-enabled false || svc wifi stop-softap || cmd wifi stop-softap || service call connectivity 25 i32 0"
+                "cmd tethering stop-tethering --caller-pkg com.android.shell 0 || cmd tethering stop-tethering 0 || cmd connectivity stop-tethering 0 || svc wifi set-softap-enabled false || svc wifi stop-softap || cmd wifi stop-softap || service call connectivity 25 i32 0"
+            }
+            runCatching {
+                Runtime.getRuntime().exec(arrayOf("/system/bin/sh", "-c", shellCmd)).waitFor()
             }
             runCatching {
                 Runtime.getRuntime().exec(arrayOf("sh", "-c", shellCmd)).waitFor()
             }
             val candidates = if (enable) {
                 listOf(
+                    arrayOf("/system/bin/cmd", "tethering", "start-tethering", "--caller-pkg", "com.android.shell", "0"),
+                    arrayOf("/system/bin/cmd", "tethering", "start-tethering", "0"),
+                    arrayOf("/system/bin/cmd", "connectivity", "start-tethering", "0"),
+                    arrayOf("/system/bin/svc", "wifi", "start-softap"),
+                    arrayOf("/system/bin/svc", "wifi", "set-softap-enabled", "true"),
                     arrayOf("cmd", "tethering", "start-tethering", "--caller-pkg", "com.android.shell", "0"),
-                    arrayOf("cmd", "tethering", "start-tethering", "--caller-pkg", "com.android.shell", "wifi"),
                     arrayOf("cmd", "tethering", "start-tethering", "0"),
-                    arrayOf("cmd", "tethering", "start-tethering", "wifi"),
-                    arrayOf("svc", "wifi", "set-softap-enabled", "true"),
                     arrayOf("svc", "wifi", "start-softap"),
-                    arrayOf("cmd", "wifi", "start-softap"),
                 )
             } else {
                 listOf(
+                    arrayOf("/system/bin/cmd", "tethering", "stop-tethering", "--caller-pkg", "com.android.shell", "0"),
+                    arrayOf("/system/bin/cmd", "tethering", "stop-tethering", "0"),
+                    arrayOf("/system/bin/cmd", "connectivity", "stop-tethering", "0"),
+                    arrayOf("/system/bin/svc", "wifi", "stop-softap"),
+                    arrayOf("/system/bin/svc", "wifi", "set-softap-enabled", "false"),
                     arrayOf("cmd", "tethering", "stop-tethering", "--caller-pkg", "com.android.shell", "0"),
-                    arrayOf("cmd", "tethering", "stop-tethering", "--caller-pkg", "com.android.shell", "wifi"),
                     arrayOf("cmd", "tethering", "stop-tethering", "0"),
-                    arrayOf("cmd", "tethering", "stop-tethering", "wifi"),
-                    arrayOf("svc", "wifi", "set-softap-enabled", "false"),
                     arrayOf("svc", "wifi", "stop-softap"),
-                    arrayOf("cmd", "wifi", "stop-softap"),
                 )
             }
             for (cmd in candidates) {

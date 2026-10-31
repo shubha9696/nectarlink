@@ -322,7 +322,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Tab { Home, Settings }
+private enum class Tab { Home, Files, Settings }
 
 private sealed interface ScreenRoute {
     data object Starting : ScreenRoute
@@ -947,6 +947,13 @@ private fun App(
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
+                            Tab.Files -> saveableStateHolder.SaveableStateProvider("tab_files") {
+                                app.nectarlink.android.ui.files.PcFileManagerScreen(
+                                    state = state,
+                                    core = core,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
                             Tab.Settings -> saveableStateHolder.SaveableStateProvider("tab_settings") {
                                 SettingsScreen(
                                     state = state,
@@ -1072,6 +1079,14 @@ private fun FloatingBottomPillDock(
                     pairedCount > 0 -> scheme.outline
                     else -> null
                 },
+                reducedMotion = reducedMotion,
+            )
+            FloatingDockTabPill(
+                selected = selectedTab == Tab.Files,
+                onClick = { onSelectTab(Tab.Files) },
+                iconRes = R.drawable.ic_folder,
+                label = "Files",
+                statusDotColor = null,
                 reducedMotion = reducedMotion,
             )
             FloatingDockTabPill(

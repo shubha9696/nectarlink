@@ -4382,6 +4382,51 @@ impl NectarlinkNode {
         })
     }
 
+    /// Deletes a remote file or folder on a connected paired device (`storage.delete`).
+    pub fn delete_remote_storage(&self, peer: String, remote_path: String) -> bool {
+        let Ok(peer_id) = parse_id(&peer) else {
+            return false;
+        };
+        let node = self.node.clone();
+        self.block_on_rt(async move {
+            node.storage_delete(peer_id, remote_path, true).await.is_ok()
+        })
+    }
+
+    /// Renames or moves a remote file or folder on a connected paired device (`storage.rename`).
+    pub fn rename_remote_storage(&self, peer: String, from_path: String, to_path: String) -> bool {
+        let Ok(peer_id) = parse_id(&peer) else {
+            return false;
+        };
+        let node = self.node.clone();
+        self.block_on_rt(async move {
+            node.storage_rename(peer_id, from_path, to_path).await.is_ok()
+        })
+    }
+
+    /// Creates a directory on a connected paired device (`storage.mkdir`).
+    pub fn mkdir_remote_storage(&self, peer: String, remote_path: String) -> bool {
+        let Ok(peer_id) = parse_id(&peer) else {
+            return false;
+        };
+        let node = self.node.clone();
+        self.block_on_rt(async move {
+            node.storage_mkdir(peer_id, remote_path).await.is_ok()
+        })
+    }
+
+    /// Uploads a local file to `remote_path` on a connected paired device (`storage.write`).
+    pub fn upload_remote_storage(&self, peer: String, remote_path: String, local_src: String) -> bool {
+        let Ok(peer_id) = parse_id(&peer) else {
+            return false;
+        };
+        let node = self.node.clone();
+        let src = std::path::PathBuf::from(local_src);
+        self.block_on_rt(async move {
+            node.storage_write(peer_id, remote_path, src).await.is_ok()
+        })
+    }
+
     /// Asks a connected paired peer on the target LAN to broadcast a Wake-on-LAN
     /// magic packet for `mac` (`wake.relay`).
     pub fn wake_via_relay(&self, relay_peer: String, mac: String, broadcast: Option<String>) -> Result<()> {

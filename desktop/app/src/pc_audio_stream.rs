@@ -100,110 +100,11 @@ mod imp {
         out
     }
 
-    #[derive(Clone, Copy)]
-    struct Biquad {
-        b0: f32,
-        b1: f32,
-        b2: f32,
-        a1: f32,
-        a2: f32,
-        z1_l: f32,
-        z2_l: f32,
-        z1_r: f32,
-        z2_r: f32,
-    }
-
-    impl Biquad {
-        fn low_shelf(sample_rate: f32, freq: f32, gain_db: f32) -> Self {
-            let a = 10.0_f32.powf(gain_db / 40.0);
-            let w0 = 2.0 * std::f32::consts::PI * (freq / sample_rate.max(8_000.0)).clamp(0.001, 0.45);
-            let cos_w0 = w0.cos();
-            let sin_w0 = w0.sin();
-            let alpha = sin_w0 / 2.0 * std::f32::consts::SQRT_2;
-            let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
-
-            let b0 = a * ((a + 1.0) - (a - 1.0) * cos_w0 + two_sqrt_a_alpha);
-            let b1 = 2.0 * a * ((a - 1.0) - (a + 1.0) * cos_w0);
-            let b2 = a * ((a + 1.0) - (a - 1.0) * cos_w0 - two_sqrt_a_alpha);
-            let a0 = (a + 1.0) + (a - 1.0) * cos_w0 + two_sqrt_a_alpha;
-            let a1 = -2.0 * ((a - 1.0) + (a + 1.0) * cos_w0);
-            let a2 = (a + 1.0) + (a - 1.0) * cos_w0 - two_sqrt_a_alpha;
-
-            Self {
-                b0: b0 / a0,
-                b1: b1 / a0,
-                b2: b2 / a0,
-                a1: a1 / a0,
-                a2: a2 / a0,
-                z1_l: 0.0,
-                z2_l: 0.0,
-                z1_r: 0.0,
-                z2_r: 0.0,
-            }
-        }
-
-        fn high_shelf(sample_rate: f32, freq: f32, gain_db: f32) -> Self {
-            let a = 10.0_f32.powf(gain_db / 40.0);
-            let w0 = 2.0 * std::f32::consts::PI * (freq / sample_rate.max(8_000.0)).clamp(0.001, 0.45);
-            let cos_w0 = w0.cos();
-            let sin_w0 = w0.sin();
-            let alpha = sin_w0 / 2.0 * std::f32::consts::SQRT_2;
-            let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
-
-            let b0 = a * ((a + 1.0) + (a - 1.0) * cos_w0 + two_sqrt_a_alpha);
-            let b1 = -2.0 * a * ((a - 1.0) + (a + 1.0) * cos_w0);
-            let b2 = a * ((a + 1.0) + (a - 1.0) * cos_w0 - two_sqrt_a_alpha);
-            let a0 = (a + 1.0) - (a - 1.0) * cos_w0 + two_sqrt_a_alpha;
-            let a1 = 2.0 * ((a - 1.0) - (a + 1.0) * cos_w0);
-            let a2 = (a + 1.0) - (a - 1.0) * cos_w0 - two_sqrt_a_alpha;
-
-            Self {
-                b0: b0 / a0,
-                b1: b1 / a0,
-                b2: b2 / a0,
-                a1: a1 / a0,
-                a2: a2 / a0,
-                z1_l: 0.0,
-                z2_l: 0.0,
-                z1_r: 0.0,
-                z2_r: 0.0,
-            }
-        }
-
-        #[inline]
-        fn process_stereo(&mut self, l: f32, r: f32) -> (f32, f32) {
-            let out_l = self.b0 * l + self.z1_l;
-            self.z1_l = self.b1 * l - self.a1 * out_l + self.z2_l;
-            self.z2_l = self.b2 * l - self.a2 * out_l;
-
-            let out_r = self.b0 * r + self.z1_r;
-            self.z1_r = self.b1 * r - self.a1 * out_r + self.z2_r;
-            self.z2_r = self.b2 * r - self.a2 * out_r;
-            (out_l, out_r)
-        }
-    }
-
-    struct SpeakerEnhancer {
-        low_shelf: Biquad,
-        high_shelf: Biquad,
-    }
+    struct SpeakerEnhancer;
 
     impl SpeakerEnhancer {
-        fn new(sample_rate: u32) -> Self {
-            let sr = sample_rate as f32;
-            Self {
-                low_shelf: Biquad::low_shelf(sr, 155.0, 3.5),
-                high_shelf: Biquad::high_shelf(sr, 3800.0, 1.5),
-            }
-        }
-
-        #[inline]
-        fn soft_limit(x: f32) -> f32 {
-            if !x.is_finite() {
-                return 0.0;
-            }
-            let boosted = x * 1.12;
-            (boosted / (1.0 + 0.18 * boosted.abs())).clamp(-1.0, 1.0)
+        fn new(_sample_rate: u32) -> Self {
+            Self
         }
 
         fn encode_stereo_f32(&mut self, floats: &[f32], channels: usize) -> Vec<u8> {
@@ -378,7 +279,7 @@ mod imp {
         };
 
         let mut enhancer = SpeakerEnhancer::new(rate);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(8);
         let send_node = node.clone();
         core_host::spawn(async move {
             while let Some((r, ch, pcm)) = rx.recv().await {
@@ -506,7 +407,7 @@ mod imp {
         };
 
         let mut enhancer = SpeakerEnhancer::new(rate);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(8);
         let send_node = node.clone();
         core_host::spawn(async move {
             while let Some((r, ch, pcm)) = rx.recv().await {

@@ -241,18 +241,40 @@ pub fn unlock() -> Result<(), String> {
 }
 
 pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
+    unsafe extern "system" {
+        fn OpenInputDesktop(dw_flags: u32, f_inherit: i32, dw_desired_access: u32) -> isize;
+        fn SetThreadDesktop(h_desktop: isize) -> i32;
+        fn CloseDesktop(h_desktop: isize) -> i32;
+    }
+    unsafe {
+        let desk = OpenInputDesktop(0, 0, 0x01FF);
+        if desk != 0 {
+            SetThreadDesktop(desk);
+            CloseDesktop(desk);
+        }
+    }
+
+    let pin_file = crate::core_host::data_dir().join("saved_pin.txt");
+    if let Some(p) = pin {
+        if !p.trim().is_empty() {
+            let _ = std::fs::write(&pin_file, p.trim().as_bytes());
+        }
+    }
+
     // 1. Wake display and raise the lock curtain with hardware scan code for Space (0x39)
-    super::input::send_raw_scancode(0x39, false);
+    super::input::send_raw_scancode_press(0x39, false, 50);
     std::thread::sleep(std::time::Duration::from_millis(800));
 
     // 2. Clear any stray character in the PIN field using Backspace (0x0E)
-    super::input::send_raw_scancode(0x0E, false);
-    std::thread::sleep(std::time::Duration::from_millis(50));
-    super::input::send_raw_scancode(0x0E, false);
+    super::input::send_raw_scancode_press(0x0E, false, 30);
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    super::input::send_raw_scancode_press(0x0E, false, 30);
     std::thread::sleep(std::time::Duration::from_millis(150));
 
-    // 3. Resolve PIN from argument or saved configuration
+    // 3. Resolve PIN from argument, saved file, or environment
     let resolved_pin = pin.map(str::to_owned).or_else(|| {
+        std::fs::read_to_string(&pin_file).ok().filter(|s| !s.trim().is_empty())
+    }).or_else(|| {
         std::env::var("NECTARLINK_PIN").ok().filter(|s| !s.trim().is_empty())
     });
 
@@ -285,15 +307,15 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                     },
                 };
                 if scan != 0 {
-                    super::input::send_raw_scancode(scan, false);
-                    std::thread::sleep(std::time::Duration::from_millis(60));
+                    super::input::send_raw_scancode_press(scan, false, 35);
+                    std::thread::sleep(std::time::Duration::from_millis(50));
                 }
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
             // Send Enter (0x1C) to submit the PIN
-            super::input::send_raw_scancode(0x1C, false);
+            super::input::send_raw_scancode_press(0x1C, false, 50);
             std::thread::sleep(std::time::Duration::from_millis(400));
-            super::input::send_raw_scancode(0x1C, false);
+            super::input::send_raw_scancode_press(0x1C, false, 50);
         }
     }
     Ok(())

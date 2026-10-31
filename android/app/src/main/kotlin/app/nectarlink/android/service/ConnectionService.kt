@@ -164,7 +164,11 @@ class ConnectionService : LifecycleService() {
                     ?: app?.core?.state?.value?.devices?.firstOrNull { it.online }?.id
                     ?: app?.core?.state?.value?.devices?.firstOrNull()?.id
                 devId?.let { id ->
-                    app?.core?.pcUnlock(id)
+                    val prefs = getSharedPreferences("pc_unlock_prefs", Context.MODE_PRIVATE)
+                    val pin = prefs.getString("pin_$id", null)?.trim()
+                        ?: prefs.getString("windows_pin", null)?.trim()
+                        ?: prefs.getString("pin_macbook", null)?.trim()
+                    app?.core?.pcUnlock(id, pin)
                 }
                 return START_STICKY
             }

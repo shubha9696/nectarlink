@@ -103,6 +103,10 @@ pub fn send_scancode_key(vk: VIRTUAL_KEY, extended: bool) {
 }
 
 pub fn send_raw_scancode(scan: u16, extended: bool) {
+    send_raw_scancode_press(scan, extended, 25);
+}
+
+pub fn send_raw_scancode_press(scan: u16, extended: bool, hold_ms: u64) {
     if scan == 0 {
         return;
     }
@@ -124,6 +128,10 @@ pub fn send_raw_scancode(scan: u16, extended: bool) {
             },
         },
     };
+    send_inputs(&[down]);
+    if hold_ms > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(hold_ms));
+    }
     let up = INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
@@ -136,7 +144,7 @@ pub fn send_raw_scancode(scan: u16, extended: bool) {
             },
         },
     };
-    send_inputs(&[down, up]);
+    send_inputs(&[up]);
 }
 
 /// Moves the mouse cursor relatively by `(dx, dy)` pixels, keeping fractions

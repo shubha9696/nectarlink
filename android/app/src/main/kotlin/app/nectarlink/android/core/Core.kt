@@ -2472,6 +2472,76 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         }
     }
 
+    /** Deletes `remotePath` from a paired PC (`storage.delete`). */
+    fun deletePcFile(
+        deviceId: String,
+        remotePath: String,
+        onDone: (Boolean) -> Unit,
+    ) {
+        scope.launch(Dispatchers.IO) {
+            startJob?.join()
+            val ok = runCatching {
+                node?.deleteRemoteStorage(deviceId, remotePath) ?: false
+            }.getOrDefault(false)
+            withContext(Dispatchers.Main) {
+                onDone(ok)
+            }
+        }
+    }
+
+    /** Renames or moves `fromPath` to `toPath` on a paired PC (`storage.rename`). */
+    fun renamePcFile(
+        deviceId: String,
+        fromPath: String,
+        toPath: String,
+        onDone: (Boolean) -> Unit,
+    ) {
+        scope.launch(Dispatchers.IO) {
+            startJob?.join()
+            val ok = runCatching {
+                node?.renameRemoteStorage(deviceId, fromPath, toPath) ?: false
+            }.getOrDefault(false)
+            withContext(Dispatchers.Main) {
+                onDone(ok)
+            }
+        }
+    }
+
+    /** Creates a directory at `remotePath` on a paired PC (`storage.mkdir`). */
+    fun mkdirPcFile(
+        deviceId: String,
+        remotePath: String,
+        onDone: (Boolean) -> Unit,
+    ) {
+        scope.launch(Dispatchers.IO) {
+            startJob?.join()
+            val ok = runCatching {
+                node?.mkdirRemoteStorage(deviceId, remotePath) ?: false
+            }.getOrDefault(false)
+            withContext(Dispatchers.Main) {
+                onDone(ok)
+            }
+        }
+    }
+
+    /** Uploads a local file to `remotePath` on a paired PC (`storage.write`). */
+    fun uploadPcFile(
+        deviceId: String,
+        remotePath: String,
+        localFile: java.io.File,
+        onDone: (Boolean) -> Unit,
+    ) {
+        scope.launch(Dispatchers.IO) {
+            startJob?.join()
+            val ok = runCatching {
+                node?.uploadRemoteStorage(deviceId, remotePath, localFile.absolutePath) ?: false
+            }.getOrDefault(false)
+            withContext(Dispatchers.Main) {
+                onDone(ok)
+            }
+        }
+    }
+
     /** Asks an online relay peer to broadcast a Wake-on-LAN magic packet (`wake.relay`). */
     fun wakeViaRelay(relayPeerId: String, mac: String, broadcast: String? = null) {
         command { it.wakeViaRelay(relayPeerId, mac, broadcast) }
