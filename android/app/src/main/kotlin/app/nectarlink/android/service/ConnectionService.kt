@@ -138,12 +138,12 @@ class ConnectionService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
                 when (intent?.action) {
             "ACTION_LOCK_PC" -> {
-                val app = application as? NectarlinkApplication
+                val appInstance = application as? NectarlinkApplication
                 val devId = intent.getStringExtra("device_id")
-                    ?: app?.core?.state?.value?.devices?.firstOrNull { it.online }?.id
-                    ?: app?.core?.state?.value?.devices?.firstOrNull()?.id
+                    ?: appInstance?.core?.state?.value?.devices?.firstOrNull { it.online }?.id
+                    ?: appInstance?.core?.state?.value?.devices?.firstOrNull()?.id
                 devId?.let { id ->
-                    app?.core?.pcPower(id, sleep = false)
+                    appInstance?.core?.pcPower(id, sleep = false)
                     app.nectarlink.android.core.PcLockManager.setPcLocked(true)
                 }
                 return START_STICKY

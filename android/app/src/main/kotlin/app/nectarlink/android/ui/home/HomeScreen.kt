@@ -259,6 +259,7 @@ fun HomeScreen(
     val reducedMotion = LocalReducedMotion.current
     val isGlass = LocalGlassTheme.current
     val anyModalOpen = browseFilesPcId != null || showClipboardHistory || showTimeline
+    val isPcLocked by app.nectarlink.android.core.PcLockManager.pcLocked.collectAsStateWithLifecycle()
 
     LaunchedEffect(highlightTarget) {
         val target = highlightTarget ?: return@LaunchedEffect
@@ -618,7 +619,6 @@ fun HomeScreen(
                 )
             }
         }
-        val isPcLocked by app.nectarlink.android.core.PcLockManager.pcLocked.collectAsStateWithLifecycle()
         val lockedPc = state.devices.firstOrNull { !it.isAndroid && it.online }
         if (isPcLocked && lockedPc != null) {
             item(key = "pc_unlock_banner", contentType = "unlock_banner") {
@@ -628,15 +628,13 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .padding(bottom = 12.dp)
                         .clickable {
-                            val activity = (context as? androidx.fragment.app.FragmentActivity)
-                                ?: (context as? android.content.ContextWrapper)?.baseContext as? androidx.fragment.app.FragmentActivity
-                            if (activity != null) {
-                                app.nectarlink.android.biometric.BiometricUnlock.authenticate(
-                                    activity = activity,
-                                    title = "Unlock ${lockedPc.name}",
-                                    subtitle = "Touch fingerprint sensor to unlock",
+                            val core = (context.applicationContext as? app.nectarlink.android.NectarlinkApplication)?.core
+                            if (core != null) {
+                                app.nectarlink.android.biometric.BiometricUnlock.unlock(
+                                    context = context,
+                                    pcId = lockedPc.id,
+                                    core = core,
                                     onSuccess = {
-                                        (context.applicationContext as? app.nectarlink.android.NectarlinkApplication)?.core?.pcUnlock(lockedPc.id)
                                         android.widget.Toast.makeText(context, "Unlocking ${lockedPc.name}...", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 )
@@ -1814,15 +1812,13 @@ private fun PcCard(
                                 enabled = device.online,
                                 colors = primaryBtn,
                                 onClick = {
-                                    val activity = (context as? androidx.fragment.app.FragmentActivity)
-                                        ?: (context as? android.content.ContextWrapper)?.baseContext as? androidx.fragment.app.FragmentActivity
-                                    if (activity != null) {
-                                        app.nectarlink.android.biometric.BiometricUnlock.authenticate(
-                                            activity = activity,
-                                            title = "Unlock ${device.name}",
-                                            subtitle = "Touch fingerprint sensor to unlock",
+                                    val core = (context.applicationContext as? app.nectarlink.android.NectarlinkApplication)?.core
+                                    if (core != null) {
+                                        app.nectarlink.android.biometric.BiometricUnlock.unlock(
+                                            context = context,
+                                            pcId = device.id,
+                                            core = core,
                                             onSuccess = {
-                                                (context.applicationContext as? app.nectarlink.android.NectarlinkApplication)?.core?.pcUnlock(device.id)
                                                 android.widget.Toast.makeText(context, "Unlocking ${device.name}...", android.widget.Toast.LENGTH_SHORT).show()
                                             }
                                         )

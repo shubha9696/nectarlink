@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package app.nectarlink.android.ui
 
+import android.app.Activity
 import android.app.AlertDialog
 import android.os.Bundle
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import app.nectarlink.android.NectarlinkApplication
 
-class RestartConfirmActivity : AppCompatActivity() {
+class RestartConfirmActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val core = (application as NectarlinkApplication).core
