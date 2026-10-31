@@ -55,9 +55,9 @@ class PcSpeakerPlayer(
         val safeRate = sampleRate.coerceIn(8_000, 96_000)
         val safeChannels = if (channels >= 2) 2 else 1
         val frameBytes = safeChannels * 2
-        // Cap queued backlog at ~40 ms so Wi-Fi bursts never build up latency
-        // and we never need to flush the hardware AudioTrack.
-        val maxQueuedBytes = (safeRate * frameBytes * 16) / 1000
+        // Cap queued backlog at ~8 ms so Wi-Fi bursts never build up latency
+        // and audio stays in exact realtime sync with the PC.
+        val maxQueuedBytes = (safeRate * frameBytes * 8) / 1000
 
         synchronized(queue) {
             while (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
@@ -169,19 +169,6 @@ class PcSpeakerPlayer(
 
                 val activeTrack = track ?: continue
 
-                if (needsPrebuffer) {
-                    // Wait up to 8 ms to accumulate a ~10 ms pre-buffer cushion on stream start
-                    // so minor Wi-Fi jitter never causes an initial underrun while keeping latency minimal.
-                    val frameBytes = first.channels * 2
-                    val prebufferTarget = (first.sampleRate * frameBytes * 2) / 1000
-                    var waitedMs = 0
-                    while (queuedBytes + first.pcm.size < prebufferTarget && waitedMs < 3) {
-                        Thread.sleep(2)
-                        waitedMs += 2
-                    }
-                    needsPrebuffer = false
-                }
-
                 if (activeTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
                     runCatching { activeTrack.play() }
                 }
@@ -230,14 +217,12 @@ class PcSpeakerPlayer(
             Log.w(TAG, "invalid minBufferSize=$minBuf for rate=$sampleRate channels=$channels")
             return null
         }
-        val frameBytes = channels * 2
-        // ~24 ms hardware buffer floor balances low latency with Wi-Fi jitter resilience.
-        val targetBuf = minBuf.coerceAtLeast((sampleRate * frameBytes * 10) / 1000)
+        val targetBuf = minBuf
 
         return runCatching {
             val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_GAME)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 .setFlags(AudioAttributes.FLAG_LOW_LATENCY)
                 .build()
             val format = AudioFormat.Builder()
@@ -259,14 +244,8 @@ class PcSpeakerPlayer(
     }
 
     private fun createEnhancer(audioSessionId: Int): LoudnessEnhancer? {
-        if (audioSessionId == AudioTrack.ERROR_BAD_VALUE || audioSessionId == 0) return null
-        return runCatching {
-            LoudnessEnhancer(audioSessionId).apply {
-                // Subtle +1.5 dB (150 mB) presence lift for phone speakers.
-                setTargetGain(150)
-                enabled = true
-            }
-        }.getOrNull()
+        // Return null to avoid digital clipping and distortion on full-scale audio
+        return null
     }
 
     private fun releaseTrack(track: AudioTrack?, enhancer: LoudnessEnhancer?) {

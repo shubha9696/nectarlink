@@ -103,7 +103,7 @@ class MainActivity : ComponentActivity() {
     @Volatile
     private var activeRemotePcId: String? = null
     private var requestedRemotePc by mutableStateOf<String?>(null)
-    private var requestedRemoteMode by mutableStateOf(RemoteMode.Touchpad)
+    private var requestedRemoteMode by mutableStateOf(RemoteMode.Screen)
     private var requestedDeckPc by mutableStateOf<String?>(null)
     private var requestedRecordPc by mutableStateOf<String?>(null)
 
@@ -275,14 +275,14 @@ class MainActivity : ComponentActivity() {
             ?: app?.core?.state?.value?.devices?.firstOrNull()?.id
         val pc = intent?.getStringExtra("remote_pc") ?: defaultPc ?: return
         val mode = intent?.getStringExtra("remote_mode")
+            ?: intent?.getStringExtra("route")
         requestedRemoteMode = when {
             mode.equals("presentation", ignoreCase = true) -> RemoteMode.Presentation
             mode.equals("air", ignoreCase = true) ||
                 mode.equals("air_mouse", ignoreCase = true) ||
                 mode.equals("airmouse", ignoreCase = true) -> RemoteMode.AirMouse
-            mode.equals("screen", ignoreCase = true) ||
-                mode.equals("mirror", ignoreCase = true) -> RemoteMode.Screen
-            else -> RemoteMode.Touchpad
+            mode.equals("touchpad", ignoreCase = true) -> RemoteMode.Touchpad
+            else -> RemoteMode.Screen
         }
         requestedRemotePc = pc
     }
@@ -834,7 +834,7 @@ private fun App(
                                     onWake = core::wake,
                                     onSetReconnect = core::setReconnect,
                                     onRemote = { id ->
-                                        remoteInitialMode = RemoteMode.Touchpad
+                                        remoteInitialMode = RemoteMode.Screen
                                         remotePcId = id
                                     },
                                     onDeck = { id ->

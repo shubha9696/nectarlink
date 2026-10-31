@@ -212,10 +212,8 @@ mod imp {
             for frame in floats.chunks_exact(channels.max(1)) {
                 let l_in = if frame[0].is_finite() { frame[0] } else { 0.0 };
                 let r_in = if channels > 1 && frame[1].is_finite() { frame[1] } else { l_in };
-                let (l1, r1) = self.low_shelf.process_stereo(l_in, r_in);
-                let (l2, r2) = self.high_shelf.process_stereo(l1, r1);
-                let l_i16 = (Self::soft_limit(l2) * 32767.0).round() as i16;
-                let r_i16 = (Self::soft_limit(r2) * 32767.0).round() as i16;
+                let l_i16 = (l_in.clamp(-1.0, 1.0) * 32767.0).round() as i16;
+                let r_i16 = (r_in.clamp(-1.0, 1.0) * 32767.0).round() as i16;
                 out.extend_from_slice(&l_i16.to_le_bytes());
                 out.extend_from_slice(&r_i16.to_le_bytes());
             }
@@ -227,14 +225,10 @@ mod imp {
             let frames = samples.len() / channels.max(1);
             let mut out = Vec::with_capacity(frames * 4);
             for frame in samples.chunks_exact(channels.max(1)) {
-                let l_in = (frame[0] as f32) / 32768.0;
-                let r_in = if channels > 1 { (frame[1] as f32) / 32768.0 } else { l_in };
-                let (l1, r1) = self.low_shelf.process_stereo(l_in, r_in);
-                let (l2, r2) = self.high_shelf.process_stereo(l1, r1);
-                let l_i16 = (Self::soft_limit(l2) * 32767.0).round() as i16;
-                let r_i16 = (Self::soft_limit(r2) * 32767.0).round() as i16;
-                out.extend_from_slice(&l_i16.to_le_bytes());
-                out.extend_from_slice(&r_i16.to_le_bytes());
+                let l = frame[0];
+                let r = if channels > 1 { frame[1] } else { l };
+                out.extend_from_slice(&l.to_le_bytes());
+                out.extend_from_slice(&r.to_le_bytes());
             }
             out
         }
@@ -496,7 +490,7 @@ mod imp {
         let mut silence_tail_packets: u32 = 0;
 
         'capture: while is_enabled() {
-            std::thread::sleep(Duration::from_millis(2));
+            std::thread::sleep(Duration::from_millis(1));
             // Another phone asked for the sound (it watches the PC's playback):
             // start over for that one.
             if target() != wanted && target().is_some_and(|t| peers.contains(&t)) {

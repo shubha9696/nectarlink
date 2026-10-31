@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package app.nectarlink.android.biometric
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.hardware.biometrics.BiometricPrompt
 import android.os.Build
 import android.os.CancellationSignal
+import android.util.Log
 import android.widget.Toast
 import app.nectarlink.android.core.Core
 
@@ -16,6 +19,14 @@ object BiometricUnlock {
         onSuccess: () -> Unit = {},
         onError: (String) -> Unit = {},
     ) {
+        if (context !is Activity) {
+            val intent = Intent(context, app.nectarlink.android.ui.BiometricUnlockActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            context.startActivity(intent)
+            return
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val signal = CancellationSignal()
             try {
@@ -34,25 +45,27 @@ object BiometricUnlock {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
                             core.pcUnlock(pcId)
                             app.nectarlink.android.core.PcLockManager.setPcLocked(false)
-                            Toast.makeText(context, "Unlocking PC...", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "PC Unlocked via Fingerprint", Toast.LENGTH_SHORT).show()
                             onSuccess()
                         }
 
                         override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                            if (errorCode != BiometricPrompt.BIOMETRIC_ERROR_CANCELED &&
+                                errorCode != BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED
+                            ) {
+                                Toast.makeText(context, errString ?: "Authentication failed", Toast.LENGTH_SHORT).show()
+                            }
                             onError(errString?.toString() ?: "Authentication failed")
                         }
                     },
                 )
             } catch (e: Exception) {
-                // Fallback: send unlock signal directly
-                core.pcUnlock(pcId)
-                app.nectarlink.android.core.PcLockManager.setPcLocked(false)
-                onSuccess()
+                Log.e("BiometricUnlock", "Failed to start biometric prompt", e)
+                Toast.makeText(context, "Fingerprint error: ${e.message}", Toast.LENGTH_SHORT).show()
+                onError(e.message ?: "Sensor error")
             }
         } else {
-            core.pcUnlock(pcId)
-            app.nectarlink.android.core.PcLockManager.setPcLocked(false)
-            onSuccess()
+            onError("Biometric authentication requires Android 9+")
         }
     }
 }

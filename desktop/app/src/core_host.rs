@@ -275,7 +275,7 @@ async fn run(data_dir: PathBuf, platform: Arc<dyn Platform>) {
 
     host.runtime.spawn(async {
         let mut was_active = false;
-        let mut was_locked = false;
+        let mut was_locked: Option<bool> = None;
         let mut last_sent_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
         let mut last_lock_sent_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
         loop {
@@ -313,10 +313,10 @@ async fn run(data_dir: PathBuf, platform: Arc<dyn Platform>) {
             }
 
             let locked = crate::links::is_locked();
-            let should_send_lock = locked != was_locked
-                || last_lock_sent_at.elapsed() >= std::time::Duration::from_secs(10);
+            let should_send_lock = was_locked != Some(locked)
+                || last_lock_sent_at.elapsed() >= std::time::Duration::from_secs(5);
             if should_send_lock {
-                was_locked = locked;
+                was_locked = Some(locked);
                 last_lock_sent_at = std::time::Instant::now();
                 for peer in online_peers {
                     let node = node.clone();

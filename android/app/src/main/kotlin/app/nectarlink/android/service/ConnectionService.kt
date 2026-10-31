@@ -259,13 +259,16 @@ class ConnectionService : LifecycleService() {
         val builder = NotificationCompat.Builder(this, CHANNEL_CONNECTION)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(openApp())
             .setOngoing(true)
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-                if (status.connected.isNotEmpty()) {
+
+        if (status.connected.isNotEmpty()) {
             val isLocked = app.nectarlink.android.core.PcLockManager.pcLocked.value
+            val primaryDevId = status.connected.firstOrNull()
 
             val controlPcIntent = PendingIntent.getActivity(
                 this, 10,
@@ -273,6 +276,11 @@ class ConnectionService : LifecycleService() {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                     putExtra("route", "remote/screen")
                 },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val sendFilesIntent = PendingIntent.getActivity(
+                this, 15,
+                app.nectarlink.android.clipboard.SendActivity.sendFilesIntent(this, primaryDevId),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
             val restartPcIntent = PendingIntent.getActivity(
@@ -302,6 +310,7 @@ class ConnectionService : LifecycleService() {
                 )
                 builder.addAction(0, "Control PC", controlPcIntent)
                 builder.addAction(0, "Lock PC", lockPcIntent)
+                builder.addAction(0, "Send Files", sendFilesIntent)
                 builder.addAction(0, "Restart PC", restartPcIntent)
             }
         }
