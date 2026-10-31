@@ -449,8 +449,7 @@ pub(crate) async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: &E
                             if action == PowerAction::Sleep {
                                 tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                             }
-                            let pin_ref = pin.as_deref();
-                            if let Err(reason) = tokio::task::spawn_blocking(move || platform.power_with_pin(action, pin_ref))
+                            if let Err(reason) = tokio::task::spawn_blocking(move || platform.power_with_pin(action, pin.as_deref()))
                                 .await
                                 .unwrap_or_else(|e| Err(e.to_string()))
                             {
