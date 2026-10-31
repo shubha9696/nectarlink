@@ -241,16 +241,15 @@ pub fn unlock() -> Result<(), String> {
 }
 
 pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{
-        VK_0, VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_7, VK_8, VK_9, VK_RETURN, VK_SPACE,
-    };
-    // 1. Wake display and dismiss lock curtain with hardware scan code
-    super::input::send_scancode_key(VK_SPACE, false);
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    super::input::send_scancode_key(VK_SPACE, false);
+    // 1. Wake display and raise the lock curtain with hardware scan code for Space (0x39)
+    super::input::send_raw_scancode(0x39, false);
+    std::thread::sleep(std::time::Duration::from_millis(800));
 
-    // 2. Allow Windows 11 lock screen slide animation to fully complete and focus PIN input
-    std::thread::sleep(std::time::Duration::from_millis(1500));
+    // 2. Clear any stray character in the PIN field using Backspace (0x0E)
+    super::input::send_raw_scancode(0x0E, false);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    super::input::send_raw_scancode(0x0E, false);
+    std::thread::sleep(std::time::Duration::from_millis(150));
 
     // 3. Resolve PIN from argument or saved configuration
     let resolved_pin = pin.map(str::to_owned).or_else(|| {
@@ -261,26 +260,40 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
         let clean_pin = pin_str.trim();
         if !clean_pin.is_empty() {
             for ch in clean_pin.chars() {
-                let vk = match ch {
-                    '0' => VK_0,
-                    '1' => VK_1,
-                    '2' => VK_2,
-                    '3' => VK_3,
-                    '4' => VK_4,
-                    '5' => VK_5,
-                    '6' => VK_6,
-                    '7' => VK_7,
-                    '8' => VK_8,
-                    '9' => VK_9,
-                    _ => continue,
+                let scan: u16 = match ch {
+                    '1' => 0x02,
+                    '2' => 0x03,
+                    '3' => 0x04,
+                    '4' => 0x05,
+                    '5' => 0x06,
+                    '6' => 0x07,
+                    '7' => 0x08,
+                    '8' => 0x09,
+                    '9' => 0x0A,
+                    '0' => 0x0B,
+                    _ => unsafe {
+                        let vkey = windows::Win32::UI::Input::KeyboardAndMouse::VkKeyScanW(ch as u16);
+                        if vkey != -1 {
+                            let vk = (vkey & 0xFF) as u32;
+                            windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(
+                                vk,
+                                windows::Win32::UI::Input::KeyboardAndMouse::MAP_VIRTUAL_KEY_TYPE(0),
+                            ) as u16
+                        } else {
+                            0
+                        }
+                    },
                 };
-                super::input::send_scancode_key(vk, false);
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                if scan != 0 {
+                    super::input::send_raw_scancode(scan, false);
+                    std::thread::sleep(std::time::Duration::from_millis(60));
+                }
             }
-            std::thread::sleep(std::time::Duration::from_millis(250));
-            super::input::send_scancode_key(VK_RETURN, false);
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            // Send Enter (0x1C) to submit the PIN
+            super::input::send_raw_scancode(0x1C, false);
             std::thread::sleep(std::time::Duration::from_millis(400));
-            super::input::send_scancode_key(VK_RETURN, false);
+            super::input::send_raw_scancode(0x1C, false);
         }
     }
     Ok(())

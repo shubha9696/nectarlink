@@ -191,6 +191,14 @@ class PhoneToggles(
                     }
                     if (!executed) {
                         runCatching {
+                            val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                            val method = wifi?.javaClass?.getMethod("setWifiApEnabled", android.net.wifi.WifiConfiguration::class.java, Boolean::class.javaPrimitiveType)
+                            method?.invoke(wifi, null, on)
+                            executed = true
+                        }
+                    }
+                    if (!executed) {
+                        runCatching {
                             val intent = Intent().apply {
                                 setClassName("com.android.settings", "com.android.settings.TetherSettings")
                                 flags = Intent.FLAG_ACTIVITY_NEW_TASK

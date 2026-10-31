@@ -210,8 +210,27 @@ mod imp {
             let frames = floats.len() / channels.max(1);
             let mut out = Vec::with_capacity(frames * 4);
             for frame in floats.chunks_exact(channels.max(1)) {
-                let l_in = if frame[0].is_finite() { frame[0] } else { 0.0 };
-                let r_in = if channels > 1 && frame[1].is_finite() { frame[1] } else { l_in };
+                let (l_in, r_in) = if channels == 2 {
+                    (
+                        if frame[0].is_finite() { frame[0] } else { 0.0 },
+                        if frame[1].is_finite() { frame[1] } else { 0.0 },
+                    )
+                } else if channels >= 6 {
+                    let c = if frame[2].is_finite() { frame[2] * 0.707 } else { 0.0 };
+                    let ls = if frame[4].is_finite() { frame[4] * 0.707 } else { 0.0 };
+                    let rs = if frame[5].is_finite() { frame[5] * 0.707 } else { 0.0 };
+                    let l = (if frame[0].is_finite() { frame[0] } else { 0.0 }) + c + ls;
+                    let r = (if frame[1].is_finite() { frame[1] } else { 0.0 }) + c + rs;
+                    (l * 0.707, r * 0.707)
+                } else if channels > 1 {
+                    (
+                        if frame[0].is_finite() { frame[0] } else { 0.0 },
+                        if frame[1].is_finite() { frame[1] } else { 0.0 },
+                    )
+                } else {
+                    let mono = if frame[0].is_finite() { frame[0] } else { 0.0 };
+                    (mono, mono)
+                };
                 let l_i16 = (l_in.clamp(-1.0, 1.0) * 32767.0).round() as i16;
                 let r_i16 = (r_in.clamp(-1.0, 1.0) * 32767.0).round() as i16;
                 out.extend_from_slice(&l_i16.to_le_bytes());
@@ -225,8 +244,13 @@ mod imp {
             let frames = samples.len() / channels.max(1);
             let mut out = Vec::with_capacity(frames * 4);
             for frame in samples.chunks_exact(channels.max(1)) {
-                let l = frame[0];
-                let r = if channels > 1 { frame[1] } else { l };
+                let (l, r) = if channels == 2 {
+                    (frame[0], frame[1])
+                } else if channels > 1 {
+                    (frame[0], frame[1])
+                } else {
+                    (frame[0], frame[0])
+                };
                 out.extend_from_slice(&l.to_le_bytes());
                 out.extend_from_slice(&r.to_le_bytes());
             }

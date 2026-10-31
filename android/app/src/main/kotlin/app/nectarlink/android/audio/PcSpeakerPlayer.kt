@@ -55,9 +55,9 @@ class PcSpeakerPlayer(
         val safeRate = sampleRate.coerceIn(8_000, 96_000)
         val safeChannels = if (channels >= 2) 2 else 1
         val frameBytes = safeChannels * 2
-        // Cap queued backlog at ~25 ms so Wi-Fi packets (960-1920 bytes) are never
-        // prematurely dropped, while keeping audio in imperceptible sub-25ms realtime sync.
-        val maxQueuedBytes = (safeRate * frameBytes * 25) / 1000
+        // Cap queued backlog at ~60 ms so Wi-Fi jitter never drops audio packets prematurely,
+        // maintaining crystal clear distortion-free sound while preserving imperceptible sub-60ms realtime sync.
+        val maxQueuedBytes = (safeRate * frameBytes * 60) / 1000
 
         synchronized(queue) {
             while (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
@@ -174,13 +174,18 @@ class PcSpeakerPlayer(
                 }
 
                 val startedWriteNs = System.nanoTime()
-                runCatching {
-                    activeTrack.write(first.pcm, 0, first.pcm.size, AudioTrack.WRITE_NON_BLOCKING)
-                }.onFailure {
-                    Log.w(TAG, "AudioTrack write failed", it)
+                var offset = 0
+                val total = first.pcm.size
+                while (offset < total) {
+                    val written = activeTrack.write(first.pcm, offset, total - offset, AudioTrack.WRITE_BLOCKING)
+                    if (written <= 0) {
+                        Log.w(TAG, "AudioTrack write failed with code $written")
+                        break
+                    }
+                    offset += written
                 }
                 val writeMs = (System.nanoTime() - startedWriteNs) / 1_000_000L
-                if (writeMs > 25L) {
+                if (writeMs > 50L) {
                     Log.d(TAG, "AudioTrack write blocked ${writeMs}ms (queuedBytes=$queuedBytes)")
                 }
             }

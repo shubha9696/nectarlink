@@ -197,13 +197,13 @@
             android:name=".ui.RestartConfirmActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.Alert" />
 
         <activity
             android:name=".ui.BiometricUnlockActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.Alert" />
 
         <receiver
             android:name=".files.TransferNotifications$CancelReceiver"

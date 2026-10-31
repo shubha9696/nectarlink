@@ -29,20 +29,26 @@ object BiometricUnlock {
 
         val prefs = context.getSharedPreferences("pc_unlock_prefs", Context.MODE_PRIVATE)
         val savedPin = prefs.getString("pin_$pcId", null)?.trim()
+            ?: prefs.getString("windows_pin", null)?.trim()
+            ?: prefs.getString("pin_macbook", null)?.trim()
 
         if (savedPin.isNullOrEmpty()) {
             val input = android.widget.EditText(context).apply {
-                inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
                 hint = "Enter Windows PIN"
             }
-            android.app.AlertDialog.Builder(context)
+            android.app.AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle("Enter Windows PIN")
                 .setMessage("Save your Windows PIN on phone so your fingerprint can unlock directly to desktop.")
                 .setView(input)
                 .setPositiveButton("Save & Unlock") { _, _ ->
                     val pinText = input.text.toString().trim()
                     if (pinText.isNotEmpty()) {
-                        prefs.edit().putString("pin_$pcId", pinText).apply()
+                        prefs.edit()
+                            .putString("pin_$pcId", pinText)
+                            .putString("windows_pin", pinText)
+                            .putString("pin_macbook", pinText)
+                            .apply()
                         authenticateAndUnlock(context, pcId, core, pinText, onSuccess, onError)
                     } else {
                         authenticateAndUnlock(context, pcId, core, null, onSuccess, onError)
@@ -62,18 +68,26 @@ object BiometricUnlock {
 
     fun promptPinChange(context: Context, pcId: String) {
         val prefs = context.getSharedPreferences("pc_unlock_prefs", Context.MODE_PRIVATE)
+        val currentPin = prefs.getString("pin_$pcId", null)?.trim()
+            ?: prefs.getString("windows_pin", null)?.trim()
+            ?: prefs.getString("pin_macbook", null)?.trim()
+            ?: ""
         val input = android.widget.EditText(context).apply {
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
             hint = "Windows PIN"
-            setText(prefs.getString("pin_$pcId", ""))
+            setText(currentPin)
         }
-        android.app.AlertDialog.Builder(context)
+        android.app.AlertDialog.Builder(context, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle("Set Windows PIN")
             .setMessage("Enter the PIN used by your Windows lock screen to unlock directly to the desktop.")
             .setView(input)
             .setPositiveButton("Save PIN") { _, _ ->
                 val pinText = input.text.toString().trim()
-                prefs.edit().putString("pin_$pcId", pinText).apply()
+                prefs.edit()
+                    .putString("pin_$pcId", pinText)
+                    .putString("windows_pin", pinText)
+                    .putString("pin_macbook", pinText)
+                    .apply()
                 android.widget.Toast.makeText(context, "Windows PIN saved", android.widget.Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Cancel", null)

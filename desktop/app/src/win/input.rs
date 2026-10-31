@@ -99,6 +99,13 @@ pub fn send_scancode_key(vk: VIRTUAL_KEY, extended: bool) {
             windows::Win32::UI::Input::KeyboardAndMouse::MAP_VIRTUAL_KEY_TYPE(0),
         ) as u16
     };
+    send_raw_scancode(scan, extended);
+}
+
+pub fn send_raw_scancode(scan: u16, extended: bool) {
+    if scan == 0 {
+        return;
+    }
     let mut down_flags = KEYEVENTF_SCANCODE;
     let mut up_flags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
     if extended {
@@ -109,7 +116,7 @@ pub fn send_scancode_key(vk: VIRTUAL_KEY, extended: bool) {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
-                wVk: vk,
+                wVk: VIRTUAL_KEY(0),
                 wScan: scan,
                 dwFlags: down_flags,
                 time: 0,
@@ -121,7 +128,7 @@ pub fn send_scancode_key(vk: VIRTUAL_KEY, extended: bool) {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {
             ki: KEYBDINPUT {
-                wVk: vk,
+                wVk: VIRTUAL_KEY(0),
                 wScan: scan,
                 dwFlags: up_flags,
                 time: 0,

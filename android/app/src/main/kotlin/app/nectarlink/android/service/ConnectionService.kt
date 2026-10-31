@@ -240,19 +240,30 @@ class ConnectionService : LifecycleService() {
     }.isSuccess
 
     /** What the ongoing notification says. */
-    private data class Status(val connected: List<String>, val paired: Int) {
+    private data class Status(
+        val connectedNames: List<String>,
+        val connectedIds: List<String>,
+        val paired: Int,
+    ) {
         companion object {
-            fun of(state: CoreState) = Status(state.devices.filter { it.online }.map { it.name }, state.devices.size)
+            fun of(state: CoreState): Status {
+                val online = state.devices.filter { it.online }
+                return Status(
+                    connectedNames = online.map { it.name },
+                    connectedIds = online.map { it.id },
+                    paired = state.devices.size,
+                )
+            }
         }
     }
 
     private fun ongoingNotification(status: Status): Notification {
         val text = when {
-            status.connected.size == 1 -> getString(R.string.notification_connected_to, status.connected[0])
-            status.connected.size > 1 -> resources.getQuantityString(
+            status.connectedNames.size == 1 -> getString(R.string.notification_connected_to, status.connectedNames[0])
+            status.connectedNames.size > 1 -> resources.getQuantityString(
                 R.plurals.notification_connected_pcs,
-                status.connected.size,
-                status.connected.size,
+                status.connectedNames.size,
+                status.connectedNames.size,
             )
             status.paired == 0 -> getString(R.string.notification_not_paired)
             else -> getString(R.string.notification_waiting)
@@ -267,9 +278,9 @@ class ConnectionService : LifecycleService() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
 
-        if (status.connected.isNotEmpty()) {
+        if (status.connectedIds.isNotEmpty()) {
             val isLocked = app.nectarlink.android.core.PcLockManager.pcLocked.value
-            val primaryDevId = status.connected.firstOrNull()
+            val primaryDevId = status.connectedIds.firstOrNull()
 
             val controlPcIntent = PendingIntent.getActivity(
                 this, 10,
@@ -326,16 +337,8 @@ class ConnectionService : LifecycleService() {
                 }
             }
             builder.clearActions()
-            builder.addAction(0, "Control", controlPcIntent)
-            if (isLocked) {
-                builder.addAction(0, "Unlock", unlockPcIntent)
-            } else {
-                builder.addAction(0, "Lock", lockPcIntent)
-            }
-            builder.addAction(0, "Restart", restartPcIntent)
             builder.setCustomContentView(remoteViews)
             builder.setCustomBigContentView(remoteViews)
-            builder.setStyle(NotificationCompat.DecoratedCustomViewStyle())
         }
         return builder.build()
     }
