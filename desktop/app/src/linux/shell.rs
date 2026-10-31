@@ -907,3 +907,8 @@ Exec=/usr/lib/firefox/firefox --private-window %u
         assert!(launch_app(&desktop_path).is_ok());
     }
 }
+
+pub fn is_locked() -> bool {
+    false
+}
+

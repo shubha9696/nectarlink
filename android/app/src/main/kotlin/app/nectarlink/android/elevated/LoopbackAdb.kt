@@ -34,12 +34,13 @@ internal object LoopbackAdb {
     private const val ANSWER_MS = 500
     private const val SCANNERS = 32
 
-    /** Whether to use this instead of mDNS: Android 17 and later (API 37). */
-    fun preferred(): Boolean = Build.VERSION.SDK_INT >= 37
+    /** Whether to use this instead of mDNS: enabled across Android versions, especially on Hotspot. */
+    fun preferred(): Boolean = true
 
-    /** The ports listening on 127.0.0.1 in the ephemeral range, except NectarLink's own. */
+    /** The ports listening on 127.0.0.1 in the ephemeral range and common adb ports, except NectarLink's own. */
     suspend fun openPorts(): List<Int> = withContext(Dispatchers.IO) {
-        val ports = EPHEMERAL.filterNot { it in OWN }
+        val extra = listOf(5555, 5556)
+        val ports = (extra + EPHEMERAL).filterNot { it in OWN }
         coroutineScope {
             ports.chunked(ports.size / SCANNERS + 1)
                 .map { chunk -> async { chunk.filter(::isOpen) } }

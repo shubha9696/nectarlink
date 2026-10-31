@@ -345,6 +345,7 @@ fun PcMirrorView(
     val currentFps = fpsModes[mirrorFpsIndex.coerceIn(0, 2)]
 
     var showFloatingTouchpad by rememberSaveable { mutableStateOf(false) }
+    val isPcLocked by app.nectarlink.android.core.PcLockManager.pcLocked.collectAsStateWithLifecycle()
     var showKeyboardBar by rememberSaveable { mutableStateOf(false) }
     var typedText by rememberSaveable { mutableStateOf("") }
     var surface by remember { mutableStateOf<Surface?>(null) }
@@ -1034,16 +1035,18 @@ fun PcMirrorView(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            TextButton(
-                                onClick = {
-                                    bumpOverlay()
-                                    app.nectarlink.android.biometric.BiometricUnlock.unlock(context, pcId, core)
-                                },
-                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier.height(36.dp),
-                            ) {
-                                Text("Fingerprint Unlock", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                            if (isPcLocked) {
+                                TextButton(
+                                    onClick = {
+                                        bumpOverlay()
+                                        app.nectarlink.android.biometric.BiometricUnlock.unlock(context, pcId, core)
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier.height(36.dp),
+                                ) {
+                                    Text("Fingerprint Unlock", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                                }
                             }
                             TextButton(
                                 onClick = {
@@ -1384,14 +1387,16 @@ fun PcMirrorView(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                FilledTonalButton(
-                    onClick = {
-                        app.nectarlink.android.biometric.BiometricUnlock.unlock(context, pcId, core)
-                    },
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
-                ) {
-                    Text("Unlock PC", maxLines = 1)
+                if (isPcLocked) {
+                    FilledTonalButton(
+                        onClick = {
+                            app.nectarlink.android.biometric.BiometricUnlock.unlock(context, pcId, core)
+                        },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
+                    ) {
+                        Text("Unlock PC", maxLines = 1)
+                    }
                 }
                 OutlinedButton(
                     onClick = { showFloatingTouchpad = !showFloatingTouchpad },

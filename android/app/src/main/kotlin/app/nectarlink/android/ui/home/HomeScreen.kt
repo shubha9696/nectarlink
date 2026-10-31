@@ -40,6 +40,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -614,6 +616,64 @@ fun HomeScreen(
                     highlighted = pulsingTarget == GuideHighlightTarget.HOME_PAIR_PC ||
                         pulsingTarget == GuideHighlightTarget.HOME_PC_CARD,
                 )
+            }
+        }
+        val isPcLocked by app.nectarlink.android.core.PcLockManager.pcLocked.collectAsStateWithLifecycle()
+        val lockedPc = state.devices.firstOrNull { !it.isAndroid && it.online }
+        if (isPcLocked && lockedPc != null) {
+            item(key = "pc_unlock_banner", contentType = "unlock_banner") {
+                val context = LocalContext.current
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                        .clickable {
+                            val activity = (context as? androidx.fragment.app.FragmentActivity)
+                                ?: (context as? android.content.ContextWrapper)?.baseContext as? androidx.fragment.app.FragmentActivity
+                            if (activity != null) {
+                                app.nectarlink.android.biometric.BiometricUnlock.authenticate(
+                                    activity = activity,
+                                    title = "Unlock ${lockedPc.name}",
+                                    subtitle = "Touch fingerprint sensor to unlock",
+                                    onSuccess = {
+                                        (context.applicationContext as? app.nectarlink.android.NectarlinkApplication)?.core?.pcUnlock(lockedPc.id)
+                                        android.widget.Toast.makeText(context, "Unlocking ${lockedPc.name}...", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+                        },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(44.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("👆", fontSize = 20.sp)
+                            }
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Unlock ${lockedPc.name}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                            Text(
+                                text = "PC is locked • Tap to authenticate with fingerprint",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                            )
+                        }
+                    }
+                }
             }
         }
         items(state.devices.filter { !it.isAndroid }, key = { it.id }, contentType = { "pc_card" }) { device ->
@@ -1747,15 +1807,42 @@ private fun PcCard(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        OutlinedButton(
-                            contentPadding = CardButtonPadding,
-                            enabled = device.online,
-                            colors = outlined,
-                            border = outline,
-                            onClick = { onPower(device.id, false) },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            ButtonLabel(stringResource(R.string.action_lock_pc))
+                        val isLocked by app.nectarlink.android.core.PcLockManager.pcLocked.collectAsStateWithLifecycle()
+                        if (isLocked) {
+                            Button(
+                                contentPadding = CardButtonPadding,
+                                enabled = device.online,
+                                colors = primaryBtn,
+                                onClick = {
+                                    val activity = (context as? androidx.fragment.app.FragmentActivity)
+                                        ?: (context as? android.content.ContextWrapper)?.baseContext as? androidx.fragment.app.FragmentActivity
+                                    if (activity != null) {
+                                        app.nectarlink.android.biometric.BiometricUnlock.authenticate(
+                                            activity = activity,
+                                            title = "Unlock ${device.name}",
+                                            subtitle = "Touch fingerprint sensor to unlock",
+                                            onSuccess = {
+                                                (context.applicationContext as? app.nectarlink.android.NectarlinkApplication)?.core?.pcUnlock(device.id)
+                                                android.widget.Toast.makeText(context, "Unlocking ${device.name}...", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                ButtonLabel("Unlock PC")
+                            }
+                        } else {
+                            OutlinedButton(
+                                contentPadding = CardButtonPadding,
+                                enabled = device.online,
+                                colors = outlined,
+                                border = outline,
+                                onClick = { onPower(device.id, false) },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                ButtonLabel(stringResource(R.string.action_lock_pc))
+                            }
                         }
                         OutlinedButton(
                             contentPadding = CardButtonPadding,

@@ -243,3 +243,18 @@ pub fn unlock() -> Result<(), String> {
     super::input::press_key("space", &[]);
     Ok(())
 }
+
+/// Returns `true` if the Windows workstation is currently locked (Winlogon desktop is active).
+pub fn is_locked() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{CloseDesktop, OpenInputDesktop};
+    unsafe {
+        let desk = OpenInputDesktop(0, false, windows::Win32::Security::STANDARD_RIGHTS_REQUIRED);
+        if let Ok(desk) = desk {
+            let _ = CloseDesktop(desk);
+            false
+        } else {
+            true
+        }
+    }
+}
+

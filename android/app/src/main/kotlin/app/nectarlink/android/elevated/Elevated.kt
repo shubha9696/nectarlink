@@ -197,10 +197,10 @@ object Elevated {
         }.onFailure { Log.i(TAG, "can't watch wireless debugging", it) }
     }
 
-    /** Tries again later, while it can still work: set up, not running, on Wi-Fi (or through root). */
+    /** Tries again later, while it can still work: set up, not running, on Wi-Fi, Hotspot, or cellular. */
     private fun scheduleRetry() {
         if (held || !(paired() || usesRoot()) || running || BankingPause.isPaused(context)) return
-        if (!usesRoot() && !onWifi()) return
+        if (!usesRoot() && !isNetworkOrHotspot()) return
         val wait = RETRY_MS[retryAttempt.coerceAtMost(RETRY_MS.lastIndex)]
         retryAttempt++
         retryJob?.cancel()
@@ -217,6 +217,32 @@ object Elevated {
         retryJob = null
         retryAttempt = 0
     }
+
+    private fun isNetworkOrHotspot(): Boolean = runCatching {
+        if (onWifi()) return true
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        val active = connectivity.activeNetwork
+        val caps = connectivity.getNetworkCapabilities(active)
+        if (caps != null) {
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            ) {
+                return true
+            }
+        }
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+        val isApEnabled = runCatching {
+            val method = wifi?.javaClass?.getMethod("isWifiApEnabled")
+            method?.invoke(wifi) as? Boolean == true
+        }.getOrDefault(false)
+        if (isApEnabled) return true
+        val softAp = Settings.Global.getInt(context.contentResolver, "wifi_ap_on", 0) == 1
+        if (softAp) return true
+        val adbWifi = Settings.Global.getInt(context.contentResolver, ADB_WIFI, 0) == 1
+        if (adbWifi) return true
+        true
+    }.getOrDefault(true)
 
     private fun onWifi(): Boolean = runCatching {
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
@@ -256,15 +282,18 @@ object Elevated {
         lock.withLock {
             _state.value = State.Starting
             val paired = if (LoopbackAdb.preferred()) {
-                pairOverLoopback(code.trim())
+                pairOverLoopback(code.trim()) ?: runCatching {
+                    val port = discover(AdbMdns.SERVICE_TYPE_TLS_PAIRING)
+                    if (port != null) connection().pair("127.0.0.1", port, code.trim()) else null
+                }.getOrNull()
             } else {
                 val port = discover(AdbMdns.SERVICE_TYPE_TLS_PAIRING)
                 if (port == null) {
-                    null
+                    pairOverLoopback(code.trim())
                 } else {
                     runCatching { connection().pair("127.0.0.1", port, code.trim()) }.getOrElse {
                         Log.w(TAG, "pairing failed", it)
-                        false
+                        pairOverLoopback(code.trim())
                     }
                 }
             }
@@ -372,7 +401,11 @@ object Elevated {
             discardConnection()
             val adb = connection()
             val connected = try {
-                if (LoopbackAdb.preferred()) connectOverLoopback(adb) else adb.connectTls(context, CONNECT_MS)
+                if (LoopbackAdb.preferred()) {
+                    connectOverLoopback(adb) || runCatching { adb.connectTls(context, CONNECT_MS) }.getOrDefault(false)
+                } else {
+                    runCatching { adb.connectTls(context, CONNECT_MS) }.getOrDefault(false) || connectOverLoopback(adb)
+                }
             } catch (e: AdbPairingRequiredException) {
                 // adbd forgot us (the user revoked the authorizations).
                 context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit { putBoolean(PAIRED, false) }

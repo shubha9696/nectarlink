@@ -80,9 +80,16 @@ class ConnectionService : LifecycleService() {
                         stopSelf()
                     } else {
                         getSystemService(NotificationManager::class.java)
-                            .notify(ONGOING_ID, ongoingNotification(status))
+                            ?.notify(ONGOING_ID, ongoingNotification(status))
                     }
                 }
+        }
+        lifecycleScope.launch {
+            app.nectarlink.android.core.PcLockManager.pcLocked.collect {
+                val status = Status.of(core.state.value)
+                getSystemService(NotificationManager::class.java)
+                    ?.notify(ONGOING_ID, ongoingNotification(status))
+            }
         }
         // Updates while the app is in the background (they install by themselves when
         // allowed). AppUpdater checks at most once a day, so waking now and then is cheap.
@@ -137,6 +144,7 @@ class ConnectionService : LifecycleService() {
                     ?: app?.core?.state?.value?.devices?.firstOrNull()?.id
                 devId?.let { id ->
                     app?.core?.pcPower(id, sleep = false)
+                    app.nectarlink.android.core.PcLockManager.setPcLocked(true)
                 }
                 return START_STICKY
             }
@@ -257,6 +265,8 @@ class ConnectionService : LifecycleService() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
                 if (status.connected.isNotEmpty()) {
+            val isLocked = app.nectarlink.android.core.PcLockManager.pcLocked.value
+
             val controlPcIntent = PendingIntent.getActivity(
                 this, 10,
                 Intent(this, app.nectarlink.android.ui.MainActivity::class.java).apply {
@@ -265,37 +275,35 @@ class ConnectionService : LifecycleService() {
                 },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            val lockPcIntent = PendingIntent.getService(
-                this, 11,
-                Intent(this, ConnectionService::class.java).setAction("ACTION_LOCK_PC"),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
-            val restartPcIntent = PendingIntent.getService(
+            val restartPcIntent = PendingIntent.getActivity(
                 this, 12,
-                Intent(this, ConnectionService::class.java).setAction("ACTION_RESTART_PC"),
+                Intent(this, app.nectarlink.android.ui.RestartConfirmActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            val sendFiles = PendingIntent.getActivity(
-                this, 3, SendActivity.sendFilesIntent(this), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
 
-            try {
-                val remoteViews = android.widget.RemoteViews(packageName, R.layout.notification_connected).apply {
-                    setTextViewText(R.id.notif_title, text)
-                    setOnClickPendingIntent(R.id.btn_control, controlPcIntent)
-                    setOnClickPendingIntent(R.id.btn_lock, lockPcIntent)
-                    setOnClickPendingIntent(R.id.btn_restart, restartPcIntent)
-                    setOnClickPendingIntent(R.id.btn_files, sendFiles)
-                }
-                builder.setCustomContentView(remoteViews)
-                builder.setCustomBigContentView(remoteViews)
-                builder.setStyle(NotificationCompat.DecoratedCustomViewStyle())
-            } catch (_: Exception) {}
-
-            builder.addAction(0, "Control", controlPcIntent)
-            builder.addAction(0, "Lock", lockPcIntent)
-            builder.addAction(0, "Restart", restartPcIntent)
-            builder.addAction(0, "Files", sendFiles)
+            if (isLocked) {
+                val unlockPcIntent = PendingIntent.getActivity(
+                    this, 14,
+                    Intent(this, app.nectarlink.android.ui.BiometricUnlockActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    },
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+                builder.addAction(0, "Unlock PC", unlockPcIntent)
+                builder.addAction(0, "Control PC", controlPcIntent)
+                builder.addAction(0, "Restart PC", restartPcIntent)
+            } else {
+                val lockPcIntent = PendingIntent.getService(
+                    this, 11,
+                    Intent(this, ConnectionService::class.java).setAction("ACTION_LOCK_PC"),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+                builder.addAction(0, "Control PC", controlPcIntent)
+                builder.addAction(0, "Lock PC", lockPcIntent)
+                builder.addAction(0, "Restart PC", restartPcIntent)
+            }
         }
         return builder.build()
     }

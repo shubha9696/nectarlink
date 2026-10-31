@@ -300,8 +300,8 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             if (lastSignal.wifiBars != null || _state.value.awayMode) {
                 node?.networkChanged()
             }
-            // A new Wi-Fi network turns wireless debugging off; Elevated turns it back on.
-            if (!Elevated.running && lastSignal.wifiBars != null) Elevated.onNetworkChanged()
+            // Elevated reconnects automatically whenever network changes or is active (Wi-Fi or Hotspot).
+            if (!Elevated.running) Elevated.onNetworkChanged()
         }
     }
 

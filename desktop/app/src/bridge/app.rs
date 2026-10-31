@@ -1722,7 +1722,7 @@ impl qobject::AppController {
         let id = String::from(id);
         let raw = String::from(value);
         let parsed = match id.as_str() {
-            "dnd" | "flashlight" | "wifi" | "bluetooth" | "hotspot" | "pc_active" => {
+            "dnd" | "flashlight" | "wifi" | "bluetooth" | "hotspot" | "pc_active" | "pc_locked" => {
                 Some(PhoneToggleValue::Bool(raw == "true"))
             }
             "volume" | "brightness" => raw.parse::<u8>().ok().map(|v| PhoneToggleValue::Level(v.min(100))),

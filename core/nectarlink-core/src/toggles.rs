@@ -71,7 +71,7 @@ pub fn required_capability(id: &str) -> Option<&'static str> {
         toggle_ids::BRIGHTNESS => TOGGLES_BRIGHTNESS,
         toggle_ids::WIFI | toggle_ids::HOTSPOT => TOGGLES_WIFI,
         toggle_ids::BLUETOOTH => TOGGLES_BLUETOOTH,
-        toggle_ids::PC_ACTIVE => TOGGLES_READ,
+        toggle_ids::PC_ACTIVE | toggle_ids::PC_LOCKED => TOGGLES_READ,
         _ => return None,
     })
 }

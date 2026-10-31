@@ -730,12 +730,14 @@ object InputServer {
         private fun setHotspot(enable: Boolean) {
             val candidates = if (enable) {
                 listOf(
+                    arrayOf("cmd", "tethering", "start", "wifi"),
                     arrayOf("cmd", "connectivity", "start-tethering", "wifi"),
                     arrayOf("cmd", "wifi", "start-softap"),
                     arrayOf("svc", "wifi", "tether", "enable"),
                 )
             } else {
                 listOf(
+                    arrayOf("cmd", "tethering", "stop", "wifi"),
                     arrayOf("cmd", "connectivity", "stop-tethering", "wifi"),
                     arrayOf("cmd", "wifi", "stop-softap"),
                     arrayOf("svc", "wifi", "tether", "disable"),

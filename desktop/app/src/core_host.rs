@@ -275,9 +275,11 @@ async fn run(data_dir: PathBuf, platform: Arc<dyn Platform>) {
 
     host.runtime.spawn(async {
         let mut was_active = false;
+        let mut was_locked = false;
         let mut last_sent_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
+        let mut last_lock_sent_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             let Some(node) = self::node() else { continue };
             let online_peers: Vec<_> = host.hub.read(|s| {
                 s.devices
@@ -296,7 +298,7 @@ async fn run(data_dir: PathBuf, platform: Arc<dyn Platform>) {
             if should_send {
                 was_active = active;
                 last_sent_at = std::time::Instant::now();
-                for peer in online_peers {
+                for peer in online_peers.clone() {
                     let node = node.clone();
                     tokio::spawn(async move {
                         let _ = node
@@ -304,6 +306,26 @@ async fn run(data_dir: PathBuf, platform: Arc<dyn Platform>) {
                                 peer,
                                 "pc_active".into(),
                                 nectarlink_core::PhoneToggleValue::Bool(active),
+                            )
+                            .await;
+                    });
+                }
+            }
+
+            let locked = crate::links::is_locked();
+            let should_send_lock = locked != was_locked
+                || last_lock_sent_at.elapsed() >= std::time::Duration::from_secs(10);
+            if should_send_lock {
+                was_locked = locked;
+                last_lock_sent_at = std::time::Instant::now();
+                for peer in online_peers {
+                    let node = node.clone();
+                    tokio::spawn(async move {
+                        let _ = node
+                            .set_phone_toggle(
+                                peer,
+                                "pc_locked".into(),
+                                nectarlink_core::PhoneToggleValue::Bool(locked),
                             )
                             .await;
                     });

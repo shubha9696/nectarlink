@@ -45,6 +45,11 @@ pub fn power(action: PowerAction) -> Result<(), String> {
     }
 }
 
+/// Returns whether the PC workstation is locked.
+pub fn is_locked() -> bool {
+    shell::is_locked()
+}
+
 /// `text` as a link this app may open for someone else (a phone, or a Timeline entry
 /// recorded from one): `http://`, `https://` or `geo:` only.
 pub fn as_link(text: &str) -> Option<&str> {

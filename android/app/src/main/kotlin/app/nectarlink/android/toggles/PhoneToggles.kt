@@ -192,10 +192,15 @@ class PhoneToggles(
                     app.nectarlink.android.notifications.NotificationListener.setPcActive(on)
                     true
                 }
+                "pc_locked" -> {
+                    val locked = (value as? PhoneToggleValue.Bool)?.on ?: return false
+                    app.nectarlink.android.core.PcLockManager.setPcLocked(locked)
+                    true
+                }
                 else -> false
             }
         }.onFailure { Log.w(TAG, "toggle $id failed", it) }.getOrDefault(false)
-        if (ok && id != "pc_active") {
+        if (ok && id != "pc_active" && id != "pc_locked") {
             pushIfChanged()
             schedulePush()
             mainHandler.removeCallbacks(followUpRunnable)

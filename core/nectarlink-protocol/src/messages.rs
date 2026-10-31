@@ -3357,8 +3357,9 @@ pub mod toggle_ids {
     pub const BLUETOOTH: &str = "bluetooth";
     pub const HOTSPOT: &str = "hotspot";
     pub const PC_ACTIVE: &str = "pc_active";
+    pub const PC_LOCKED: &str = "pc_locked";
     pub const ALL: &[&str] =
-        &[DND, RINGER, FLASHLIGHT, VOLUME, BRIGHTNESS, WIFI, BLUETOOTH, HOTSPOT, PC_ACTIVE];
+        &[DND, RINGER, FLASHLIGHT, VOLUME, BRIGHTNESS, WIFI, BLUETOOTH, HOTSPOT, PC_ACTIVE, PC_LOCKED];
 }
 
 /// Ringer modes for [`PhoneToggles::ringer`] and `phone.toggle.set` (`id = "ringer"`).
@@ -3432,7 +3433,8 @@ impl PhoneToggleSet {
                 | toggle_ids::WIFI
                 | toggle_ids::BLUETOOTH
                 | toggle_ids::HOTSPOT
-                | toggle_ids::PC_ACTIVE,
+                | toggle_ids::PC_ACTIVE
+                | toggle_ids::PC_LOCKED,
                 PhoneToggleValue::Bool(_),
             ) => true,
             (toggle_ids::VOLUME | toggle_ids::BRIGHTNESS, PhoneToggleValue::Level(n)) => *n <= 100,
