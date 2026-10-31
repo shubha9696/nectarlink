@@ -779,8 +779,11 @@ fun SettingsScreen(
                         )
                     }
                     SettingRowDivider()
-                    val prefs = remember { context.getSharedPreferences("pc_unlock_prefs", android.content.Context.MODE_PRIVATE) }
-                    var currentPin by remember {
+                    val context = LocalContext.current
+                    val prefs: android.content.SharedPreferences = remember(context) {
+                        context.getSharedPreferences("pc_unlock_prefs", android.content.Context.MODE_PRIVATE)
+                    }
+                    var currentPin by remember(prefs) {
                         mutableStateOf(
                             prefs.getString("windows_pin", null)?.trim()
                                 ?: prefs.getString("pin_macbook", null)?.trim()
