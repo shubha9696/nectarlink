@@ -254,7 +254,9 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
         }
     }
 
-    let pin_file = crate::core_host::data_dir().join("saved_pin.txt");
+    let pin_file = crate::core_host::try_data_dir()
+        .map(|p| p.join("saved_pin.txt"))
+        .unwrap_or_else(|| std::env::temp_dir().join("nectarlink_saved_pin.txt"));
     if let Some(p) = pin {
         if !p.trim().is_empty() {
             let _ = std::fs::write(&pin_file, p.trim().as_bytes());

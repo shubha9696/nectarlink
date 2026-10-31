@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#![allow(unsafe_code)]
 //! Your PC in Your Pocket (§3.11 P2): exposes the PC's `Downloads`,
 //! `Documents`, `Desktop`, and `Pictures` folders to paired phones over the
 //! NectarLink storage service when `share_pc_storage` is enabled in Settings.
@@ -29,17 +30,12 @@ impl PcStorage {
         let mut roots = Vec::new();
         #[cfg(windows)]
         {
-            unsafe {
-                let mask = windows::Win32::Storage::FileSystem::GetLogicalDrives();
-                for i in 0..26 {
-                    if (mask & (1 << i)) != 0 {
-                        let letter = (b'A' + i) as char;
-                        let drive_root = format!("{letter}:\\");
-                        let path = PathBuf::from(&drive_root);
-                        if path.exists() {
-                            roots.push((format!("{letter}:"), path));
-                        }
-                    }
+            for letter in b'C'..=b'Z' {
+                let letter = letter as char;
+                let drive_root = format!("{letter}:\\");
+                let path = PathBuf::from(&drive_root);
+                if path.is_dir() {
+                    roots.push((format!("{letter}:"), path));
                 }
             }
         }
