@@ -1589,7 +1589,7 @@ mod imp {
                     src_w as i32,
                     src_h as i32,
                     SRCCOPY,
-                ).is_ok()
+                ).as_bool()
             };
 
             // Draw the mouse cursor at its scaled position so the phone user sees where they point.
