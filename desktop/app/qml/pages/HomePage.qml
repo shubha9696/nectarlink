@@ -2052,11 +2052,12 @@ Item {
                             iconPath: Icons.globe
                             shortTitle: qsTr("Hotspot")
                             label: qsTr("Instant Hotspot")
-                            active: phoneControls.hotspotActive
+                            active: (phoneControls.state && phoneControls.state.hotspot !== undefined) ? Boolean(phoneControls.state.hotspot) : phoneControls.hotspotActive
                             feature: ({ state: "available" })
                             onClicked: {
-                                phoneControls.hotspotActive = !phoneControls.hotspotActive
-                                AppController.setPhoneToggle(home.deviceId, "hotspot", String(phoneControls.hotspotActive))
+                                const nextState = !active
+                                phoneControls.hotspotActive = nextState
+                                AppController.setPhoneToggle(home.deviceId, "hotspot", String(nextState))
                             }
                         }
                     }

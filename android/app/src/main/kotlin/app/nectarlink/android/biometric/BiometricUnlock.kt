@@ -33,6 +33,7 @@ object BiometricUnlock {
                     object : BiometricPrompt.AuthenticationCallback() {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
                             core.pcUnlock(pcId)
+                            app.nectarlink.android.core.PcLockManager.setPcLocked(false)
                             Toast.makeText(context, "Unlocking PC...", Toast.LENGTH_SHORT).show()
                             onSuccess()
                         }
@@ -45,10 +46,12 @@ object BiometricUnlock {
             } catch (e: Exception) {
                 // Fallback: send unlock signal directly
                 core.pcUnlock(pcId)
+                app.nectarlink.android.core.PcLockManager.setPcLocked(false)
                 onSuccess()
             }
         } else {
             core.pcUnlock(pcId)
+            app.nectarlink.android.core.PcLockManager.setPcLocked(false)
             onSuccess()
         }
     }

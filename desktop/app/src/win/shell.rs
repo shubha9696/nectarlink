@@ -246,7 +246,7 @@ pub fn unlock() -> Result<(), String> {
 
 /// Returns `true` if the Windows workstation is currently locked (Winlogon desktop is active).
 pub fn is_locked() -> bool {
-    extern "system" {
+    unsafe extern "system" {
         fn OpenInputDesktop(dw_flags: u32, f_inherit: i32, dw_desired_access: u32) -> isize;
         fn CloseDesktop(h_desktop: isize) -> i32;
     }

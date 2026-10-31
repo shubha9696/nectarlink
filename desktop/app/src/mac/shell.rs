@@ -99,6 +99,18 @@ pub fn run_command(command: &str) -> Result<(), String> {
         .map_err(|e| format!("failed to run command: {e}"))
 }
 
+pub fn restart() -> Result<(), String> {
+    Ok(())
+}
+
+pub fn unlock() -> Result<(), String> {
+    Ok(())
+}
+
+pub fn is_locked() -> bool {
+    false
+}
+
 mod urlencoding {
     pub fn encode(s: &str) -> String {
         let mut out = String::new();
