@@ -894,13 +894,15 @@ fun PcMirrorView(
                             core.remoteButton(pcId, "right", "click")
                             lastTapUpTimeMs = 0L
                         } else if (maxPointers == 1 && elapsed <= tapTimeoutMs && totalMoved <= tapSlop * 1.5f && touchStartedInVideo) {
-                            // Single tap: Send click at exact touch position!
+                            // Single tap / Double tap: direct click at touch position
                             core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.DOWN, lastX, lastY))
                             core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.UP, lastX, lastY))
+                            core.remoteButton(pcId, "left", "click")
                             lastTapUpTimeMs = upTime
                             lastTapPos = downPos
-                        } else if (maxPointers == 1 && elapsed > 450 && totalMoved <= tapSlop * 2f && touchStartedInVideo) {
-                            // Long press: Right-click at exact touch position!
+                        } else if (maxPointers == 1 && elapsed > 400 && totalMoved <= tapSlop * 2f && touchStartedInVideo) {
+                            // Long press: Right-click at exact touch position with haptic feedback!
+                            view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
                             core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.MOVE, lastX, lastY))
                             core.remoteButton(pcId, "right", "click")
                             lastTapUpTimeMs = 0L
@@ -1032,6 +1034,17 @@ fun PcMirrorView(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            TextButton(
+                                onClick = {
+                                    bumpOverlay()
+                                    app.nectarlink.android.biometric.BiometricUnlock.unlock(context, pcId, core)
+                                },
+                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(36.dp),
+                            ) {
+                                Text("Fingerprint Unlock", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                            }
                             TextButton(
                                 onClick = {
                                     bumpOverlay()
@@ -1372,9 +1385,18 @@ fun PcMirrorView(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 FilledTonalButton(
+                    onClick = {
+                        app.nectarlink.android.biometric.BiometricUnlock.unlock(context, pcId, core)
+                    },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
+                ) {
+                    Text("Unlock PC", maxLines = 1)
+                }
+                OutlinedButton(
                     onClick = { showFloatingTouchpad = !showFloatingTouchpad },
-                    modifier = Modifier.weight(1.15f),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
                 ) {
                     Text(if (showFloatingTouchpad) "Hide Pad" else "Touchpad", maxLines = 1)
                 }

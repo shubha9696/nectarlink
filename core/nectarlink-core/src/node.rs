@@ -1247,6 +1247,11 @@ impl Shared {
         if let Some(usb_addr) = self.usb_peer_addr(&peer) {
             addr = addr.with_ip_addr(usb_addr);
         }
+        if let Some((_, addrs)) = lock(&self.lan_seen).get(&peer) {
+            for &a in addrs {
+                addr = addr.with_ip_addr(a);
+            }
+        }
         let conn = tokio::time::timeout(DIAL_TIMEOUT, self.endpoint.connect(addr, ALPN_SESSION))
             .await
             .map_err(|_| Error::Timeout)?

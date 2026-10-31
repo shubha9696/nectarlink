@@ -685,6 +685,8 @@ async fn send_multicast_announcement(shared: &Shared, udp: &UdpSocket, bound_por
     let Ok(bytes) = serde_json::to_vec(&dto) else { return };
     let target = SocketAddr::V4(SocketAddrV4::new(LOCALSEND_MULTICAST_ADDR, LOCALSEND_DEFAULT_PORT));
     let _ = udp.send_to(&bytes, target).await;
+    let bcast = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::BROADCAST, LOCALSEND_DEFAULT_PORT));
+    let _ = udp.send_to(&bytes, bcast).await;
     if bound_port != LOCALSEND_DEFAULT_PORT && bound_port != 0 {
         let custom_target = SocketAddr::V4(SocketAddrV4::new(LOCALSEND_MULTICAST_ADDR, bound_port));
         let _ = udp.send_to(&bytes, custom_target).await;

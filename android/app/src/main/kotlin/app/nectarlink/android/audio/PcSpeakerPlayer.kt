@@ -57,7 +57,7 @@ class PcSpeakerPlayer(
         val frameBytes = safeChannels * 2
         // Cap queued backlog at ~40 ms so Wi-Fi bursts never build up latency
         // and we never need to flush the hardware AudioTrack.
-        val maxQueuedBytes = (safeRate * frameBytes * 40) / 1000
+        val maxQueuedBytes = (safeRate * frameBytes * 16) / 1000
 
         synchronized(queue) {
             while (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
@@ -173,9 +173,9 @@ class PcSpeakerPlayer(
                     // Wait up to 8 ms to accumulate a ~10 ms pre-buffer cushion on stream start
                     // so minor Wi-Fi jitter never causes an initial underrun while keeping latency minimal.
                     val frameBytes = first.channels * 2
-                    val prebufferTarget = (first.sampleRate * frameBytes * 10) / 1000
+                    val prebufferTarget = (first.sampleRate * frameBytes * 2) / 1000
                     var waitedMs = 0
-                    while (queuedBytes + first.pcm.size < prebufferTarget && waitedMs < 8) {
+                    while (queuedBytes + first.pcm.size < prebufferTarget && waitedMs < 3) {
                         Thread.sleep(2)
                         waitedMs += 2
                     }
@@ -188,7 +188,7 @@ class PcSpeakerPlayer(
 
                 val startedWriteNs = System.nanoTime()
                 runCatching {
-                    activeTrack.write(first.pcm, 0, first.pcm.size, AudioTrack.WRITE_BLOCKING)
+                    activeTrack.write(first.pcm, 0, first.pcm.size, AudioTrack.WRITE_NON_BLOCKING)
                 }.onFailure {
                     Log.w(TAG, "AudioTrack write failed", it)
                 }
@@ -232,12 +232,13 @@ class PcSpeakerPlayer(
         }
         val frameBytes = channels * 2
         // ~24 ms hardware buffer floor balances low latency with Wi-Fi jitter resilience.
-        val targetBuf = minBuf.coerceAtLeast((sampleRate * frameBytes * 24) / 1000)
+        val targetBuf = minBuf.coerceAtLeast((sampleRate * frameBytes * 10) / 1000)
 
         return runCatching {
             val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setFlags(AudioAttributes.FLAG_LOW_LATENCY)
                 .build()
             val format = AudioFormat.Builder()
                 .setSampleRate(sampleRate)

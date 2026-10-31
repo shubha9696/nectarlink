@@ -364,9 +364,9 @@ pub const DEVICE_TOGGLES: &[(&str, bool)] = &[
     // Browsing the phone's storage on a PC is opt-in.
     ("storage", false),
     // Viewing this PC's screen on a phone is opt-in.
-    ("pc_mirror", false),
+    ("pc_mirror", true),
     // Controlling this PC's mouse and keyboard is opt-in.
-    ("remote_input", false),
+    ("remote_input", true),
     // Running custom Deck commands on this PC is opt-in.
     ("commands", false),
     // Browsing the PC's files from anywhere is opt-in.

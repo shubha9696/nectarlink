@@ -2005,6 +2005,19 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
     fun ring(id: String, on: Boolean) = command { it.ring(id, on) }
 
     /** Reboots a PC remotely */
+    /** Unlocks a PC remotely via biometric fingerprint */
+    fun pcUnlock(id: String) {
+        scope.launch {
+            startJob?.join()
+            val node = node ?: return@launch
+            try {
+                node.pcUnlock(id)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     fun pcRestart(id: String) {
         scope.launch {
             startJob?.join()

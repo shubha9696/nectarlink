@@ -2029,8 +2029,7 @@ Item {
                             shortTitle: qsTr("Wi‑Fi")
                             label: qsTr("Wi‑Fi")
                             active: phoneControls.state ? Boolean(phoneControls.state.wifi) : false
-                            feature: phoneControls.wifiFeature
-                            onLockedClicked: phoneControls.hoveredLockedFeature = (phoneControls.hoveredLockedFeature === feature ? ({}) : feature)
+                            feature: ({ state: "available" })
                             onClicked: {
                                 if (active)
                                     phoneControls.confirmWifiOff = true
@@ -2054,8 +2053,7 @@ Item {
                             shortTitle: qsTr("Hotspot")
                             label: qsTr("Instant Hotspot")
                             active: phoneControls.hotspotActive
-                            feature: phoneControls.wifiFeature
-                            onLockedClicked: phoneControls.hoveredLockedFeature = (phoneControls.hoveredLockedFeature === feature ? ({}) : feature)
+                            feature: ({ state: "available" })
                             onClicked: {
                                 phoneControls.hotspotActive = !phoneControls.hotspotActive
                                 AppController.setPhoneToggle(home.deviceId, "hotspot", String(phoneControls.hotspotActive))

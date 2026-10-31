@@ -103,7 +103,7 @@ mod imp {
     /// Chunk size for hydrating files via `CF_OPERATION_TYPE_TRANSFER_DATA` (must be
     /// a multiple of 4096 bytes for non-EOF chunks).
     #[cfg(windows)]
-    const HYDRATE_CHUNK_BYTES: usize = 256 * 1024;
+    const HYDRATE_CHUNK_BYTES: usize = 2 * 1024 * 1024;
 
     #[cfg(windows)]
     fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -711,7 +711,8 @@ mod imp {
         let mut wide_names: Vec<Vec<u16>> = Vec::with_capacity(entries.len());
         let mut identities: Vec<Vec<u8>> = Vec::with_capacity(entries.len());
         for entry in entries {
-            wide_names.push(to_wide_null(&entry.name));
+            let clean_name = nectarlink_core::storable_name(&entry.name);
+            wide_names.push(to_wide_null(&clean_name));
             let rel = if parent_rel.is_empty() {
                 entry.name.clone()
             } else {
@@ -1156,7 +1157,8 @@ mod imp {
         let mut wide_names: Vec<Vec<u16>> = Vec::with_capacity(missing.len());
         let mut identities: Vec<Vec<u8>> = Vec::with_capacity(missing.len());
         for entry in &missing {
-            wide_names.push(to_wide_null(&entry.name));
+            let clean_name = nectarlink_core::storable_name(&entry.name);
+            wide_names.push(to_wide_null(&clean_name));
             let rel = if rel_folder.is_empty() {
                 entry.name.clone()
             } else {

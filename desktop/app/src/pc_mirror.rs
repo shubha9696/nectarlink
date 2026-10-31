@@ -248,6 +248,8 @@ mod imp {
                 mirror_keys::UP => win::input::press_key("up", &[]),
                 mirror_keys::DOWN => win::input::press_key("down", &[]),
                 mirror_keys::TAB => win::input::press_key("tab", &[]),
+                "right_click" => win::input::mouse_button(nectarlink_core::MouseButton::Right, nectarlink_core::ButtonAction::Click),
+                "left_click" | "click" => win::input::mouse_button(nectarlink_core::MouseButton::Left, nectarlink_core::ButtonAction::Click),
                 mirror_keys::NOTIFICATIONS => win::input::press_key("n", &[KeyMod::Win]),
                 _ => {}
             },
@@ -1572,7 +1574,7 @@ mod imp {
                     0,
                     0,
                     SRCCOPY,
-                ).as_bool()
+                ).is_ok()
             } else {
                 let _ = SetStretchBltMode(hdc_mem, windows::Win32::Graphics::Gdi::COLORONCOLOR);
                 StretchBlt(
@@ -1587,7 +1589,7 @@ mod imp {
                     src_w as i32,
                     src_h as i32,
                     SRCCOPY,
-                ).as_bool()
+                ).is_ok()
             };
 
             // Draw the mouse cursor at its scaled position so the phone user sees where they point.

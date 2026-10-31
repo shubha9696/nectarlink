@@ -170,6 +170,7 @@ pub enum PowerAction {
     Lock,
     Sleep,
     Restart,
+    Unlock,
 }
 
 impl PowerAction {
@@ -178,6 +179,7 @@ impl PowerAction {
             PowerAction::Lock => "lock",
             PowerAction::Sleep => "sleep",
             PowerAction::Restart => "restart",
+            PowerAction::Unlock => "unlock",
         }
     }
 
@@ -186,6 +188,7 @@ impl PowerAction {
             "lock" => Some(PowerAction::Lock),
             "sleep" => Some(PowerAction::Sleep),
             "restart" => Some(PowerAction::Restart),
+            "unlock" => Some(PowerAction::Unlock),
             _ => None,
         }
     }

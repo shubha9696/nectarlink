@@ -234,3 +234,12 @@ pub fn restart() -> Result<(), String> {
     let _ = Command::new("shutdown.exe").args(["/r", "/t", "0"]).spawn();
     Ok(())
 }
+
+
+pub fn unlock() -> Result<(), String> {
+    // Wake display and dismiss lock curtain
+    super::input::press_key("space", &[]);
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    super::input::press_key("space", &[]);
+    Ok(())
+}

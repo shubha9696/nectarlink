@@ -130,22 +130,29 @@ pub fn mirror_touch(action: TouchAction, x: f32, y: f32) {
     }
     let ax = (x.clamp(0.0, 1.0) * 65535.0).round() as i32;
     let ay = (y.clamp(0.0, 1.0) * 65535.0).round() as i32;
-    let flags = match action {
+    match action {
         TouchAction::Down => {
             if let Ok(mut s) = STATE.lock() {
                 s.held_left = true;
             }
-            MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN
+            send_inputs(&[
+                mouse_input(ax, ay, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE),
+                mouse_input(ax, ay, 0, MOUSEEVENTF_LEFTDOWN),
+            ]);
         }
-        TouchAction::Move => MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+        TouchAction::Move => {
+            send_inputs(&[mouse_input(ax, ay, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE)]);
+        }
         TouchAction::Up => {
             if let Ok(mut s) = STATE.lock() {
                 s.held_left = false;
             }
-            MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP
+            send_inputs(&[
+                mouse_input(ax, ay, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE),
+                mouse_input(ax, ay, 0, MOUSEEVENTF_LEFTUP),
+            ]);
         }
-    };
-    send_inputs(&[mouse_input(ax, ay, 0, flags)]);
+    }
 }
 
 /// Presses, releases or clicks a mouse button.

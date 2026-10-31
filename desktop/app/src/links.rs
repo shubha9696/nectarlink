@@ -41,6 +41,7 @@ pub fn power(action: PowerAction) -> Result<(), String> {
         PowerAction::Lock => shell::lock(),
         PowerAction::Sleep => shell::sleep(),
         PowerAction::Restart => shell::restart(),
+        PowerAction::Unlock => shell::unlock(),
     }
 }
 

@@ -129,20 +129,34 @@ class ConnectionService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        when (intent?.action) {
+                when (intent?.action) {
             "ACTION_LOCK_PC" -> {
                 val app = application as? NectarlinkApplication
-                val onlineDevice = app?.core?.state?.value?.devices?.firstOrNull { it.online }
-                onlineDevice?.let { dev ->
-                    app?.core?.pcPower(dev.id, sleep = false)
+                val devId = intent.getStringExtra("device_id")
+                    ?: app?.core?.state?.value?.devices?.firstOrNull { it.online }?.id
+                    ?: app?.core?.state?.value?.devices?.firstOrNull()?.id
+                devId?.let { id ->
+                    app?.core?.pcPower(id, sleep = false)
                 }
                 return START_STICKY
             }
             "ACTION_RESTART_PC" -> {
                 val app = application as? NectarlinkApplication
-                val onlineDevice = app?.core?.state?.value?.devices?.firstOrNull { it.online }
-                onlineDevice?.let { dev ->
-                    app?.core?.pcRestart(dev.id)
+                val devId = intent.getStringExtra("device_id")
+                    ?: app?.core?.state?.value?.devices?.firstOrNull { it.online }?.id
+                    ?: app?.core?.state?.value?.devices?.firstOrNull()?.id
+                devId?.let { id ->
+                    app?.core?.pcRestart(id)
+                }
+                return START_STICKY
+            }
+            "ACTION_UNLOCK_PC" -> {
+                val app = application as? NectarlinkApplication
+                val devId = intent.getStringExtra("device_id")
+                    ?: app?.core?.state?.value?.devices?.firstOrNull { it.online }?.id
+                    ?: app?.core?.state?.value?.devices?.firstOrNull()?.id
+                devId?.let { id ->
+                    app?.core?.pcUnlock(id)
                 }
                 return START_STICKY
             }
@@ -242,7 +256,7 @@ class ConnectionService : LifecycleService() {
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-        if (status.connected.isNotEmpty()) {
+                if (status.connected.isNotEmpty()) {
             val controlPcIntent = PendingIntent.getActivity(
                 this, 10,
                 Intent(this, app.nectarlink.android.ui.MainActivity::class.java).apply {
@@ -264,11 +278,24 @@ class ConnectionService : LifecycleService() {
             val sendFiles = PendingIntent.getActivity(
                 this, 3, SendActivity.sendFilesIntent(this), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            builder.addAction(0, "Control PC", controlPcIntent)
-            builder.addAction(0, "Lock PC", lockPcIntent)
-            builder.addAction(0, "Restart PC", restartPcIntent)
-            builder.addAction(0, getString(R.string.action_send_files), sendFiles)
-            builder.setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText("Connected to \"${status.connected}\""))
+
+            try {
+                val remoteViews = android.widget.RemoteViews(packageName, R.layout.notification_connected).apply {
+                    setTextViewText(R.id.notif_title, text)
+                    setOnClickPendingIntent(R.id.btn_control, controlPcIntent)
+                    setOnClickPendingIntent(R.id.btn_lock, lockPcIntent)
+                    setOnClickPendingIntent(R.id.btn_restart, restartPcIntent)
+                    setOnClickPendingIntent(R.id.btn_files, sendFiles)
+                }
+                builder.setCustomContentView(remoteViews)
+                builder.setCustomBigContentView(remoteViews)
+                builder.setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            } catch (_: Exception) {}
+
+            builder.addAction(0, "Control", controlPcIntent)
+            builder.addAction(0, "Lock", lockPcIntent)
+            builder.addAction(0, "Restart", restartPcIntent)
+            builder.addAction(0, "Files", sendFiles)
         }
         return builder.build()
     }

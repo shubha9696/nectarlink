@@ -288,7 +288,7 @@ Window {
                 if (!down || !win.canControl) return
                 // About 60 a second is plenty for a finger.
                 const now = Date.now()
-                if (now - lastMove < 16) return
+                if (now - lastMove < 7) return
                 lastMove = now
                 const p = video.at(mouse.x, mouse.y)
                 Mirror.touch(win.mirrorKey, "move", p.x, p.y)
