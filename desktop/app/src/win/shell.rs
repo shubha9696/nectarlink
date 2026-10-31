@@ -246,11 +246,14 @@ pub fn unlock() -> Result<(), String> {
 
 /// Returns `true` if the Windows workstation is currently locked (Winlogon desktop is active).
 pub fn is_locked() -> bool {
-    use windows::Win32::UI::WindowsAndMessaging::{CloseDesktop, OpenInputDesktop};
+    extern "system" {
+        fn OpenInputDesktop(dw_flags: u32, f_inherit: i32, dw_desired_access: u32) -> isize;
+        fn CloseDesktop(h_desktop: isize) -> i32;
+    }
     unsafe {
-        let desk = OpenInputDesktop(0, false, windows::Win32::Security::STANDARD_RIGHTS_REQUIRED);
-        if let Ok(desk) = desk {
-            let _ = CloseDesktop(desk);
+        let desk = OpenInputDesktop(0, 0, 0x0001);
+        if desk != 0 {
+            CloseDesktop(desk);
             false
         } else {
             true
