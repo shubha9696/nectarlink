@@ -149,8 +149,8 @@ fun RemoteScreen(
         }
     }
 
-    var mode by rememberSaveable(sessionId) { mutableStateOf(initialMode) }
-    LaunchedEffect(sessionId) {
+    var mode by rememberSaveable(sessionId, initialMode) { mutableStateOf(initialMode) }
+    LaunchedEffect(sessionId, initialMode) {
         mode = initialMode
     }
     var screenFullScreen by rememberSaveable { mutableStateOf(false) }
@@ -219,12 +219,25 @@ fun RemoteScreen(
                 ) {}
             }
 
-            // Mode switcher: Touchpad | Air mouse | Presentation | Screen
+            // Mode switcher: Screen (Touch control) | Touchpad | Air mouse | Presentation
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                SegmentedButton(
+                    selected = mode == RemoteMode.Screen,
+                    onClick = { mode = RemoteMode.Screen },
+                    shape = SegmentedButtonDefaults.itemShape(0, 4),
+                    icon = {},
+                    modifier = Modifier.weight(0.95f),
+                ) {
+                    Text(
+                        stringResource(R.string.remote_mode_screen),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 SegmentedButton(
                     selected = mode == RemoteMode.Touchpad,
                     onClick = { mode = RemoteMode.Touchpad },
-                    shape = SegmentedButtonDefaults.itemShape(0, 4),
+                    shape = SegmentedButtonDefaults.itemShape(1, 4),
                     icon = {},
                     modifier = Modifier.weight(1f),
                 ) {
@@ -237,7 +250,7 @@ fun RemoteScreen(
                 SegmentedButton(
                     selected = mode == RemoteMode.AirMouse,
                     onClick = { mode = RemoteMode.AirMouse },
-                    shape = SegmentedButtonDefaults.itemShape(1, 4),
+                    shape = SegmentedButtonDefaults.itemShape(2, 4),
                     icon = {},
                     modifier = Modifier.weight(1f),
                 ) {
@@ -250,25 +263,12 @@ fun RemoteScreen(
                 SegmentedButton(
                     selected = mode == RemoteMode.Presentation,
                     onClick = { mode = RemoteMode.Presentation },
-                    shape = SegmentedButtonDefaults.itemShape(2, 4),
+                    shape = SegmentedButtonDefaults.itemShape(3, 4),
                     icon = {},
                     modifier = Modifier.weight(1.1f),
                 ) {
                     Text(
                         stringResource(R.string.remote_mode_presentation),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                SegmentedButton(
-                    selected = mode == RemoteMode.Screen,
-                    onClick = { mode = RemoteMode.Screen },
-                    shape = SegmentedButtonDefaults.itemShape(3, 4),
-                    icon = {},
-                    modifier = Modifier.weight(0.95f),
-                ) {
-                    Text(
-                        stringResource(R.string.remote_mode_screen),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )

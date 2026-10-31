@@ -241,13 +241,16 @@ pub fn unlock() -> Result<(), String> {
 }
 
 pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
-    // 1. Wake display and dismiss lock curtain
-    super::input::press_key("space", &[]);
-    std::thread::sleep(std::time::Duration::from_millis(400));
-    super::input::press_key("space", &[]);
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        VK_0, VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_7, VK_8, VK_9, VK_RETURN, VK_SPACE,
+    };
+    // 1. Wake display and dismiss lock curtain with hardware scan code
+    super::input::send_scancode_key(VK_SPACE, false);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    super::input::send_scancode_key(VK_SPACE, false);
 
     // 2. Allow Windows 11 lock screen slide animation to fully complete and focus PIN input
-    std::thread::sleep(std::time::Duration::from_millis(1200));
+    std::thread::sleep(std::time::Duration::from_millis(1500));
 
     // 3. Resolve PIN from argument or saved configuration
     let resolved_pin = pin.map(str::to_owned).or_else(|| {
@@ -258,14 +261,26 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
         let clean_pin = pin_str.trim();
         if !clean_pin.is_empty() {
             for ch in clean_pin.chars() {
-                let key_str = ch.to_string();
-                super::input::press_key(&key_str, &[]);
-                std::thread::sleep(std::time::Duration::from_millis(70));
+                let vk = match ch {
+                    '0' => VK_0,
+                    '1' => VK_1,
+                    '2' => VK_2,
+                    '3' => VK_3,
+                    '4' => VK_4,
+                    '5' => VK_5,
+                    '6' => VK_6,
+                    '7' => VK_7,
+                    '8' => VK_8,
+                    '9' => VK_9,
+                    _ => continue,
+                };
+                super::input::send_scancode_key(vk, false);
+                std::thread::sleep(std::time::Duration::from_millis(100));
             }
-            std::thread::sleep(std::time::Duration::from_millis(150));
-            super::input::press_key("enter", &[]);
-            std::thread::sleep(std::time::Duration::from_millis(300));
-            super::input::press_key("enter", &[]);
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            super::input::send_scancode_key(VK_RETURN, false);
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            super::input::send_scancode_key(VK_RETURN, false);
         }
     }
     Ok(())

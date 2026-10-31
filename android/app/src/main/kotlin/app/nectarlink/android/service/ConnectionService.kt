@@ -174,6 +174,7 @@ class ConnectionService : LifecycleService() {
             stopSelf()
             getSystemService(NotificationManager::class.java)?.cancel(ONGOING_ID)
             (application as? NectarlinkApplication)?.onBackgroundServiceDisabled()
+            android.os.Process.killProcess(android.os.Process.myPid())
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_STOP_RINGING) {
@@ -262,7 +263,7 @@ class ConnectionService : LifecycleService() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(openApp())
             .setOngoing(true)
-            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
 
@@ -304,12 +305,18 @@ class ConnectionService : LifecycleService() {
                 Intent(this, ConnectionService::class.java).setAction("ACTION_LOCK_PC"),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
+            val quitIntent = PendingIntent.getService(
+                this, 19,
+                Intent(this, ConnectionService::class.java).setAction(ACTION_STOP_SERVICE),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
 
             val remoteViews = android.widget.RemoteViews(packageName, R.layout.notification_connected).apply {
                 setTextViewText(R.id.notif_title, text)
                 setOnClickPendingIntent(R.id.btn_control, controlPcIntent)
                 setOnClickPendingIntent(R.id.btn_restart, restartPcIntent)
                 setOnClickPendingIntent(R.id.btn_files, sendFilesIntent)
+                setOnClickPendingIntent(R.id.btn_quit, quitIntent)
                 if (isLocked) {
                     setTextViewText(R.id.btn_lock, "Unlock")
                     setOnClickPendingIntent(R.id.btn_lock, unlockPcIntent)
@@ -319,6 +326,13 @@ class ConnectionService : LifecycleService() {
                 }
             }
             builder.clearActions()
+            builder.addAction(0, "Control", controlPcIntent)
+            if (isLocked) {
+                builder.addAction(0, "Unlock", unlockPcIntent)
+            } else {
+                builder.addAction(0, "Lock", lockPcIntent)
+            }
+            builder.addAction(0, "Restart", restartPcIntent)
             builder.setCustomContentView(remoteViews)
             builder.setCustomBigContentView(remoteViews)
             builder.setStyle(NotificationCompat.DecoratedCustomViewStyle())
@@ -357,7 +371,7 @@ class ConnectionService : LifecycleService() {
         private const val BANKING_IDLE_MS = 15_000L
         private const val ONGOING_ID = 1
         private const val RINGING_ID = 2
-        private const val CHANNEL_CONNECTION = "connection"
+        private const val CHANNEL_CONNECTION = "connection_active_v4"
         private const val CHANNEL_RINGING = "ringing"
         private const val ACTION_STOP_RINGING = "app.nectarlink.action.STOP_RINGING"
         internal const val ACTION_STOP_SERVICE = "app.nectarlink.action.STOP_SERVICE"
@@ -380,10 +394,17 @@ class ConnectionService : LifecycleService() {
 
         private fun createChannels(context: Context) {
             val manager = context.getSystemService(NotificationManager::class.java)
+            runCatching { manager.deleteNotificationChannel("connection") }
+            runCatching { manager.deleteNotificationChannel("connection_active_v2") }
+            runCatching { manager.deleteNotificationChannel("connection_active_v3") }
             manager.createNotificationChannel(
                 NotificationChannel(
-                    CHANNEL_CONNECTION, context.getString(R.string.channel_connection), NotificationManager.IMPORTANCE_LOW,
-                ).apply { setShowBadge(false) },
+                    CHANNEL_CONNECTION, context.getString(R.string.channel_connection), NotificationManager.IMPORTANCE_DEFAULT,
+                ).apply {
+                    setShowBadge(false)
+                    setSound(null, null)
+                    enableVibration(false)
+                },
             )
             manager.createNotificationChannel(
                 NotificationChannel(

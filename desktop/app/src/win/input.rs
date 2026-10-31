@@ -9,7 +9,7 @@ use nectarlink_core::{ButtonAction, KeyMod, MouseButton, PowerAction, SlideActio
 use windows::Win32::UI::{
     Input::KeyboardAndMouse::{
         INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
-        KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL,
+        KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE, MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL,
         MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
         MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
         SendInput, VIRTUAL_KEY, VK_A, VK_B, VK_BACK, VK_C, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE,
@@ -90,6 +90,46 @@ fn unicode_input(unit: u16, up: bool) -> INPUT {
             ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0), wScan: unit, dwFlags: flags, time: 0, dwExtraInfo: 0 },
         },
     }
+}
+
+pub fn send_scancode_key(vk: VIRTUAL_KEY, extended: bool) {
+    let scan = unsafe {
+        windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(
+            vk.0 as u32,
+            windows::Win32::UI::Input::KeyboardAndMouse::MAP_VIRTUAL_KEY_TYPE(0),
+        ) as u16
+    };
+    let mut down_flags = KEYEVENTF_SCANCODE;
+    let mut up_flags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
+    if extended {
+        down_flags |= KEYEVENTF_EXTENDEDKEY;
+        up_flags |= KEYEVENTF_EXTENDEDKEY;
+    }
+    let down = INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: vk,
+                wScan: scan,
+                dwFlags: down_flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    let up = INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: vk,
+                wScan: scan,
+                dwFlags: up_flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    send_inputs(&[down, up]);
 }
 
 /// Moves the mouse cursor relatively by `(dx, dy)` pixels, keeping fractions

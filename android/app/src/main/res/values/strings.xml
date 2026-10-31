@@ -111,7 +111,7 @@
     <string name="elevated_pair_title">Pair NectarLink with Wireless debugging</string>
     <string name="elevated_pair_text">In Wireless debugging, tap Pair device with pairing code, then type the code here.</string>
     <string name="elevated_pair_action">Enter code</string>
-    <string name="elevated_pair_hint">6-digit pairing code</string>
+    <string name="elevated_pair_hint">6-digit code or port &amp; code (e.g. 37895 123456)</string>
     <string name="elevated_pairing">Pairing…</string>
     <string name="elevated_no_dialog">The pairing code isn\'t showing. In Wireless debugging, tap Pair device with pairing code, then type it here.</string>
     <string name="elevated_wrong_code">That code didn\'t work. Check it and type it again.</string>

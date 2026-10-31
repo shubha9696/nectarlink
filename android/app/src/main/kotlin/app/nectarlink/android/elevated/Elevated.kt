@@ -302,12 +302,28 @@ object Elevated {
                     runCatching { connection().pair(LoopbackAdb.HOST, sysPairPort, pairCode) }.getOrNull()
                 } else null
 
-                val mdnsPort = if (sysPaired != true) runCatching { discover(AdbMdns.SERVICE_TYPE_TLS_PAIRING) }.getOrNull() else null
-                val mdnsPaired = if (mdnsPort != null) {
-                    runCatching { connection().pair(LoopbackAdb.HOST, mdnsPort, pairCode) }.getOrNull()
-                } else null
-
-                sysPaired ?: mdnsPaired ?: pairOverLoopback(pairCode)
+                if (sysPaired == true) {
+                    true
+                } else {
+                    coroutineScope {
+                        val mdnsJob = async {
+                            runCatching {
+                                val port = discover(AdbMdns.SERVICE_TYPE_TLS_PAIRING, timeoutMs = 4000L)
+                                if (port != null) connection().pair(LoopbackAdb.HOST, port, pairCode) else null
+                            }.getOrNull()
+                        }
+                        val loopbackJob = async {
+                            runCatching { pairOverLoopback(pairCode) }.getOrNull()
+                        }
+                        val mRes = mdnsJob.await()
+                        if (mRes == true) {
+                            loopbackJob.cancel()
+                            true
+                        } else {
+                            loopbackJob.await() ?: mRes
+                        }
+                    }
+                }
             }
             if (paired == null) {
                 _state.value = State.Failed(Reason.NoPairingDialog)
@@ -370,12 +386,12 @@ object Elevated {
     }
 
     /** The port a wireless debugging service is announced on, if it shows up soon. */
-    private suspend fun discover(service: String): Int? {
+    private suspend fun discover(service: String, timeoutMs: Long = DISCOVERY_MS): Int? {
         val found = CompletableDeferred<Int>()
         val mdns = AdbMdns(context, service) { _: InetAddress?, port: Int -> if (port > 0) found.complete(port) }
         mdns.start()
         return try {
-            withTimeoutOrNull(DISCOVERY_MS) { found.await() }
+            withTimeoutOrNull(timeoutMs) { found.await() }
         } finally {
             mdns.stop()
         }

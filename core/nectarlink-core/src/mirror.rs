@@ -46,11 +46,11 @@ fn pc_mirror_allowed(shared: &Shared, peer: &DeviceId) -> bool {
     shared.toggle_on(peer, PC_MIRROR_TOGGLE)
         || shared.pc_mirror_sessions.lock().unwrap_or_else(|e| e.into_inner()).contains(peer)
 }
-/// Packets waiting to go out, at most. Beyond this the network is behind:
-/// sending more would only add delay. 8 packets provides smooth routing over mobile relays.
-const QUEUE: usize = 8;
+/// Packets waiting to go out, at most. 128 packets ensures high refresh rates (120 FPS)
+/// have smooth buffering without frame starvation or unnecessary resync pauses.
+const QUEUE: usize = 128;
 /// Sound packets waiting to go out, at most (each is a few milliseconds).
-const AUDIO_QUEUE: usize = 24;
+const AUDIO_QUEUE: usize = 64;
 /// Icons in a `mirror.apps` answer, at most, in bytes: the rest go without
 /// (the answer stays well inside a frame).
 const ICONS_BUDGET: usize = 768 * 1024;

@@ -728,25 +728,27 @@ object InputServer {
         }
 
         private fun setHotspot(enable: Boolean) {
+            val shellCmd = if (enable) {
+                "cmd tethering start-tethering 0 || cmd tethering start-tethering wifi || svc wifi start-softap || cmd wifi start-softap || service call connectivity 24 i32 0"
+            } else {
+                "cmd tethering stop-tethering 0 || cmd tethering stop-tethering wifi || svc wifi stop-softap || cmd wifi stop-softap || service call connectivity 25 i32 0"
+            }
+            runCatching {
+                Runtime.getRuntime().exec(arrayOf("sh", "-c", shellCmd)).waitFor()
+            }
             val candidates = if (enable) {
                 listOf(
                     arrayOf("cmd", "tethering", "start-tethering", "0"),
                     arrayOf("cmd", "tethering", "start-tethering", "wifi"),
-                    arrayOf("cmd", "tethering", "start", "wifi"),
                     arrayOf("svc", "wifi", "start-softap"),
                     arrayOf("cmd", "wifi", "start-softap"),
-                    arrayOf("cmd", "connectivity", "start-tethering", "wifi"),
-                    arrayOf("svc", "wifi", "tether", "enable"),
                 )
             } else {
                 listOf(
                     arrayOf("cmd", "tethering", "stop-tethering", "0"),
                     arrayOf("cmd", "tethering", "stop-tethering", "wifi"),
-                    arrayOf("cmd", "tethering", "stop", "wifi"),
                     arrayOf("svc", "wifi", "stop-softap"),
                     arrayOf("cmd", "wifi", "stop-softap"),
-                    arrayOf("cmd", "connectivity", "stop-tethering", "wifi"),
-                    arrayOf("svc", "wifi", "tether", "disable"),
                 )
             }
             for (cmd in candidates) {

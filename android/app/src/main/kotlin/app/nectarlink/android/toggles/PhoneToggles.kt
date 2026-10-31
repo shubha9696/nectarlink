@@ -101,6 +101,7 @@ class PhoneToggles(
             addAction(VOLUME_CHANGED_ACTION)
             addAction(WifiManager.WIFI_STATE_CHANGED_ACTION)
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
+            addAction("android.net.wifi.WIFI_AP_STATE_CHANGED")
         }
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
         pushNow()
@@ -184,9 +185,30 @@ class PhoneToggles(
                 }
                 "hotspot" -> {
                     val on = (value as? PhoneToggleValue.Bool)?.on ?: return false
-                    Elevated.runCommand(if (on) "hotspot on" else "hotspot off")
+                    var executed = false
+                    if (Elevated.running) {
+                        executed = Elevated.runCommand(if (on) "hotspot on" else "hotspot off")
+                    }
+                    if (!executed) {
+                        runCatching {
+                            val intent = Intent().apply {
+                                setClassName("com.android.settings", "com.android.settings.TetherSettings")
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(intent)
+                            executed = true
+                        }.onFailure {
+                            runCatching {
+                                val intent = Intent("android.settings.WIRELESS_SETTINGS").apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(intent)
+                                executed = true
+                            }
+                        }
+                    }
                     schedulePush()
-                    true
+                    executed
                 }
                 "pc_active" -> {
                     val on = (value as? PhoneToggleValue.Bool)?.on ?: return false

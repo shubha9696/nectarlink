@@ -55,9 +55,9 @@ class PcSpeakerPlayer(
         val safeRate = sampleRate.coerceIn(8_000, 96_000)
         val safeChannels = if (channels >= 2) 2 else 1
         val frameBytes = safeChannels * 2
-        // Cap queued backlog at ~8 ms so Wi-Fi bursts never build up latency
-        // and audio stays in exact realtime sync with the PC.
-        val maxQueuedBytes = (safeRate * frameBytes * 8) / 1000
+        // Cap queued backlog at ~25 ms so Wi-Fi packets (960-1920 bytes) are never
+        // prematurely dropped, while keeping audio in imperceptible sub-25ms realtime sync.
+        val maxQueuedBytes = (safeRate * frameBytes * 25) / 1000
 
         synchronized(queue) {
             while (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
