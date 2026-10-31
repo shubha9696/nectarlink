@@ -4423,7 +4423,7 @@ impl NectarlinkNode {
         let node = self.node.clone();
         let src = std::path::PathBuf::from(local_src);
         self.block_on_rt(async move {
-            node.storage_write(peer_id, remote_path, src).await.is_ok()
+            node.storage_write(peer_id, remote_path, &src).await.is_ok()
         })
     }
 
