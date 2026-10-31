@@ -299,18 +299,19 @@ class ConnectionService : LifecycleService() {
                     },
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                 )
-                builder.addAction(0, "Unlock PC", unlockPcIntent)
-                builder.addAction(0, "Control PC", controlPcIntent)
-                builder.addAction(0, "Restart PC", restartPcIntent)
+                builder.addAction(0, "Unlock", unlockPcIntent)
+                builder.addAction(0, "Control", controlPcIntent)
+                builder.addAction(0, "Restart", restartPcIntent)
             } else {
                 val lockPcIntent = PendingIntent.getService(
                     this, 11,
                     Intent(this, ConnectionService::class.java).setAction("ACTION_LOCK_PC"),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                 )
-                builder.addAction(0, "Control PC", controlPcIntent)
-                builder.addAction(0, "Lock PC", lockPcIntent)
-                builder.addAction(0, "Restart PC", restartPcIntent)
+                builder.addAction(0, "Control", controlPcIntent)
+                builder.addAction(0, "Lock", lockPcIntent)
+                builder.addAction(0, "Restart", restartPcIntent)
+                builder.addAction(0, "Files", sendFilesIntent)
             }
         }
         return builder.build()

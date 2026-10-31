@@ -830,7 +830,12 @@ private fun App(
                                     onStopRinging = core::stopRinging,
                                     onPairNew = { pairing = true },
                                     onRefresh = core::refresh,
-                                    onPower = core::pcPower,
+                                    onPower = { id, sleep ->
+                                        core.pcPower(id, sleep)
+                                        if (!sleep) {
+                                            app.nectarlink.android.core.PcLockManager.setPcLocked(true)
+                                        }
+                                    },
                                     onWake = core::wake,
                                     onSetReconnect = core::setReconnect,
                                     onRemote = { id ->
