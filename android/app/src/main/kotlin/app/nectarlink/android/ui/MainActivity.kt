@@ -365,6 +365,7 @@ private fun App(
     var pendingHighlightTarget by rememberSaveable { mutableStateOf<GuideHighlightTarget?>(null) }
     var remotePcId by rememberSaveable { mutableStateOf<String?>(null) }
     var remoteInitialMode by rememberSaveable { mutableStateOf(RemoteMode.Screen) }
+    var remoteSessionId by rememberSaveable { mutableIntStateOf(0) }
     var deckPcId by rememberSaveable { mutableStateOf<String?>(null) }
     var deskPcId by rememberSaveable { mutableStateOf<String?>(null) }
     var recordPcId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -425,6 +426,7 @@ private fun App(
             deskPcId = null
             webcamPcId = null
             remoteInitialMode = requestedRemoteMode
+            remoteSessionId++
             remotePcId = target
             onRemoteConsumed()
         }
@@ -745,6 +747,7 @@ private fun App(
                         core = core,
                         sensitivity = sensitivity,
                         initialMode = remoteInitialMode,
+                        sessionId = remoteSessionId,
                         onBack = { remotePcId = null },
                         modifier = Modifier.fillMaxSize().padding(padding),
                     )
@@ -840,6 +843,7 @@ private fun App(
                                     onSetReconnect = core::setReconnect,
                                     onRemote = { id ->
                                         remoteInitialMode = RemoteMode.Screen
+                                        remoteSessionId++
                                         remotePcId = id
                                     },
                                     onDeck = { id ->

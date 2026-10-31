@@ -275,6 +275,7 @@ class ConnectionService : LifecycleService() {
                 Intent(this, app.nectarlink.android.ui.MainActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                     putExtra("route", "remote/screen")
+                    putExtra("remote_mode", "screen")
                 },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
@@ -317,6 +318,7 @@ class ConnectionService : LifecycleService() {
                     setOnClickPendingIntent(R.id.btn_lock, lockPcIntent)
                 }
             }
+            builder.clearActions()
             builder.setCustomContentView(remoteViews)
             builder.setCustomBigContentView(remoteViews)
             builder.setStyle(NotificationCompat.DecoratedCustomViewStyle())

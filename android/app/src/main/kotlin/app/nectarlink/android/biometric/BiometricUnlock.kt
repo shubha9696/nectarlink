@@ -79,7 +79,6 @@ object BiometricUnlock {
             .setNegativeButton("Cancel", null)
             .show()
     }
-    }
 
     private fun authenticateAndUnlock(
         context: Activity,

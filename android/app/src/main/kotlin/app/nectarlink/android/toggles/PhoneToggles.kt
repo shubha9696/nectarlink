@@ -128,6 +128,7 @@ class PhoneToggles(
         if (canChangeBrightness(context)) add("toggles.brightness")
         add("toggles.wifi")
         add("toggles.bluetooth")
+        add("toggles.hotspot")
     }
 
     /** Reads the current state of all phone quick settings. */
@@ -183,7 +184,8 @@ class PhoneToggles(
                 }
                 "hotspot" -> {
                     val on = (value as? PhoneToggleValue.Bool)?.on ?: return false
-                    Elevated.runCommand(if (on) "cmd tethering start-tethering 0 || svc wifi start-softap" else "cmd tethering stop-tethering 0 || svc wifi stop-softap")
+                    Elevated.runCommand(if (on) "hotspot on" else "hotspot off")
+                    schedulePush()
                     true
                 }
                 "pc_active" -> {

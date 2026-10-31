@@ -130,6 +130,7 @@ fun RemoteScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     initialMode: RemoteMode = RemoteMode.Screen,
+    sessionId: Int = 0,
 ) {
     val view = LocalView.current
     val context = LocalContext.current
@@ -148,8 +149,8 @@ fun RemoteScreen(
         }
     }
 
-    var mode by rememberSaveable(initialMode) { mutableStateOf(initialMode) }
-    LaunchedEffect(initialMode) {
+    var mode by rememberSaveable(sessionId) { mutableStateOf(initialMode) }
+    LaunchedEffect(sessionId) {
         mode = initialMode
     }
     var screenFullScreen by rememberSaveable { mutableStateOf(false) }

@@ -286,20 +286,28 @@ object Elevated {
         lock.withLock {
             _state.value = State.Starting
             val trimmed = code.trim()
-            val tokens = trimmed.split(Regex("[:\\s]+"))
-            val pairCode = tokens[0].filter(Char::isDigit)
-            val explicitPort = tokens.getOrNull(1)?.toIntOrNull()
+            val codeRegex = Regex("""\b(\d{6})\b""")
+            val codeMatch = codeRegex.find(trimmed)
+            val pairCode = codeMatch?.value ?: trimmed.filter(Char::isDigit).take(6)
+
+            val portRegex = Regex("""(?::|\s|^)(\d{4,5})\b""")
+            val portMatches = portRegex.findAll(trimmed).mapNotNull { it.groupValues[1].toIntOrNull() }.filter { it in 1024..65535 && it.toString() != pairCode }
+            val explicitPort = portMatches.firstOrNull()
 
             val paired = if (explicitPort != null) {
                 runCatching { connection().pair(LoopbackAdb.HOST, explicitPort, pairCode) }.getOrDefault(false)
             } else {
-                // Try mDNS first (ultra-fast on Wi-Fi, <200ms)
-                val mdnsPort = runCatching { discover(AdbMdns.SERVICE_TYPE_TLS_PAIRING) }.getOrNull()
+                val sysPairPort = LoopbackAdb.systemPropertyPorts().firstOrNull { it in 1024..65535 }
+                val sysPaired = if (sysPairPort != null) {
+                    runCatching { connection().pair(LoopbackAdb.HOST, sysPairPort, pairCode) }.getOrNull()
+                } else null
+
+                val mdnsPort = if (sysPaired != true) runCatching { discover(AdbMdns.SERVICE_TYPE_TLS_PAIRING) }.getOrNull() else null
                 val mdnsPaired = if (mdnsPort != null) {
                     runCatching { connection().pair(LoopbackAdb.HOST, mdnsPort, pairCode) }.getOrNull()
                 } else null
 
-                mdnsPaired ?: pairOverLoopback(pairCode)
+                sysPaired ?: mdnsPaired ?: pairOverLoopback(pairCode)
             }
             if (paired == null) {
                 _state.value = State.Failed(Reason.NoPairingDialog)
@@ -335,17 +343,16 @@ object Elevated {
      */
     private suspend fun pairOverLoopback(code: String): Boolean? {
         val deadline = System.currentTimeMillis() + DISCOVERY_MS
-        while (true) {
+        while (System.currentTimeMillis() < deadline) {
             val open = LoopbackAdb.openPorts()
             val connectPort = LoopbackAdb.connectPort(open)
             val candidates = open.filter { it != connectPort }
             for (port in candidates) {
                 if (pairOnPort(port, code)) return true
             }
-            if (candidates.isNotEmpty()) return false
-            if (System.currentTimeMillis() >= deadline) return null
             delay(LOOPBACK_RETRY_MS)
         }
+        return null
     }
 
     /** One pairing attempt, given up after [PAIR_MS] (a port that isn't adb's may never answer). */

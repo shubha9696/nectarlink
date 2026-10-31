@@ -38,64 +38,68 @@
         android:orientation="horizontal"
         android:gravity="center">
 
-        <Button
+        <TextView
             android:id="@+id/btn_control"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:layout_marginHorizontal="2dp"
-            android:background="@drawable/bg_widget_button"
+            android:background="@drawable/bg_notif_button"
             android:text="Control"
-            android:textAllCaps="false"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
             android:textColor="#FFFFFFFF"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:singleLine="true"
-            android:padding="0dp" />
+            android:singleLine="true" />
 
-        <Button
+        <TextView
             android:id="@+id/btn_lock"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:layout_marginHorizontal="2dp"
-            android:background="@drawable/bg_widget_button"
+            android:background="@drawable/bg_notif_button"
             android:text="Lock"
-            android:textAllCaps="false"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
             android:textColor="#FFFFFFFF"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:singleLine="true"
-            android:padding="0dp" />
+            android:singleLine="true" />
 
-        <Button
+        <TextView
             android:id="@+id/btn_restart"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:layout_marginHorizontal="2dp"
-            android:background="@drawable/bg_widget_button"
+            android:background="@drawable/bg_notif_button"
             android:text="Restart"
-            android:textAllCaps="false"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
             android:textColor="#FFFFFFFF"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:singleLine="true"
-            android:padding="0dp" />
+            android:singleLine="true" />
 
-        <Button
+        <TextView
             android:id="@+id/btn_files"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
             android:layout_marginHorizontal="2dp"
-            android:background="@drawable/bg_widget_button"
+            android:background="@drawable/bg_notif_button"
             android:text="Send Files"
-            android:textAllCaps="false"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
             android:textColor="#FFFFFFFF"
             android:textSize="11sp"
             android:textStyle="bold"
-            android:singleLine="true"
-            android:padding="0dp" />
+            android:singleLine="true" />
     </LinearLayout>
 </LinearLayout>
