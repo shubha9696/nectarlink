@@ -365,7 +365,7 @@ private fun App(
     var pendingHighlightTarget by rememberSaveable { mutableStateOf<GuideHighlightTarget?>(null) }
     var remotePcId by rememberSaveable { mutableStateOf<String?>(null) }
     var remoteInitialMode by rememberSaveable { mutableStateOf(RemoteMode.Screen) }
-    var remoteSessionId by rememberSaveable { mutableIntStateOf(0) }
+    var remoteSessionId by rememberSaveable { mutableStateOf(0) }
     var deckPcId by rememberSaveable { mutableStateOf<String?>(null) }
     var deskPcId by rememberSaveable { mutableStateOf<String?>(null) }
     var recordPcId by rememberSaveable { mutableStateOf<String?>(null) }
