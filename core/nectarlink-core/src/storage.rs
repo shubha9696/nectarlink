@@ -42,7 +42,7 @@ pub const TOGGLE: &str = "storage";
 pub const REMOTE_FILES_TOGGLE: &str = "remote_files";
 
 const STREAM_TIMEOUT: Duration = Duration::from_secs(30);
-const CHUNK_SIZE: usize = 64 * 1024;
+const CHUNK_SIZE: usize = 1024 * 1024;
 const MAX_OPEN_FOLDERS_PER_PEER: usize = 256;
 const CHANGED_DEBOUNCE: Duration = Duration::from_millis(250);
 

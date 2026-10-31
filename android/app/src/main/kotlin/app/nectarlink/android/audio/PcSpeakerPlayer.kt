@@ -55,8 +55,8 @@ class PcSpeakerPlayer(
         val safeRate = sampleRate.coerceIn(8_000, 96_000)
         val safeChannels = if (channels >= 2) 2 else 1
         val frameBytes = safeChannels * 2
-        // Cap queued backlog at ~25 ms to prevent latency drift and keep true realtime 0 ms sync.
-        val maxQueuedBytes = (safeRate * frameBytes * 25) / 1000
+        // Cap queued backlog at ~30 ms to prevent latency drift and keep true realtime 0 ms sync.
+        val maxQueuedBytes = (safeRate * frameBytes * 30) / 1000
 
         synchronized(queue) {
             while (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
@@ -173,40 +173,22 @@ class PcSpeakerPlayer(
                 }
 
                 val frameBytes = (if (currentChannels >= 2) 2 else 1) * 2
-                // Check unplayed buffer latency to eliminate clock drift & snap to 0 ms realtime
-                val playedFrames = activeTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL
-                val bufferedFrames = (totalFramesWritten - playedFrames).coerceAtLeast(0L)
-                val bufferedMs = if (currentRate > 0) (bufferedFrames * 1000L) / currentRate else 0L
 
-                if (bufferedMs > 35L) {
-                    runCatching {
-                        activeTrack.pause()
-                        activeTrack.flush()
-                        activeTrack.play()
-                    }
-                    totalFramesWritten = 0L
-                    synchronized(queue) {
-                        queue.clear()
-                        queuedBytes = 0
+                // Drop stale queue backlog if network jitter caused packets to accumulate so playback stays true 0 ms
+                synchronized(queue) {
+                    while (queue.size > 2) {
+                        val stale = queue.pollFirst() ?: break
+                        queuedBytes = (queuedBytes - stale.pcm.size).coerceAtLeast(0)
                     }
                 }
 
                 var offset = 0
                 val total = first.pcm.size
-                var spinCount = 0
                 while (offset < total) {
-                    val written = activeTrack.write(first.pcm, offset, total - offset, AudioTrack.WRITE_NON_BLOCKING)
+                    val written = activeTrack.write(first.pcm, offset, total - offset, AudioTrack.WRITE_BLOCKING)
                     if (written > 0) {
                         totalFramesWritten += (written / frameBytes)
                         offset += written
-                        spinCount = 0
-                    } else if (written == 0) {
-                        spinCount++
-                        if (spinCount > 5) {
-                            // Buffer saturated; drop trailing partial to avoid falling behind
-                            break
-                        }
-                        Thread.sleep(2)
                     } else {
                         Log.w(TAG, "AudioTrack write failed with code $written")
                         break
@@ -246,7 +228,7 @@ class PcSpeakerPlayer(
             Log.w(TAG, "invalid minBufferSize=$minBuf for rate=$sampleRate channels=$channels")
             return null
         }
-        val targetBuf = minBuf
+        val targetBuf = (minBuf * 2).coerceAtLeast(minBuf)
 
         return runCatching {
             val attrs = AudioAttributes.Builder()
@@ -269,7 +251,7 @@ class PcSpeakerPlayer(
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 val frameBytes = (if (channels >= 2) 2 else 1) * 2
                 val minFrames = (minBuf / frameBytes).coerceAtLeast(1)
-                runCatching { track.bufferSizeInFrames = minFrames }
+                runCatching { track.bufferSizeInFrames = (minFrames * 2).coerceAtLeast(minFrames) }
             }
             track
         }.getOrElse {

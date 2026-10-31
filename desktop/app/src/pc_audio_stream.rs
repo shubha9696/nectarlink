@@ -279,7 +279,7 @@ mod imp {
         };
 
         let mut enhancer = SpeakerEnhancer::new(rate);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(8);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(64);
         let send_node = node.clone();
         core_host::spawn(async move {
             while let Some((r, ch, pcm)) = rx.recv().await {
@@ -407,7 +407,7 @@ mod imp {
         };
 
         let mut enhancer = SpeakerEnhancer::new(rate);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(8);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(64);
         let send_node = node.clone();
         core_host::spawn(async move {
             while let Some((r, ch, pcm)) = rx.recv().await {

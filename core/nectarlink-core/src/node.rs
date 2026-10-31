@@ -3914,6 +3914,8 @@ async fn bind_endpoint(
         .stream_receive_window(VarInt::from_u32(tuning.stream_window))
         .receive_window(VarInt::from_u32(tuning.connection_window))
         .send_window(u64::from(tuning.connection_window))
+        .datagram_receive_buffer_size(Some(1024 * 1024))
+        .datagram_send_buffer_size(1024 * 1024)
         .congestion_controller_factory(controller)
         .build();
     let mut builder = Endpoint::builder(presets::Minimal)

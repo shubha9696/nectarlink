@@ -41,14 +41,14 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(200);
 const QUEUE_PROGRESS_EVERY: Duration = Duration::from_millis(1000);
 /// Partly received files are kept this long for resuming.
 const KEEP_PARTIAL: Duration = Duration::from_secs(60 * 60);
-const CHUNK: usize = 256 * 1024;
+const CHUNK: usize = 1024 * 1024;
 /// The sender reads ahead in blocks of this size, this many at a time, so
 /// the disk is read while the network sends.
-const BLOCK: usize = 1024 * 1024;
-const READ_AHEAD: usize = 8;
+const BLOCK: usize = 2 * 1024 * 1024;
+const READ_AHEAD: usize = 16;
 /// The receiver writes the disk in pieces this large (QUIC delivers a few
 /// kilobytes at a time).
-const WRITE_BUFFER: usize = 4 * 1024 * 1024;
+const WRITE_BUFFER: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
