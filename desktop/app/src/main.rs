@@ -115,6 +115,9 @@ impl Platform for DesktopPlatform {
     fn power(&self, action: PowerAction) -> Result<(), String> {
         links::power(action)
     }
+    fn power_with_pin(&self, action: PowerAction, pin: Option<&str>) -> Result<(), String> {
+        links::power_with_pin(action, pin)
+    }
     fn open_link(&self, _from: &nectarlink_core::DeviceId, url: &str) -> Result<(), String> {
         links::open_here(url)
     }

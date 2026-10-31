@@ -126,10 +126,8 @@ class PhoneToggles(
         if (torchCameraId != null) add("toggles.flashlight")
         if (canChangeDnd(context)) add("toggles.dnd")
         if (canChangeBrightness(context)) add("toggles.brightness")
-        if (Elevated.running) {
-            add("toggles.wifi")
-            add("toggles.bluetooth")
-        }
+        add("toggles.wifi")
+        add("toggles.bluetooth")
     }
 
     /** Reads the current state of all phone quick settings. */
@@ -185,7 +183,22 @@ class PhoneToggles(
                 }
                 "hotspot" -> {
                     val on = (value as? PhoneToggleValue.Bool)?.on ?: return false
-                    Elevated.runCommand(if (on) "hotspot on" else "hotspot off")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        runCatching {
+                            val tm = context.getSystemService(android.net.TetheringManager::class.java)
+                            if (on) {
+                                tm?.startTethering(
+                                    android.net.TetheringManager.TETHERING_WIFI,
+                                    context.mainExecutor,
+                                    object : android.net.TetheringManager.StartTetheringCallback {},
+                                )
+                            } else {
+                                tm?.stopTethering(android.net.TetheringManager.TETHERING_WIFI)
+                            }
+                        }
+                    }
+                    Elevated.runCommand(if (on) "cmd tethering start-tethering 0" else "cmd tethering stop-tethering 0")
+                    true
                 }
                 "pc_active" -> {
                     val on = (value as? PhoneToggleValue.Bool)?.on ?: return false

@@ -32,7 +32,7 @@ object PairingNotification {
     private const val ID = 7
     private const val KEY_CODE = "code"
     /** How long the receiver waits for pairing before letting Android move on. */
-    private const val RECEIVER_MS = 8_000L
+    private const val RECEIVER_MS = 30_000L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Asks for the code; false if notifications are off for the app. */
@@ -67,12 +67,13 @@ object PairingNotification {
     /** The code the user typed. */
     class Receiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            val code = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(KEY_CODE)?.toString()?.filter(Char::isDigit)
+            val rawCode = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(KEY_CODE)?.toString()?.trim()
             val app = context.applicationContext
-            if (code.isNullOrEmpty()) {
+            if (rawCode.isNullOrEmpty()) {
                 show(app)
                 return
             }
+            val code = rawCode
             show(app, app.getString(R.string.elevated_pairing))
             val pending = goAsync()
             // Android stops a receiver after about ten seconds (an "isn't

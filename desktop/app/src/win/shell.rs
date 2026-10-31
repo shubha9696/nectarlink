@@ -237,10 +237,30 @@ pub fn restart() -> Result<(), String> {
 
 
 pub fn unlock() -> Result<(), String> {
-    // Wake display and dismiss lock curtain
+    unlock_with_pin(None)
+}
+
+pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
+    // 1. Wake display and dismiss lock curtain
     super::input::press_key("space", &[]);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    super::input::press_key("enter", &[]);
     std::thread::sleep(std::time::Duration::from_millis(200));
-    super::input::press_key("space", &[]);
+
+    // 2. Resolve PIN from argument or saved configuration
+    let resolved_pin = pin.map(str::to_owned).or_else(|| {
+        std::env::var("NECTARLINK_PIN").ok().filter(|s| !s.trim().is_empty())
+    });
+
+    if let Some(pin_str) = resolved_pin {
+        for ch in pin_str.trim().chars() {
+            let key_str = ch.to_string();
+            super::input::press_key(&key_str, &[]);
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(60));
+        super::input::press_key("enter", &[]);
+    }
     Ok(())
 }
 

@@ -3841,9 +3841,14 @@ impl NectarlinkNode {
     }
 
     pub async fn pc_unlock(&self, id: String) -> Result<()> {
+        self.pc_unlock_pin(id, "".into()).await
+    }
+
+    pub async fn pc_unlock_pin(&self, id: String, pin: String) -> Result<()> {
         let id = parse_id(&id)?;
         let node = self.node.clone();
-        self.run(async move { Ok(node.pc_power(id, core::PowerAction::Unlock).await?) }).await
+        let pin_opt = if pin.trim().is_empty() { None } else { Some(pin.trim().to_string()) };
+        self.run(async move { Ok(node.pc_power_pin(id, core::PowerAction::Unlock, pin_opt).await?) }).await
     }
 
     pub async fn pc_power(&self, id: String, sleep: bool) -> Result<()> {

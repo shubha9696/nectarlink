@@ -310,7 +310,6 @@ class ConnectionService : LifecycleService() {
                 )
                 builder.addAction(0, "Control PC", controlPcIntent)
                 builder.addAction(0, "Lock PC", lockPcIntent)
-                builder.addAction(0, "Send Files", sendFilesIntent)
                 builder.addAction(0, "Restart PC", restartPcIntent)
             }
         }

@@ -129,7 +129,7 @@ fun RemoteScreen(
     sensitivity: Float,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    initialMode: RemoteMode = RemoteMode.Touchpad,
+    initialMode: RemoteMode = RemoteMode.Screen,
 ) {
     val view = LocalView.current
     val context = LocalContext.current
@@ -149,6 +149,9 @@ fun RemoteScreen(
     }
 
     var mode by rememberSaveable(initialMode) { mutableStateOf(initialMode) }
+    LaunchedEffect(initialMode) {
+        mode = initialMode
+    }
     var screenFullScreen by rememberSaveable { mutableStateOf(false) }
     val isFullScreen = mode == RemoteMode.Screen && screenFullScreen
     var access by remember(device.id) { mutableStateOf(Core.RemoteAccess.Allowed) }

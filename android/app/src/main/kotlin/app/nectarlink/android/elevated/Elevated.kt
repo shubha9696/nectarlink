@@ -181,6 +181,10 @@ object Elevated {
     /** The network changed: try now, and keep trying from a short delay. */
     fun onNetworkChanged() {
         if (held) return
+        if (running) {
+            // Elevated input helper is already running on 127.0.0.1; network changes or hotspot don't kill it.
+            return
+        }
         retryAttempt = 0
         scope.launch { start() }
     }
@@ -281,21 +285,21 @@ object Elevated {
     suspend fun pair(code: String): Boolean = withContext(Dispatchers.IO) {
         lock.withLock {
             _state.value = State.Starting
-            val paired = if (LoopbackAdb.preferred()) {
-                pairOverLoopback(code.trim()) ?: runCatching {
-                    val port = discover(AdbMdns.SERVICE_TYPE_TLS_PAIRING)
-                    if (port != null) connection().pair("127.0.0.1", port, code.trim()) else null
-                }.getOrNull()
+            val trimmed = code.trim()
+            val tokens = trimmed.split(Regex("[:\\s]+"))
+            val pairCode = tokens[0].filter(Char::isDigit)
+            val explicitPort = tokens.getOrNull(1)?.toIntOrNull()
+
+            val paired = if (explicitPort != null) {
+                runCatching { connection().pair(LoopbackAdb.HOST, explicitPort, pairCode) }.getOrDefault(false)
             } else {
-                val port = discover(AdbMdns.SERVICE_TYPE_TLS_PAIRING)
-                if (port == null) {
-                    pairOverLoopback(code.trim())
-                } else {
-                    runCatching { connection().pair("127.0.0.1", port, code.trim()) }.getOrElse {
-                        Log.w(TAG, "pairing failed", it)
-                        pairOverLoopback(code.trim())
-                    }
-                }
+                // Try mDNS first (ultra-fast on Wi-Fi, <200ms)
+                val mdnsPort = runCatching { discover(AdbMdns.SERVICE_TYPE_TLS_PAIRING) }.getOrNull()
+                val mdnsPaired = if (mdnsPort != null) {
+                    runCatching { connection().pair(LoopbackAdb.HOST, mdnsPort, pairCode) }.getOrNull()
+                } else null
+
+                mdnsPaired ?: pairOverLoopback(pairCode)
             }
             if (paired == null) {
                 _state.value = State.Failed(Reason.NoPairingDialog)

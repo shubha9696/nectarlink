@@ -409,11 +409,18 @@ mod imp {
     }
 
     #[cfg(windows)]
+    unsafe extern "system" {
+        fn timeBeginPeriod(u_period: u32) -> u32;
+        fn timeEndPeriod(u_period: u32) -> u32;
+    }
+
+    #[cfg(windows)]
     fn run_loopback_worker() {
         // SAFETY: Initialize COM and elevate thread priority for low-latency audio capture.
         unsafe {
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+            let _ = timeBeginPeriod(1);
         }
 
         while is_enabled() {
@@ -421,6 +428,10 @@ mod imp {
                 tracing::debug!(error = %e, "PC audio loopback stream cycle ended");
                 std::thread::sleep(Duration::from_millis(500));
             }
+        }
+
+        unsafe {
+            let _ = timeEndPeriod(1);
         }
     }
 

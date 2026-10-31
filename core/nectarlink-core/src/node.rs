@@ -2479,6 +2479,12 @@ impl Node {
         crate::actions::pc_power(&self.shared, &session, action).await
     }
 
+    /// Locks, sleeps, or unlocks a paired PC with an optional PIN.
+    pub async fn pc_power_pin(&self, peer: DeviceId, action: crate::PowerAction, pin: Option<String>) -> Result<()> {
+        let session = self.connected(&peer)?;
+        crate::actions::pc_power_pin(&self.shared, &session, action, pin).await
+    }
+
     /// Sets this PC's Wake-on-LAN adapter addresses (`pc.wake_info`) and sends
     /// them to every connected phone when they changed.
     pub async fn set_wake_info(&self, info: nectarlink_protocol::messages::PcWakeInfo) {

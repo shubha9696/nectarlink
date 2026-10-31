@@ -30,22 +30,38 @@ internal object LoopbackAdb {
     /** NectarLink's own fixed ports (LocalSend, USB), never adbd's. */
     private val OWN = 53317..53322
 
-    private const val OPEN_MS = 50
-    private const val ANSWER_MS = 500
-    private const val SCANNERS = 32
+    private const val OPEN_MS = 6
+    private const val ANSWER_MS = 250
+    private const val SCANNERS = 128
 
-    /** Whether to use this instead of mDNS: enabled across Android versions, especially on Hotspot. */
-    fun preferred(): Boolean = true
+    /** Whether to use this instead of mDNS: only on Android 17+ or when mDNS is unavailable. */
+    fun preferred(): Boolean = Build.VERSION.SDK_INT >= 37
+
+    /** Reads Android system properties for wireless debugging ports if available. */
+    fun systemPropertyPorts(): List<Int> = runCatching {
+        val c = Class.forName("android.os.SystemProperties")
+        val m = c.getMethod("get", String::class.java, String::class.java)
+        val keys = listOf("service.adb.tls.port", "service.adb.tcp.port", "service.adb.pairing.port")
+        keys.mapNotNull { key ->
+            (m.invoke(null, key, "") as? String)?.trim()?.toIntOrNull()?.takeIf { it in 1..65535 }
+        }
+    }.getOrDefault(emptyList())
 
     /** The ports listening on 127.0.0.1 in the ephemeral range and common adb ports, except NectarLink's own. */
     suspend fun openPorts(): List<Int> = withContext(Dispatchers.IO) {
-        val extra = listOf(5555, 5556)
-        val ports = (extra + EPHEMERAL).filterNot { it in OWN }
+        val sysPorts = systemPropertyPorts()
+        val extra = listOf(5555, 5556, 5557, 5558) + sysPorts
+        // Focus first on the high-probability port range Android chooses for adb TLS (35000..46000)
+        val likelyRange = (35000..46000).toList()
+        val remainingRange = (EPHEMERAL).filterNot { it in 35000..46000 }
+        val ports = (extra + likelyRange + remainingRange).distinct().filterNot { it in OWN }
+
         coroutineScope {
             ports.chunked(ports.size / SCANNERS + 1)
                 .map { chunk -> async { chunk.filter(::isOpen) } }
                 .awaitAll()
                 .flatten()
+                .distinct()
         }
     }
 

@@ -27,6 +27,44 @@ object BiometricUnlock {
             return
         }
 
+        val prefs = context.getSharedPreferences("pc_unlock_prefs", Context.MODE_PRIVATE)
+        val savedPin = prefs.getString("pin_$pcId", null)
+
+        if (savedPin == null) {
+            val input = android.widget.EditText(context).apply {
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                hint = "Enter Windows PIN"
+            }
+            android.app.AlertDialog.Builder(context)
+                .setTitle("Enter Windows PIN")
+                .setMessage("Save your Windows PIN on phone to unlock directly to desktop using your fingerprint sensor.")
+                .setView(input)
+                .setPositiveButton("Save & Unlock") { _, _ ->
+                    val pinText = input.text.toString().trim()
+                    if (pinText.isNotEmpty()) {
+                        prefs.edit().putString("pin_$pcId", pinText).apply()
+                        authenticateAndUnlock(context, pcId, core, pinText, onSuccess, onError)
+                    } else {
+                        authenticateAndUnlock(context, pcId, core, null, onSuccess, onError)
+                    }
+                }
+                .setNegativeButton("Unlock without PIN") { _, _ ->
+                    authenticateAndUnlock(context, pcId, core, null, onSuccess, onError)
+                }
+                .show()
+        } else {
+            authenticateAndUnlock(context, pcId, core, savedPin, onSuccess, onError)
+        }
+    }
+
+    private fun authenticateAndUnlock(
+        context: Activity,
+        pcId: String,
+        core: Core,
+        pin: String?,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit,
+    ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val signal = CancellationSignal()
             try {
@@ -43,7 +81,7 @@ object BiometricUnlock {
                     context.mainExecutor,
                     object : BiometricPrompt.AuthenticationCallback() {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
-                            core.pcUnlock(pcId)
+                            core.pcUnlock(pcId, pin)
                             app.nectarlink.android.core.PcLockManager.setPcLocked(false)
                             Toast.makeText(context, "PC Unlocked via Fingerprint", Toast.LENGTH_SHORT).show()
                             onSuccess()
@@ -65,7 +103,9 @@ object BiometricUnlock {
                 onError(e.message ?: "Sensor error")
             }
         } else {
-            onError("Biometric authentication requires Android 9+")
+            core.pcUnlock(pcId, pin)
+            app.nectarlink.android.core.PcLockManager.setPcLocked(false)
+            onSuccess()
         }
     }
 }

@@ -218,10 +218,19 @@ pub(crate) fn valid_link(url: &str) -> bool {
 }
 
 pub(crate) async fn pc_power(shared: &Arc<Shared>, session: &Session, action: PowerAction) -> Result<()> {
+    pc_power_pin(shared, session, action, None).await
+}
+
+pub(crate) async fn pc_power_pin(
+    shared: &Arc<Shared>,
+    session: &Session,
+    action: PowerAction,
+    pin: Option<String>,
+) -> Result<()> {
     if !shared.offers(&session.peer, POWER)? {
         return Err(Error::Unsupported);
     }
-    let env = Envelope::new(types::PC_POWER, &PcPower { action: action.as_str().into() })?;
+    let env = Envelope::new(types::PC_POWER, &PcPower { action: action.as_str().into(), pin })?;
     session.request(env, crate::session::REQUEST_TIMEOUT).await?.expect(types::OK)?;
     Ok(())
 }
@@ -422,7 +431,7 @@ pub(crate) async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: &E
             return Ok(true);
         }
         types::PC_POWER => {
-            let PcPower { action } = env.body()?;
+            let PcPower { action, pin } = env.body()?;
             if !shared.we_offer(POWER) {
                 Envelope::error(ErrorCode::Unsupported, "this device doesn't lock or sleep on request")
             } else if !shared.toggle_on(&peer, POWER_TOGGLE) {
@@ -440,7 +449,8 @@ pub(crate) async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: &E
                             if action == PowerAction::Sleep {
                                 tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                             }
-                            if let Err(reason) = tokio::task::spawn_blocking(move || platform.power(action))
+                            let pin_ref = pin.as_deref();
+                            if let Err(reason) = tokio::task::spawn_blocking(move || platform.power_with_pin(action, pin_ref))
                                 .await
                                 .unwrap_or_else(|e| Err(e.to_string()))
                             {

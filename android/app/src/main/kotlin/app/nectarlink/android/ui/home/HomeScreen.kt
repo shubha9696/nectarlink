@@ -1342,6 +1342,7 @@ private fun PeerCard(
         if (uris.isNotEmpty()) onSendFiles(device.id, uris)
     }
     var ringing by remember(device.id) { mutableStateOf(false) }
+    var showRestartConfirm by remember(device.id) { mutableStateOf(false) }
     val isGlass = LocalGlassTheme.current
     Column(
         modifier = Modifier
@@ -1440,6 +1441,7 @@ private fun PcCard(
         if (tree != null) onSendFolder(device.id, tree)
     }
     var ringing by remember(device.id) { mutableStateOf(false) }
+    var showRestartConfirm by remember(device.id) { mutableStateOf(false) }
     val isGlass = LocalGlassTheme.current
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onPrimaryContainer,
@@ -1850,8 +1852,41 @@ private fun PcCard(
                         ) {
                             ButtonLabel(stringResource(R.string.action_sleep_pc))
                         }
+                        OutlinedButton(
+                            contentPadding = CardButtonPadding,
+                            enabled = device.online,
+                            colors = outlined,
+                            border = outline,
+                            onClick = { showRestartConfirm = true },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            ButtonLabel("Restart")
+                        }
                     }
                 }
+            }
+            if (showRestartConfirm) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { showRestartConfirm = false },
+                    title = { androidx.compose.material3.Text("Restart ${device.name}?") },
+                    text = { androidx.compose.material3.Text("Are you sure you want to restart ${device.name}? Any unsaved work will be lost.") },
+                    confirmButton = {
+                        androidx.compose.material3.Button(
+                            onClick = {
+                                showRestartConfirm = false
+                                val app = context.applicationContext as? app.nectarlink.android.NectarlinkApplication
+                                app?.core?.pcRestart(device.id)
+                            }
+                        ) {
+                            androidx.compose.material3.Text("Restart")
+                        }
+                    },
+                    dismissButton = {
+                        androidx.compose.material3.TextButton(onClick = { showRestartConfirm = false }) {
+                            androidx.compose.material3.Text("Cancel")
+                        }
+                    }
+                )
             }
             if (!device.online && device.wakeState == WakeState.Waking) {
                 Spacer(Modifier.height(14.dp))

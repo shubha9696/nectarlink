@@ -36,12 +36,16 @@ pub fn open_here(url: &str) -> Result<(), String> {
 
 /// Locks this PC, or puts it to sleep (a phone asked).
 pub fn power(action: PowerAction) -> Result<(), String> {
+    power_with_pin(action, None)
+}
+
+pub fn power_with_pin(action: PowerAction, pin: Option<&str>) -> Result<(), String> {
     tracing::info!(action = action.as_str(), "a phone asked");
     match action {
         PowerAction::Lock => shell::lock(),
         PowerAction::Sleep => shell::sleep(),
         PowerAction::Restart => shell::restart(),
-        PowerAction::Unlock => shell::unlock(),
+        PowerAction::Unlock => shell::unlock_with_pin(pin),
     }
 }
 

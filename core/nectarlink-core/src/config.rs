@@ -211,6 +211,11 @@ pub trait Platform: Send + Sync + 'static {
         Err("this device doesn't lock or sleep on request".into())
     }
 
+    /// Lock, sleep, or unlock this PC with an optional PIN.
+    fn power_with_pin(&self, action: crate::actions::PowerAction, _pin: Option<&str>) -> Result<(), String> {
+        self.power(action)
+    }
+
     /// Open a web link a paired device sent (http or https; checked).
     fn open_link(&self, _from: &nectarlink_protocol::DeviceId, _url: &str) -> Result<(), String> {
         Err("this device doesn't open links".into())
