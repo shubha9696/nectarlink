@@ -203,7 +203,7 @@
             android:name=".ui.BiometricUnlockActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.DeviceDefault.Dialog.Alert" />
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <receiver
             android:name=".files.TransferNotifications$CancelReceiver"

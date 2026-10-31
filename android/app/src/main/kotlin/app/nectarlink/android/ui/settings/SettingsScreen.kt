@@ -778,6 +778,34 @@ fun SettingsScreen(
                             modifier = Modifier.semantics { contentDescription = volumeKeysTitle },
                         )
                     }
+                    SettingRowDivider()
+                    val prefs = remember { context.getSharedPreferences("pc_unlock_prefs", android.content.Context.MODE_PRIVATE) }
+                    var currentPin by remember {
+                        mutableStateOf(
+                            prefs.getString("windows_pin", null)?.trim()
+                                ?: prefs.getString("pin_macbook", null)?.trim()
+                                ?: ""
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text("Windows Unlock PIN", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                if (currentPin.isNotEmpty()) "PIN saved • Tap to change" else "Set your Windows lock screen PIN to unlock via fingerprint",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        OutlinedButton(onClick = {
+                            val pcId = state.devices.firstOrNull { !it.isAndroid }?.id ?: "windows_pin"
+                            app.nectarlink.android.biometric.BiometricUnlock.promptPinChange(context, pcId)
+                            currentPin = prefs.getString("windows_pin", null)?.trim()
+                                ?: prefs.getString("pin_macbook", null)?.trim()
+                                ?: ""
+                        }) {
+                            Text(if (currentPin.isNotEmpty()) "Change PIN" else "Set PIN")
+                        }
+                    }
                 }
             }
 

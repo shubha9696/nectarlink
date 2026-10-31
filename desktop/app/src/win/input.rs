@@ -106,6 +106,44 @@ pub fn send_raw_scancode(scan: u16, extended: bool) {
     send_raw_scancode_press(scan, extended, 25);
 }
 
+pub fn send_key_full(vk: u16, scan: u16, extended: bool, hold_ms: u64) {
+    let mut down_flags = KEYBD_EVENT_FLAGS(0);
+    let mut up_flags = KEYEVENTF_KEYUP;
+    if extended {
+        down_flags |= KEYEVENTF_EXTENDEDKEY;
+        up_flags |= KEYEVENTF_EXTENDEDKEY;
+    }
+    let down = INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(vk),
+                wScan: scan,
+                dwFlags: down_flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    send_inputs(&[down]);
+    if hold_ms > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(hold_ms));
+    }
+    let up = INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(vk),
+                wScan: scan,
+                dwFlags: up_flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    send_inputs(&[up]);
+}
+
 pub fn send_raw_scancode_press(scan: u16, extended: bool, hold_ms: u64) {
     if scan == 0 {
         return;
