@@ -290,8 +290,7 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 unsafe { SetThreadDesktop(hdesk); }
             }
 
-            // 3. Wake display & dismiss lock curtain: mouse click wakes and dismisses curtain
-            // without typing stray space characters into an already-focused PIN box.
+            // 3. Wake display: mouse click wakes the screen without typing stray characters.
             unsafe {
                 mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
                 std::thread::sleep(std::time::Duration::from_millis(40));
@@ -299,8 +298,9 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
             }
             std::thread::sleep(std::time::Duration::from_millis(400));
 
-            // Raise lock curtain if still down
-            super::input::send_key_full(0x20, 0x39, false, 40);
+            // Raise lock curtain if still down (Enter dismisses lock curtain cleanly
+            // without typing stray characters into an active PIN field).
+            super::input::send_key_full(0x0D, 0x1C, false, 40);
             std::thread::sleep(std::time::Duration::from_millis(600));
 
             // 4. Re-acquire active input desktop after curtain transition
@@ -313,18 +313,14 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 hdesk = hdesk2;
             }
 
-            // 5. Dismiss any open menus or popups using Escape (VK_ESCAPE 0x1B, scan 0x01)
-            super::input::send_key_full(0x1B, 0x01, false, 40);
-            std::thread::sleep(std::time::Duration::from_millis(150));
-
-            // 6. Clear any characters in the PIN field using 8 Backspaces (VK_BACK 0x08, scan 0x0E)
-            for _ in 0..8 {
+            // 5. Clear any existing characters in the PIN field using 12 Backspaces (VK_BACK 0x08, scan 0x0E)
+            for _ in 0..12 {
                 super::input::send_key_full(0x08, 0x0E, false, 30);
-                std::thread::sleep(std::time::Duration::from_millis(30));
+                std::thread::sleep(std::time::Duration::from_millis(25));
             }
             std::thread::sleep(std::time::Duration::from_millis(150));
 
-            // 7. Type the PIN digits (EXACTLY ONCE per digit, using scancodes)
+            // 6. Type the PIN digits (EXACTLY ONCE per digit, using scancodes)
             let clean_pin = pin_to_send.trim();
             if !clean_pin.is_empty() {
                 for ch in clean_pin.chars() {

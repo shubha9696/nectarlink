@@ -558,10 +558,6 @@ mod imp {
                     } else {
                         Vec::new()
                     };
-                        }
-                    } else {
-                        Vec::new()
-                    };
                     let _ = capture.ReleaseBuffer(frames_to_read);
 
                     if !pcm_bytes.is_empty()
