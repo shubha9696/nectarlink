@@ -533,7 +533,6 @@ Window {
                     if (currentFps === 60) currentFps = 90;
                     else if (currentFps === 90) currentFps = 120;
                     else currentFps = 60;
-                    win.currentFps = currentFps;
                 }
             }
             IconButton {

@@ -102,18 +102,18 @@ class SoundCapture(
                 }
                 if (!running) return
                 val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
-                            if (localPlayerTrack == null) {
-                runCatching {
-                    val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
-                    localPlayerTrack = AudioTrack.Builder()
-                        .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                        .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
-                        .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
-                        .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                        .build().apply { play() }
+                if (localPlayerTrack == null) {
+                    runCatching {
+                        val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+                        localPlayerTrack = AudioTrack.Builder()
+                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                            .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
+                            .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
+                            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                            .build().apply { play() }
+                    }
                 }
-            }
-            localPlayerTrack?.write(packet, 0, packet.size)
+                localPlayerTrack?.write(packet, 0, packet.size)
                 if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) return
             }
         } catch (e: Exception) {
@@ -156,18 +156,18 @@ class SoundCapture(
                     if (stream.send(VideoPacketKind.CONFIG, 0u, mirrorAudioConfig(RATE.toUInt(), CHANNELS.toUByte())) == MirrorSendResult.CLOSED) return
                 }
                 val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
-                            if (localPlayerTrack == null) {
-                runCatching {
-                    val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
-                    localPlayerTrack = AudioTrack.Builder()
-                        .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                        .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
-                        .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
-                        .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                        .build().apply { play() }
+                if (localPlayerTrack == null) {
+                    runCatching {
+                        val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+                        localPlayerTrack = AudioTrack.Builder()
+                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                            .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
+                            .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
+                            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                            .build().apply { play() }
+                    }
                 }
-            }
-            localPlayerTrack?.write(packet, 0, packet.size)
+                localPlayerTrack?.write(packet, 0, packet.size)
                 if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) return
             }
         } catch (e: Exception) {

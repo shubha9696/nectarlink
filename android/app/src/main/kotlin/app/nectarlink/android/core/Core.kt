@@ -636,6 +636,7 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                     photos.stop()
                     phoneMedia.stop()
                     pcSpeakerPlayer.stop()
+                    app.nectarlink.android.mirror.StreamPower.set(context, "audio", false)
                 }
 
                 lastReportedBattery = null
@@ -875,6 +876,7 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                         pcMedia.update(event.id, "", emptyList())
                     }
                     pcSpeakerPlayer.stop()
+                    app.nectarlink.android.mirror.StreamPower.set(context, "audio", false)
                     if (_pcMirrorConfig.value?.pcId == event.id) {
                         _pcMirrorConfig.value = null
                     }
@@ -899,6 +901,7 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                     pcNotificationPoster.cancelAll(event.id)
                 }
                 pcSpeakerPlayer.stop()
+                app.nectarlink.android.mirror.StreamPower.set(context, "audio", false)
                 if (_pcMirrorConfig.value?.pcId == event.id) {
                     _pcMirrorConfig.value = null
                 }
