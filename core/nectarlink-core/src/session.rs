@@ -32,8 +32,8 @@ pub(crate) mod wake;
 pub(crate) const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_millis(2500);
-const HEARTBEAT_TIMEOUT: Duration = Duration::from_millis(8000);
-const HEARTBEAT_RETRY_TIMEOUT: Duration = Duration::from_millis(4000);
+const HEARTBEAT_TIMEOUT: Duration = Duration::from_millis(3000);
+const HEARTBEAT_RETRY_TIMEOUT: Duration = Duration::from_millis(1500);
 const OUTBOX_CAPACITY: usize = 256;
 
 /// QUIC close code used when a duplicate connection is dropped.
@@ -237,9 +237,6 @@ impl Session {
 
     /// The path the connection currently uses.
     pub fn path(&self) -> ConnectionPath {
-        if self.has_usb_tunnel() {
-            return ConnectionPath::Usb;
-        }
         let paths = self.conn.paths();
         let selected = paths.iter().find(|p| p.is_selected()).or_else(|| paths.iter().next());
         match selected {
@@ -247,10 +244,9 @@ impl Session {
             Some(p) if matches!(p.remote_addr(), iroh::TransportAddr::Ip(addr) if self.is_usb_addr(addr)) => {
                 ConnectionPath::Usb
             }
-            _ => {
-                if paths.iter().any(
-                    |p| matches!(p.remote_addr(), iroh::TransportAddr::Ip(addr) if self.is_usb_addr(addr)),
-                ) {
+            Some(_) => ConnectionPath::Lan,
+            None => {
+                if self.has_usb_tunnel() {
                     ConnectionPath::Usb
                 } else {
                     ConnectionPath::Lan
@@ -392,6 +388,7 @@ async fn writer(mut send: SendStream, mut outbox: mpsc::Receiver<Envelope>) {
 }
 
 async fn reader(session: &Arc<Session>, mut recv: RecvStream, shared: &Weak<Shared>) {
+    let background = Arc::new(tokio::sync::Semaphore::new(MAX_BACKGROUND_RPCS));
     loop {
         let frame = match read_frame(&mut recv).await {
             Ok(Some(frame)) => {
@@ -421,11 +418,22 @@ async fn reader(session: &Arc<Session>, mut recv: RecvStream, shared: &Weak<Shar
         }
         let Some(shared) = shared.upgrade() else { return };
         if is_background_rpc(&env.t) {
+            // Waiting for a slot would hold up heartbeats behind slow
+            // requests, so past the limit a request is turned away instead.
+            let Ok(permit) = background.clone().try_acquire_owned() else {
+                tracing::warn!(peer = %session.peer.short(), t = %env.t, "too many requests at once");
+                if env.id.is_some() {
+                    let reply = Envelope::error(ErrorCode::Busy, "too many requests at once");
+                    let _ = session.send(reply.reply_to(env.id)).await;
+                }
+                continue;
+            };
             let session = session.clone();
             tokio::spawn(async move {
                 if let Err(e) = handle(&shared, &session, env).await {
                     tracing::warn!(peer = %session.peer.short(), error = %e, "failed to handle message");
                 }
+                drop(permit);
             });
         } else if let Err(e) = handle(&shared, session, env).await {
             tracing::warn!(peer = %session.peer.short(), error = %e, "failed to handle message");
@@ -587,6 +595,9 @@ async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: Envelope) -> 
     Ok(())
 }
 
+/// Background requests one peer may have running at a time.
+const MAX_BACKGROUND_RPCS: usize = 32;
+
 /// Concurrent incoming data streams allowed from one peer at a time.
 const MAX_INCOMING_STREAMS: usize = 32;
 
@@ -672,21 +683,9 @@ async fn heartbeat(session: &Arc<Session>, shared: &Weak<Shared>) {
         match session.request(ping, HEARTBEAT_TIMEOUT).await {
             Ok(reply) if reply.t == types::PONG => {
                 if let Some(shared_arc) = shared.upgrade() {
-                    let quic_rtt = session.conn.paths().iter().find(|p| p.is_selected()).map(|p| p.rtt().as_millis().min(u32::MAX as u128) as u32);
-                    let raw_rtt = sent_at.elapsed().as_millis().min(u32::MAX as u128) as u32;
-                    let base_rtt = if let Some(qrtt) = quic_rtt {
-                        qrtt.min(raw_rtt)
-                    } else {
-                        raw_rtt
-                    };
-                    // Accurate, true measured round-trip latency without synthetic offsets
-                    let rtt = if let Some(qrtt) = quic_rtt {
-                        if qrtt > 0 { qrtt } else { raw_rtt }
-                    } else {
-                        raw_rtt
-                    };
+                    let rtt = sent_at.elapsed().as_millis().min(u32::MAX as u128) as u32;
                     let previous = session.rtt_ms.swap(rtt, Ordering::Relaxed);
-                    if previous != rtt {
+                    if previous.abs_diff(rtt) >= 5 {
                         shared_arc.publish_online(session);
                     }
                 }

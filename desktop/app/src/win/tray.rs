@@ -36,8 +36,7 @@ use windows::{
                 NIN_SELECT, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
             },
             WindowsAndMessaging::{
-                AppendMenuW, CallNextHookEx, HHOOK, KBDLLHOOKSTRUCT, SetWindowsHookExW, UnhookWindowsHookEx,
-                WH_KEYBOARD_LL, WM_COMMAND, WM_KEYDOWN, WM_SYSKEYDOWN, BringWindowToTop, CreateIconIndirect, CreatePopupMenu, CreateWindowExW,
+                AppendMenuW, BringWindowToTop, CreateIconIndirect, CreatePopupMenu, CreateWindowExW,
                 DefWindowProcW, DestroyIcon, DestroyMenu, DestroyWindow, GW_HWNDNEXT, GWL_EXSTYLE,
                 GetClassNameW, GetForegroundWindow, GetSystemMetrics, GetTopWindow, GetWindow,
                 GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, HICON, HMENU, ICONINFO, IsIconic,
@@ -47,6 +46,8 @@ use windows::{
                 TrackPopupMenuEx, WINDOW_EX_STYLE, WM_APP, WM_CONTEXTMENU, WM_HOTKEY, WM_NULL,
                 WM_POWERBROADCAST, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSEXW, WS_EX_NOACTIVATE,
                 WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+                CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx, HHOOK, WH_KEYBOARD_LL,
+                KBDLLHOOKSTRUCT, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
             },
         },
     },
@@ -87,13 +88,38 @@ pub struct MenuLabels {
 
 const CALLBACK_MESSAGE: u32 = WM_APP + 1;
 const WM_UPDATE_HOTKEYS: u32 = WM_APP + 2;
+const WM_F11_TRIGGERED: u32 = WM_APP + 3;
+static KEYBOARD_HOOK: AtomicIsize = AtomicIsize::new(0);
+
+unsafe extern "system" fn low_level_keyboard_proc(
+    n_code: i32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if n_code >= 0 {
+        let msg = wparam.0 as u32;
+        if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYUP {
+            let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+            if kbd.vkCode == 0x7A || kbd.scanCode == 0x57 {
+                if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN {
+                    let hwnd = TRAY_HWND.load(Ordering::Acquire);
+                    if hwnd != 0 {
+                        let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_F11_TRIGGERED, WPARAM(0), LPARAM(0));
+                    }
+                }
+                return LRESULT(1);
+            }
+        }
+    }
+    let hook = KEYBOARD_HOOK.load(Ordering::Acquire);
+    CallNextHookEx(Some(HHOOK(hook as *mut _)), n_code, wparam, lparam)
+}
 const WM_PASTE_MSG: u32 = 0x0302;
 const TIMER_TRACK_FG: usize = 1;
 const HOTKEY_PHOTO_ID: i32 = 101;
 const HOTKEY_SCAN_ID: i32 = 102;
 const HOTKEY_PALETTE_ID: i32 = 103;
 const HOTKEY_SHELF_ID: i32 = 104;
-const HOTKEY_F11_ID: i32 = 105;
 const ICON_ID: u32 = 1;
 const CMD_OPEN: u32 = 1;
 const CMD_FIND_PHONE: u32 = 2;
@@ -111,24 +137,6 @@ const SPI_SETCLIENTAREAANIMATION: usize = 0x1043;
 const SPI_SETDESKWALLPAPER: usize = 0x014;
 
 type Handler = Box<dyn Fn(TrayEvent)>;
-
-
-static KEYBOARD_HOOK: AtomicIsize = AtomicIsize::new(0);
-
-unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    if code >= 0 && (wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN) {
-        let kbd = *(lparam.0 as *const KBDLLHOOKSTRUCT);
-        // Intercept VK_F11 (0x7A) globally across the entire OS (swallowing Lenovo Hotkeys)
-        if kbd.vkCode == 0x7A {
-            let raw = TRAY_HWND.load(Ordering::Acquire);
-            if raw != 0 {
-                let _ = PostMessageW(Some(HWND(raw as *mut _)), WM_COMMAND, WPARAM(CMD_OPEN as usize), LPARAM(0));
-            }
-            return LRESULT(1); // Swallows F11 so Lenovo SmartConnect / Microsoft Store is never launched!
-        }
-    }
-    CallNextHookEx(None, code, wparam, lparam)
-}
 
 static TRAY_HWND: AtomicIsize = AtomicIsize::new(0);
 static LAST_EXTERNAL_FOREGROUND: Mutex<Option<(isize, String)>> = Mutex::new(None);
@@ -481,8 +489,6 @@ unsafe fn apply_hotkeys_on_window(hwnd: HWND) {
         {
             tracing::debug!(hotkey = %shelf_spec, error = %e, "could not register Shelf hotkey");
         }
-        let _ = UnregisterHotKey(Some(hwnd), HOTKEY_F11_ID);
-        let _ = RegisterHotKey(Some(hwnd), HOTKEY_F11_ID, HOT_KEY_MODIFIERS(MOD_NOREPEAT.0), 0x7A);
     }
 }
 
@@ -535,9 +541,13 @@ impl Tray {
             let _ = SetTimer(Some(hwnd), TIMER_TRACK_FG, 250, None);
             record_foreground_window();
             apply_hotkeys_on_window(hwnd);
-            let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), None, 0);
-            if let Ok(h) = hook {
-                KEYBOARD_HOOK.store(h.0 as isize, Ordering::Release);
+            if let Ok(hook) = SetWindowsHookExW(
+                WH_KEYBOARD_LL,
+                Some(low_level_keyboard_proc),
+                instance,
+                0,
+            ) {
+                KEYBOARD_HOOK.store(hook.0 as isize, Ordering::Release);
             }
             hwnd
         };
@@ -572,13 +582,12 @@ impl Drop for Tray {
             let _ = UnregisterHotKey(Some(self.hwnd), HOTKEY_SCAN_ID);
             let _ = UnregisterHotKey(Some(self.hwnd), HOTKEY_PALETTE_ID);
             let _ = UnregisterHotKey(Some(self.hwnd), HOTKEY_SHELF_ID);
-            let _ = UnregisterHotKey(Some(self.hwnd), HOTKEY_F11_ID);
-            let h = KEYBOARD_HOOK.swap(0, Ordering::AcqRel);
-            if h != 0 {
-                let _ = UnhookWindowsHookEx(HHOOK(h as *mut _));
-            }
             let _ = KillTimer(Some(self.hwnd), TIMER_TRACK_FG);
             let _ = Shell_NotifyIconW(NIM_DELETE, &data);
+            let hook = KEYBOARD_HOOK.swap(0, Ordering::AcqRel);
+            if hook != 0 {
+                let _ = UnhookWindowsHookEx(HHOOK(hook as *mut _));
+            }
             let _ = DestroyWindow(self.hwnd);
             let icon = ICON.with(|i| i.replace(HICON::default()));
             if !icon.is_invalid() {
@@ -740,6 +749,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             unsafe { apply_hotkeys_on_window(hwnd) };
             LRESULT(0)
         }
+        WM_F11_TRIGGERED => {
+            emit(TrayEvent::Open);
+            LRESULT(0)
+        }
         WM_HOTKEY => {
             record_foreground_window();
             match wparam.0 as i32 {
@@ -747,7 +760,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 HOTKEY_SCAN_ID => emit(TrayEvent::ScanDocument),
                 HOTKEY_PALETTE_ID => emit(TrayEvent::CommandPalette),
                 HOTKEY_SHELF_ID => emit(TrayEvent::Shelf),
-                HOTKEY_F11_ID => emit(TrayEvent::Open),
                 _ => {}
             }
             LRESULT(0)

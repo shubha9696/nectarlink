@@ -14,11 +14,18 @@ use tokio_util::sync::CancellationToken;
 /// Default local ADB server address (`127.0.0.1:5037`).
 pub const DEFAULT_ADB_ADDR: SocketAddr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 5037));
 
-/// Returns `true` if `serial` is non-empty and permitted by the optional
-/// `NECTARLINK_ADB_ONLY_SERIAL` filter.
+/// Returns `true` if `serial` is non-empty, made only of the characters
+/// serials use, and permitted by the optional `NECTARLINK_ADB_ONLY_SERIAL`
+/// filter. A USB device names its own serial, and it goes into adb commands
+/// as text, so anything else (`;`, spaces, control characters) is refused.
 pub fn is_serial_allowed(serial: &str) -> bool {
     let trimmed = serial.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty()
+        || trimmed.len() > 128
+        || !trimmed
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b':' | b'[' | b']'))
+    {
         return false;
     }
     if let Ok(only) = std::env::var("NECTARLINK_ADB_ONLY_SERIAL") {
@@ -57,6 +64,16 @@ impl AdbDevice {
     /// Whether the device is online and authorized (`state == "device"`).
     pub fn is_online(&self) -> bool {
         self.state == "device"
+    }
+
+    /// Whether this device is connected over a wireless / network ADB link (e.g. Wi-Fi, mDNS, TLS, TCP/IP)
+    /// rather than a physical USB cable.
+    pub fn is_wireless(&self) -> bool {
+        self.serial.contains(':')
+            || self.serial.contains("._tcp")
+            || self.serial.contains("_adb-tls-")
+            || self.serial.contains("._adb.")
+            || self.serial.starts_with("adb-")
     }
 }
 
@@ -239,6 +256,30 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_serials_made_of_serial_characters_are_allowed() {
+        for serial in [
+            "emulator-5554",
+            "R5CT20ABCDE",
+            "192.168.1.20:5555",
+            "adb-R5CT20-abc._adb-tls-connect._tcp",
+            "[fe80::1]:5555",
+        ] {
+            assert!(is_serial_allowed(serial), "{serial}");
+        }
+        for serial in [
+            "",
+            "a;b",
+            "x:forward:tcp:1;tcp:2",
+            "a b",
+            "a
+b",
+            &"a".repeat(129),
+        ] {
+            assert!(!is_serial_allowed(serial), "{serial:?}");
+        }
+    }
     use std::sync::{Arc, Mutex};
 
     #[test]

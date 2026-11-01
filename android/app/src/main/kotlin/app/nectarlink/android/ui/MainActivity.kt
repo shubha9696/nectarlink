@@ -134,7 +134,12 @@ class MainActivity : ComponentActivity() {
         // 17, the local network, without which no PC can be reached.
         window.decorView.post {
             val wanted = buildList {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    add(Manifest.permission.POST_NOTIFICATIONS)
+                    add(Manifest.permission.READ_MEDIA_IMAGES)
+                } else {
+                    add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                }
                 if (LocalNetwork.needed()) add(LocalNetwork.PERMISSION)
             }.filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
             if (wanted.isNotEmpty()) permissions.launch(wanted.toTypedArray())
@@ -322,7 +327,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Tab { Home, Files, Settings }
+private enum class Tab { Home, Settings }
 
 private sealed interface ScreenRoute {
     data object Starting : ScreenRoute
@@ -798,15 +803,25 @@ private fun App(
 
                     // Only apply top scaffold padding here so LazyColumns in HomeScreen/SettingsScreen
                     // (which have bottom = 104.dp contentPadding) glide smoothly behind the floating glass dock.
-                    // Tabs transition with fluid crossfade for instant, stutter-free 120Hz navigation.
+                    // Tabs slide toward the side of the tab you picked, on a soft spring.
                     AnimatedContent(
                         targetState = tab,
                         transitionSpec = {
                             if (reducedMotion) {
                                 EnterTransition.None togetherWith ExitTransition.None
                             } else {
-                                fadeIn(tween(180, easing = FastOutSlowInEasing)) togetherWith
-                                    fadeOut(tween(140, easing = FastOutSlowInEasing))
+                                val forward = targetState.ordinal > initialState.ordinal
+                                val slide = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(
+                                    dampingRatio = 0.82f,
+                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                                )
+                                (
+                                    slideInHorizontally(slide) { w -> if (forward) w / 6 else -w / 6 } +
+                                        fadeIn(tween(220, easing = FastOutSlowInEasing))
+                                    ) togetherWith (
+                                    slideOutHorizontally(slide) { w -> if (forward) -w / 10 else w / 10 } +
+                                        fadeOut(tween(120))
+                                    )
                             }
                         },
                         modifier = Modifier
@@ -937,13 +952,6 @@ private fun App(
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
-                            Tab.Files -> saveableStateHolder.SaveableStateProvider("tab_files") {
-                                app.nectarlink.android.ui.files.PcFileManagerScreen(
-                                    state = state,
-                                    core = core,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
                             Tab.Settings -> saveableStateHolder.SaveableStateProvider("tab_settings") {
                                 SettingsScreen(
                                     state = state,
@@ -1055,8 +1063,8 @@ private fun FloatingBottomPillDock(
                         )
                     },
                 )
-                .padding(horizontal = 8.dp, vertical = 5.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
+                .padding(horizontal = 6.dp, vertical = 5.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             FloatingDockTabPill(
@@ -1069,14 +1077,6 @@ private fun FloatingBottomPillDock(
                     pairedCount > 0 -> scheme.outline
                     else -> null
                 },
-                reducedMotion = reducedMotion,
-            )
-            FloatingDockTabPill(
-                selected = selectedTab == Tab.Files,
-                onClick = { onSelectTab(Tab.Files) },
-                iconRes = R.drawable.ic_folder,
-                label = "Files",
-                statusDotColor = null,
                 reducedMotion = reducedMotion,
             )
             FloatingDockTabPill(
@@ -1151,8 +1151,8 @@ private fun FloatingDockTabPill(
                 indication = null,
                 onClick = onClick,
             )
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 18.dp, vertical = 9.dp),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -1165,9 +1165,6 @@ private fun FloatingDockTabPill(
             text = label,
             color = contentColor,
             style = MaterialTheme.typography.labelLarge,
-            maxLines = 1,
-            softWrap = false,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         )
         if (statusDotColor != null) {
             androidx.compose.foundation.layout.Spacer(

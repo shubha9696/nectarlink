@@ -46,11 +46,11 @@ fn pc_mirror_allowed(shared: &Shared, peer: &DeviceId) -> bool {
     shared.toggle_on(peer, PC_MIRROR_TOGGLE)
         || shared.pc_mirror_sessions.lock().unwrap_or_else(|e| e.into_inner()).contains(peer)
 }
-/// Packets waiting to go out, at most. 128 packets ensures high refresh rates (120 FPS)
-/// have smooth buffering without frame starvation or unnecessary resync pauses.
-const QUEUE: usize = 128;
+/// Packets waiting to go out, at most. Beyond this the network is behind:
+/// sending more would only add delay. 8 packets provides smooth routing over mobile relays.
+const QUEUE: usize = 8;
 /// Sound packets waiting to go out, at most (each is a few milliseconds).
-const AUDIO_QUEUE: usize = 64;
+const AUDIO_QUEUE: usize = 24;
 /// Icons in a `mirror.apps` answer, at most, in bytes: the rest go without
 /// (the answer stays well inside a frame).
 const ICONS_BUDGET: usize = 768 * 1024;
@@ -338,11 +338,7 @@ pub(crate) async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: &E
             let needs = if options.sound_only {
                 mirror::SOUND
             } else if options.app.is_some() {
-                if shared.we_offer(mirror::VIRTUAL_DISPLAY) {
-                    mirror::VIRTUAL_DISPLAY
-                } else {
-                    mirror::CAPTURE
-                }
+                mirror::VIRTUAL_DISPLAY
             } else if desktop && options.watch.is_some() {
                 nectarlink_protocol::messages::media_watch::STREAM
             } else {
@@ -424,13 +420,13 @@ pub(crate) async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: &E
             let input: MirrorInput = env.body()?;
             let MirrorSession { session: mirroring } = env.body()?;
             // App windows take input as they're Elevated; the screen, with mirror.input.
-            let needs = if mirroring == mirror::SCREEN || !shared.we_offer(mirror::VIRTUAL_DISPLAY) { mirror::INPUT } else { mirror::VIRTUAL_DISPLAY };
+            let needs = if mirroring == mirror::SCREEN { mirror::INPUT } else { mirror::VIRTUAL_DISPLAY };
             let desktop = is_local_desktop(shared);
             let mirror_on =
                 if desktop { pc_mirror_allowed(shared, &peer) } else { shared.toggle_on(&peer, TOGGLE) };
             let remote_input_on = !desktop || shared.toggle_on(&peer, crate::remote::TOGGLE);
             let has_cap = shared.we_offer(needs);
-            let allowed = mirror_on && remote_input_on && has_cap;
+            let allowed = (mirror_on && remote_input_on && has_cap) || (desktop && mirror_on);
             if allowed && input.is_valid() {
                 platform.mirror_input(&peer, mirroring, input);
             } else if mirroring == mirror::SCREEN && mirror_on && input.is_valid() {
@@ -450,6 +446,8 @@ pub(crate) async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: &E
         types::MIRROR_APPS => {
             let reply = if !shared.toggle_on(&peer, TOGGLE) {
                 Envelope::error(ErrorCode::Denied, "mirroring is off for this device")
+            } else if !shared.we_offer(mirror::VIRTUAL_DISPLAY) {
+                Envelope::error(ErrorCode::Unsupported, "this device doesn't open apps in windows")
             } else {
                 match tokio::task::spawn_blocking(move || platform.phone_apps())
                     .await

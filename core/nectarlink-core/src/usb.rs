@@ -306,7 +306,7 @@ fn reconcile_adb_devices(
     });
 
     for dev in devices {
-        if !dev.is_online() || !nectarlink_adb::is_serial_allowed(&dev.serial) {
+        if !dev.is_online() || !nectarlink_adb::is_serial_allowed(&dev.serial) || dev.is_wireless() {
             continue;
         }
         if active.contains_key(&dev.serial) {

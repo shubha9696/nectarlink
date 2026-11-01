@@ -174,7 +174,7 @@ pub fn compute_capabilities(
     #[cfg(target_os = "linux")]
     let input_available = crate::win::input::is_available();
     #[cfg(any(windows, target_os = "linux"))]
-    if remote_input_enabled && input_available {
+    if input_available {
         caps.push(nectarlink_core::MIRROR_INPUT.into());
         caps.push(nectarlink_core::INPUT_INJECT.into());
     }
