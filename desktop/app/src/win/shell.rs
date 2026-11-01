@@ -314,8 +314,10 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 fn keybd_event(bVk: u8, bScan: u8, dwFlags: u32, dwExtraInfo: usize);
             }
 
+            const MOUSEEVENTF_MOVE: u32 = 0x0001;
             const MOUSEEVENTF_LEFTDOWN: u32 = 0x0002;
             const MOUSEEVENTF_LEFTUP: u32 = 0x0004;
+            const MOUSEEVENTF_ABSOLUTE: u32 = 0x8000;
 
             let press_key = |vk: u8, scan: u8| unsafe {
                 keybd_event(vk, scan, 0, 0);
@@ -336,19 +338,13 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 unsafe { SetThreadDesktop(hdesk); }
             }
 
-            // 3. Wake display: mouse click wakes the screen without typing stray characters.
-            unsafe {
-                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-                std::thread::sleep(std::time::Duration::from_millis(40));
-                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-            }
-            std::thread::sleep(std::time::Duration::from_millis(300));
+            // 3. Wake display and raise lock curtain cleanly
+            press_key(0x20, 0x39); // VK_SPACE
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            press_key(0x0D, 0x1C); // VK_RETURN
 
-            // Raise lock curtain if still down (Enter dismisses lock curtain cleanly
-            // without typing stray characters into an active PIN field).
-            press_key(0x0D, 0x1C);
-            // Allow 1.2s for lock curtain animation to finish sliding completely
-            std::thread::sleep(std::time::Duration::from_millis(1200));
+            // Wait 2400ms for Windows 11 LogonUI initialization & spinning cursor to complete
+            std::thread::sleep(std::time::Duration::from_millis(2400));
 
             // 4. Re-acquire active input desktop after curtain transition
             let hdesk2 = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
@@ -360,10 +356,18 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 hdesk = hdesk2;
             }
 
-            // 5. Clear any existing characters in the PIN field using 12 Backspaces (VK_BACK 0x08, scan 0x0E)
-            for _ in 0..12 {
-                press_key(0x08, 0x0E);
+            // Focus the PIN field by clicking center of screen where Windows 11 places PIN box
+            unsafe {
+                mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTDOWN, 32767, 38000, 0, 0);
                 std::thread::sleep(std::time::Duration::from_millis(30));
+                mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTUP, 32767, 38000, 0, 0);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+
+            // 5. Clear any existing characters in the PIN field using 14 Backspaces
+            for _ in 0..14 {
+                press_key(0x08, 0x0E);
+                std::thread::sleep(std::time::Duration::from_millis(25));
             }
             std::thread::sleep(std::time::Duration::from_millis(150));
 

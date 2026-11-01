@@ -88,8 +88,15 @@ class SendActivity : ComponentActivity() {
             val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
             val html = intent.getStringExtra(Intent.EXTRA_HTML_TEXT)?.takeIf(String::isNotBlank)
             val link = text?.let(::handoffUrl)
+            val clipUris = mutableListOf<Uri>()
+            intent.clipData?.let { clip ->
+                for (i in 0 until clip.itemCount) {
+                    clip.getItemAt(i).uri?.let { clipUris.add(it) }
+                }
+            }
             when {
                 stream != null -> SharePayload.Files(uris = listOf(stream), handoff = true)
+                clipUris.isNotEmpty() -> SharePayload.Files(uris = clipUris, handoff = true)
                 !text.isNullOrBlank() && link != null -> SharePayload.Link(url = link, text = text)
                 !text.isNullOrBlank() -> SharePayload.Text(text = text, html = html)
                 else -> null
@@ -97,10 +104,17 @@ class SendActivity : ComponentActivity() {
         }
         Intent.ACTION_SEND_MULTIPLE -> {
             val streams = IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-            if (streams.isNullOrEmpty()) {
+            val clipUris = mutableListOf<Uri>()
+            intent.clipData?.let { clip ->
+                for (i in 0 until clip.itemCount) {
+                    clip.getItemAt(i).uri?.let { clipUris.add(it) }
+                }
+            }
+            val finalUris = if (!streams.isNullOrEmpty()) streams else clipUris
+            if (finalUris.isEmpty()) {
                 null
             } else {
-                SharePayload.Files(uris = streams, handoff = false)
+                SharePayload.Files(uris = finalUris, handoff = false)
             }
         }
         else -> null
@@ -151,8 +165,13 @@ class SendActivity : ComponentActivity() {
      * confirmation show as notifications; an offline one queues, and says so.
      */
     private fun sendFilesTo(pc: Device, uris: List<Uri>, handoff: Boolean) {
-        (application as NectarlinkApplication).core.sendFiles(pc.id, uris, handoff)
-        if (pc.online) finish() else finishWith(getString(R.string.send_queue_offline_toast, pc.name))
+        scope.launch(Dispatchers.IO) {
+            val opened = app.nectarlink.android.files.OutgoingFiles.open(this@SendActivity, uris)
+            (application as NectarlinkApplication).core.sendOpenedFiles(pc.id, opened, handoff)
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                if (pc.online) finish() else finishWith(getString(R.string.send_queue_offline_toast, pc.name))
+            }
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

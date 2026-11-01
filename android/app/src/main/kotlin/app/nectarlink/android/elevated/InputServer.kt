@@ -110,6 +110,7 @@ object InputServer {
             add(arrayOf("appops", "set", PKG, "WRITE_SETTINGS", "allow"))
             add(arrayOf("appops", "set", PKG, "READ_CLIPBOARD_IN_BACKGROUND", "allow"))
             add(arrayOf("appops", "set", PKG, "PROJECT_MEDIA", "allow"))
+            add(arrayOf("settings", "put", "secure", "show_ime_with_hard_keyboard", "1"))
         }
         for (cmd in commands) {
             runCatching { Runtime.getRuntime().exec(cmd).waitFor() }
@@ -842,7 +843,7 @@ object InputServer {
 
         // While a hardware keyboard is attached Android hides the on-screen
         // one, so the virtual keyboard only stays while the PC is typing.
-        private const val KEYBOARD_IDLE_MS = 10_000L
+        private const val KEYBOARD_IDLE_MS = 1_000L
         private val idle = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
             Thread(r, "nectarlink-uhid-idle").apply { isDaemon = true }
         }

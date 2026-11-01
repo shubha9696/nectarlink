@@ -1125,18 +1125,21 @@ Item {
                                 iconPath: !home.online ? Icons.unlink
                                           : home.path === "usb" ? Icons.usb
                                           : home.path === "relay" ? Icons.globe
+                                          : (home.cellType === "Hotspot") ? Icons.globe
                                           : (home.wifiBars < 0 && home.cellBars >= 0 ? Icons.signal : Icons.wifi)
                                 text: home.online
                                       ? (home.path === "relay"
                                          ? (home.rttMs >= 1 ? qsTr("Away · %1 ms").arg(home.rttMs) : qsTr("Away"))
                                          : (home.path === "usb"
                                             ? (home.rttMs >= 1 ? qsTr("USB · %1 ms").arg(home.rttMs) : qsTr("USB"))
-                                            : (home.wifiBars >= 0
-                                               ? (home.rttMs >= 1 ? qsTr("Wi‑Fi · %1 ms").arg(home.rttMs) : qsTr("Wi‑Fi"))
-                                               : (home.cellBars >= 0
-                                                  ? ((home.cellType.length > 0 ? home.cellType : qsTr("Cellular"))
-                                                     + (home.rttMs >= 1 ? qsTr(" · %1 ms").arg(home.rttMs) : ""))
-                                                  : (home.rttMs >= 1 ? qsTr("Wi‑Fi · %1 ms").arg(home.rttMs) : qsTr("Wi‑Fi"))))))
+                                            : (home.cellType === "Hotspot"
+                                               ? (home.rttMs >= 1 ? qsTr("Hotspot · %1 ms").arg(home.rttMs) : qsTr("Hotspot"))
+                                               : (home.wifiBars >= 0
+                                                  ? (home.rttMs >= 1 ? qsTr("Wi‑Fi · %1 ms").arg(home.rttMs) : qsTr("Wi‑Fi"))
+                                                  : (home.cellBars >= 0
+                                                     ? ((home.cellType.length > 0 ? home.cellType : qsTr("Cellular"))
+                                                        + (home.rttMs >= 1 ? qsTr(" · %1 ms").arg(home.rttMs) : ""))
+                                                     : (home.rttMs >= 1 ? qsTr("Wi‑Fi · %1 ms").arg(home.rttMs) : qsTr("Wi‑Fi")))))))
                                       : !home.reconnect ? qsTr("Not reconnecting")
                                       : (home.lastSeen > 0 ? qsTr("Offline · %1").arg(page.relativeTime(home.lastSeen))
                                                            : qsTr("Offline"))

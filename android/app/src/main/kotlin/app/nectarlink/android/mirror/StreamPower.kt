@@ -50,11 +50,7 @@ object StreamPower {
         // HIGH_PERF: Wi-Fi out of power save with the screen off (newer
         // Android treats it as low latency, which only helps with it on).
         wifi = if (streaming) {
-            val mode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-            } else {
-                WifiManager.WIFI_MODE_FULL_HIGH_PERF
-            }
+            val mode = WifiManager.WIFI_MODE_FULL_HIGH_PERF
             (wifi ?: wifiManager?.createWifiLock(mode, "nectarlink:stream"))
                 ?.apply {
                     setReferenceCounted(false)

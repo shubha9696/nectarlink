@@ -30,12 +30,12 @@ use windows::Win32::{
 /// Sound packets waiting for the player thread, at most.
 const QUEUE: usize = 64;
 /// How much sound is gathered before playing (and again after a stall).
-const START_MS: u32 = 40;
+const START_MS: u32 = 10;
 /// More than this waiting, and the oldest is dropped down to [`TRIM_TO_MS`].
-const MOST_MS: u32 = 200;
-const TRIM_TO_MS: u32 = 60;
+const MOST_MS: u32 = 25;
+const TRIM_TO_MS: u32 = 10;
 /// The device's buffer.
-const DEVICE_BUFFER: Duration = Duration::from_millis(40);
+const DEVICE_BUFFER: Duration = Duration::from_millis(10);
 
 /// Plays sound until dropped.
 #[derive(Debug)]

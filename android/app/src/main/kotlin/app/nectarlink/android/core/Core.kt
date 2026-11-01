@@ -139,7 +139,11 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         toggles = { toggles },
         storage = { storage },
         onMirror = { pc, request ->
-            MirrorRequests.show(this.context, request, _state.value.nameOf(pc).orEmpty())
+            if (Elevated.running) {
+                MirrorService.startElevated(this.context, request)
+            } else {
+                MirrorRequests.show(this.context, request, _state.value.nameOf(pc).orEmpty())
+            }
         },
         onWebcam = { pc, request ->
             val session = WebcamService.session.value
@@ -1262,6 +1266,10 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         scope.launch(Dispatchers.IO) {
             send(pcId, OutgoingFiles.open(context, uris), handoff)
         }
+    }
+
+    fun sendOpenedFiles(pcId: String, files: List<FileToSend>, handoff: Boolean = false) {
+        send(pcId, files, handoff)
     }
 
     /** Sends a folder the user picked, with everything in it. */

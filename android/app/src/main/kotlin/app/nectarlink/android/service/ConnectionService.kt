@@ -43,6 +43,7 @@ import kotlinx.coroutines.launch
  */
 class ConnectionService : LifecycleService() {
     private var multicastLock: WifiManager.MulticastLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private var screenReceiver: BroadcastReceiver? = null
     /** False when [registerScreenWake] did not stick. The poll must not idle for 15s with no wake. */
     @Volatile private var screenWakeRegistered = false
@@ -67,6 +68,21 @@ class ConnectionService : LifecycleService() {
         multicastLock = getSystemService(WifiManager::class.java)
             ?.createMulticastLock("nectarlink-discovery")
             ?.apply { setReferenceCounted(false); acquire() }
+        wifiLock = runCatching {
+            val wm = getSystemService(WifiManager::class.java)
+            val mode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
+            wm?.createWifiLock(mode, "nectarlink:connection")?.apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }.getOrNull()
+        runCatching {
+            android.provider.Settings.Secure.putInt(contentResolver, "show_ime_with_hard_keyboard", 1)
+        }
         registerScreenWake()
         screenshotObserver = app.nectarlink.android.clipboard.ScreenshotObserver(this, core, lifecycleScope).apply {
             register()
@@ -195,6 +211,8 @@ class ConnectionService : LifecycleService() {
         screenshotObserver = null
         unregisterScreenWake()
         multicastLock?.runCatching { release() }
+        wifiLock?.runCatching { release() }
+        wifiLock = null
         getSystemService(NotificationManager::class.java)?.cancel(ONGOING_ID)
         super.onDestroy()
     }

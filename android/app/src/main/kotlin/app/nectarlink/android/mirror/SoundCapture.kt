@@ -89,6 +89,7 @@ class SoundCapture(
 
     private fun runRecord(record: AudioRecord) {
         try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             record.startRecording()
             if (stream.send(VideoPacketKind.CONFIG, 0u, mirrorAudioConfig(RATE.toUInt(), CHANNELS.toUByte())) == MirrorSendResult.CLOSED) return
             val started = SystemClock.elapsedRealtimeNanos()
@@ -102,18 +103,6 @@ class SoundCapture(
                 }
                 if (!running) return
                 val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
-                if (localPlayerTrack == null) {
-                    runCatching {
-                        val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
-                        localPlayerTrack = AudioTrack.Builder()
-                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                            .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
-                            .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
-                            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                            .build().apply { play() }
-                    }
-                }
-                localPlayerTrack?.write(packet, 0, packet.size)
                 if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) return
             }
         } catch (e: Exception) {
@@ -156,18 +145,20 @@ class SoundCapture(
                     if (stream.send(VideoPacketKind.CONFIG, 0u, mirrorAudioConfig(RATE.toUInt(), CHANNELS.toUByte())) == MirrorSendResult.CLOSED) return
                 }
                 val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
-                if (localPlayerTrack == null) {
-                    runCatching {
-                        val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
-                        localPlayerTrack = AudioTrack.Builder()
-                            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                            .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
-                            .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
-                            .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                            .build().apply { play() }
+                if (dualPlayback) {
+                    if (localPlayerTrack == null) {
+                        runCatching {
+                            val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+                            localPlayerTrack = AudioTrack.Builder()
+                                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                                .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
+                                .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
+                                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                                .build().apply { play() }
+                        }
                     }
+                    localPlayerTrack?.write(packet, 0, packet.size, AudioTrack.WRITE_NON_BLOCKING)
                 }
-                localPlayerTrack?.write(packet, 0, packet.size)
                 if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) return
             }
         } catch (e: Exception) {
@@ -195,6 +186,7 @@ class SoundCapture(
         private const val CHANNELS = 2
         /** 10 ms of 16-bit stereo. */
         private const val PACKET_BYTES = RATE / 100 * CHANNELS * 2
+        @Volatile var dualPlayback: Boolean = true
 
         /** Whether this phone can share its sound (Elevated helper or Android 10+ with RECORD_AUDIO). */
         fun canCapture(context: Context): Boolean =

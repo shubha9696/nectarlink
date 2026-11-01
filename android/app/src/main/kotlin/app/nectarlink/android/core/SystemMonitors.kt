@@ -623,10 +623,11 @@ class SignalMonitor(private val context: Context, private val onChange: (SignalS
     private var running = false
 
     private fun emitIfChanged() {
+        val isHotspot = app.nectarlink.android.elevated.Elevated.isHotspotActive()
         val next = SignalSnapshot(
             cellBars = cellBars,
-            cellType = resolveCellType(),
-            wifiBars = wifiBars,
+            cellType = if (isHotspot) "Hotspot" else resolveCellType(),
+            wifiBars = if (isHotspot) null else wifiBars,
         )
         if (next != current) {
             current = next

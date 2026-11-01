@@ -424,11 +424,21 @@ Window {
                 id: backBtn
                 implicitWidth: 26
                 implicitHeight: 26
-                iconSize: 14
+                iconSize: 15
                 iconPath: Icons.back
                 iconColor: "white"
                 label: qsTr("Back (Esc / Right-click)")
                 onClicked: Mirror.press(win.mirrorKey, "back")
+            }
+            IconButton {
+                id: homeBtn
+                implicitWidth: 26
+                implicitHeight: 26
+                iconSize: 15
+                iconPath: Icons.home
+                iconColor: "white"
+                label: qsTr("Home (Middle-click)")
+                onClicked: Mirror.press(win.mirrorKey, "home")
             }
             IconButton {
                 id: copyShotBtn
@@ -512,7 +522,7 @@ Window {
                 implicitWidth: 26
                 implicitHeight: 26
                 iconSize: 14
-                iconPath: Icons.sparkle
+                iconPath: Icons.quality
                 iconColor: Theme.primary
                 label: qualityIndex === 0 ? qsTr("Quality: 2K Ultra HD (28M)") :
                        qualityIndex === 1 ? qsTr("Quality: 1080p High (16M)") : qsTr("Quality: 720p (6M)")

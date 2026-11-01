@@ -18,7 +18,7 @@ Rectangle {
         ? (Theme.graphite ? Theme.surface : Theme.secondaryContainerContent)
         : Theme.surfaceContent
 
-    height: 44
+    height: 34
     radius: Theme.radiusMd
     color: checked
         ? (Theme.graphite ? Theme.surfaceContent : Theme.secondaryContainer)

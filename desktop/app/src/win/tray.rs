@@ -36,7 +36,8 @@ use windows::{
                 NIN_SELECT, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
             },
             WindowsAndMessaging::{
-                AppendMenuW, BringWindowToTop, CreateIconIndirect, CreatePopupMenu, CreateWindowExW,
+                AppendMenuW, CallNextHookEx, HHOOK, KBDLLHOOKSTRUCT, SetWindowsHookExW, UnhookWindowsHookEx,
+                WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN, BringWindowToTop, CreateIconIndirect, CreatePopupMenu, CreateWindowExW,
                 DefWindowProcW, DestroyIcon, DestroyMenu, DestroyWindow, GW_HWNDNEXT, GWL_EXSTYLE,
                 GetClassNameW, GetForegroundWindow, GetSystemMetrics, GetTopWindow, GetWindow,
                 GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, HICON, HMENU, ICONINFO, IsIconic,
@@ -92,6 +93,7 @@ const HOTKEY_PHOTO_ID: i32 = 101;
 const HOTKEY_SCAN_ID: i32 = 102;
 const HOTKEY_PALETTE_ID: i32 = 103;
 const HOTKEY_SHELF_ID: i32 = 104;
+const HOTKEY_F11_ID: i32 = 105;
 const ICON_ID: u32 = 1;
 const CMD_OPEN: u32 = 1;
 const CMD_FIND_PHONE: u32 = 2;
@@ -109,6 +111,24 @@ const SPI_SETCLIENTAREAANIMATION: usize = 0x1043;
 const SPI_SETDESKWALLPAPER: usize = 0x014;
 
 type Handler = Box<dyn Fn(TrayEvent)>;
+
+
+static KEYBOARD_HOOK: AtomicIsize = AtomicIsize::new(0);
+
+unsafe extern "system" fn low_level_keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code >= 0 && (wparam.0 as u32 == WM_KEYDOWN || wparam.0 as u32 == WM_SYSKEYDOWN) {
+        let kbd = *(lparam.0 as *const KBDLLHOOKSTRUCT);
+        // Intercept VK_F11 (0x7A) globally across the entire OS (swallowing Lenovo Hotkeys)
+        if kbd.vkCode == 0x7A {
+            let raw = TRAY_HWND.load(Ordering::Acquire);
+            if raw != 0 {
+                let _ = PostMessageW(Some(HWND(raw as *mut _)), WM_COMMAND, WPARAM(CMD_OPEN as usize), LPARAM(0));
+            }
+            return LRESULT(1); // Swallows F11 so Lenovo SmartConnect / Microsoft Store is never launched!
+        }
+    }
+    CallNextHookEx(None, code, wparam, lparam)
+}
 
 static TRAY_HWND: AtomicIsize = AtomicIsize::new(0);
 static LAST_EXTERNAL_FOREGROUND: Mutex<Option<(isize, String)>> = Mutex::new(None);
@@ -461,6 +481,8 @@ unsafe fn apply_hotkeys_on_window(hwnd: HWND) {
         {
             tracing::debug!(hotkey = %shelf_spec, error = %e, "could not register Shelf hotkey");
         }
+        let _ = UnregisterHotKey(Some(hwnd), HOTKEY_F11_ID);
+        let _ = RegisterHotKey(Some(hwnd), HOTKEY_F11_ID, HOT_KEY_MODIFIERS(MOD_NOREPEAT.0), 0x7A);
     }
 }
 
@@ -513,6 +535,10 @@ impl Tray {
             let _ = SetTimer(Some(hwnd), TIMER_TRACK_FG, 250, None);
             record_foreground_window();
             apply_hotkeys_on_window(hwnd);
+            let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(low_level_keyboard_proc), None, 0);
+            if let Ok(h) = hook {
+                KEYBOARD_HOOK.store(h.0 as isize, Ordering::Release);
+            }
             hwnd
         };
         ICON.with(|i| i.set(create_icon().unwrap_or_default()));
@@ -546,6 +572,11 @@ impl Drop for Tray {
             let _ = UnregisterHotKey(Some(self.hwnd), HOTKEY_SCAN_ID);
             let _ = UnregisterHotKey(Some(self.hwnd), HOTKEY_PALETTE_ID);
             let _ = UnregisterHotKey(Some(self.hwnd), HOTKEY_SHELF_ID);
+            let _ = UnregisterHotKey(Some(self.hwnd), HOTKEY_F11_ID);
+            let h = KEYBOARD_HOOK.swap(0, Ordering::AcqRel);
+            if h != 0 {
+                let _ = UnhookWindowsHookEx(HHOOK(h as *mut _));
+            }
             let _ = KillTimer(Some(self.hwnd), TIMER_TRACK_FG);
             let _ = Shell_NotifyIconW(NIM_DELETE, &data);
             let _ = DestroyWindow(self.hwnd);
@@ -716,6 +747,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 HOTKEY_SCAN_ID => emit(TrayEvent::ScanDocument),
                 HOTKEY_PALETTE_ID => emit(TrayEvent::CommandPalette),
                 HOTKEY_SHELF_ID => emit(TrayEvent::Shelf),
+                HOTKEY_F11_ID => emit(TrayEvent::Open),
                 _ => {}
             }
             LRESULT(0)
