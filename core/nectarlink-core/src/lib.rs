@@ -42,6 +42,11 @@ pub mod toggles;
 mod transfer;
 pub mod usb;
 pub mod webcam;
+pub use nectarlink_protocol::unlock as unlock_protocol;
+pub mod vault;
+pub mod transport_tuning;
+pub mod socket_qos;
+
 
 pub use actions::{PC_WAKE, PowerAction};
 pub use calls::CallCommand;

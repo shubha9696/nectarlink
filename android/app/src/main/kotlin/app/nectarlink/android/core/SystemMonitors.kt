@@ -622,8 +622,37 @@ class SignalMonitor(private val context: Context, private val onChange: (SignalS
 
     private var running = false
 
+    private fun isConnectedToHotspot(): Boolean {
+        return runCatching {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+            val network = cm.activeNetwork ?: return false
+            val linkProps = cm.getLinkProperties(network) ?: return false
+            for (route in linkProps.routes) {
+                val gateway = route.gateway?.hostAddress ?: continue
+                if (gateway == "192.168.137.1" || gateway == "192.168.43.1" || gateway == "172.20.10.1") {
+                    return true
+                }
+            }
+            val dhcp = (context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager)?.dhcpInfo
+            if (dhcp != null) {
+                val serverIp = String.format(
+                    java.util.Locale.US,
+                    "%d.%d.%d.%d",
+                    dhcp.serverAddress and 0xff,
+                    (dhcp.serverAddress shr 8) and 0xff,
+                    (dhcp.serverAddress shr 16) and 0xff,
+                    (dhcp.serverAddress shr 24) and 0xff
+                )
+                if (serverIp == "192.168.137.1" || serverIp == "192.168.43.1" || serverIp == "172.20.10.1") {
+                    return true
+                }
+            }
+            false
+        }.getOrDefault(false)
+    }
+
     private fun emitIfChanged() {
-        val isHotspot = app.nectarlink.android.elevated.Elevated.isHotspotActive()
+        val isHotspot = app.nectarlink.android.elevated.Elevated.isHotspotActive() || isConnectedToHotspot()
         val next = SignalSnapshot(
             cellBars = cellBars,
             cellType = if (isHotspot) "Hotspot" else resolveCellType(),

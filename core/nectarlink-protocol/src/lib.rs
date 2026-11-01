@@ -11,6 +11,12 @@ mod frame;
 mod id;
 pub mod messages;
 pub mod pairing;
+pub mod unlock;
+pub use unlock::{
+    compute_enrollment_proof, compute_phone_unlock_tokens, UnlockMessage,
+    UnlockProtocolError, UnlockReason, CAPABILITY_PC_UNLOCK, CHALLENGE_TTL_MS,
+};
+
 mod video;
 
 pub use envelope::Envelope;

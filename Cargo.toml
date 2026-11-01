@@ -8,6 +8,7 @@ members = [
     "core/nectarlink-ffi",
     "desktop/app",
     "desktop/vcam",
+    "desktop/credprov",
     "tools/xtask",
     "spikes/s1-qt-rust",
 ]

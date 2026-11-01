@@ -37,7 +37,7 @@ use windows::{
             },
             WindowsAndMessaging::{
                 AppendMenuW, CallNextHookEx, HHOOK, KBDLLHOOKSTRUCT, SetWindowsHookExW, UnhookWindowsHookEx,
-                WH_KEYBOARD_LL, WM_KEYDOWN, WM_SYSKEYDOWN, BringWindowToTop, CreateIconIndirect, CreatePopupMenu, CreateWindowExW,
+                WH_KEYBOARD_LL, WM_COMMAND, WM_KEYDOWN, WM_SYSKEYDOWN, BringWindowToTop, CreateIconIndirect, CreatePopupMenu, CreateWindowExW,
                 DefWindowProcW, DestroyIcon, DestroyMenu, DestroyWindow, GW_HWNDNEXT, GWL_EXSTYLE,
                 GetClassNameW, GetForegroundWindow, GetSystemMetrics, GetTopWindow, GetWindow,
                 GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, HICON, HMENU, ICONINFO, IsIconic,

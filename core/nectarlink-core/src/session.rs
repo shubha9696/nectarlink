@@ -675,17 +675,12 @@ async fn heartbeat(session: &Arc<Session>, shared: &Weak<Shared>) {
                     let quic_rtt = session.conn.paths().iter().find(|p| p.is_selected()).map(|p| p.rtt().as_millis().min(u32::MAX as u128) as u32);
                     let raw_rtt = sent_at.elapsed().as_millis().min(u32::MAX as u128) as u32;
                     let rtt = if let Some(qrtt) = quic_rtt {
-                        qrtt
+                        qrtt.min(raw_rtt)
                     } else {
-                        let prev = session.rtt_ms.load(Ordering::Relaxed);
-                        if prev == 0 || (raw_rtt > 500 && prev < 50) {
-                            prev.max(1)
-                        } else {
-                            (prev * 3 + raw_rtt) / 4
-                        }
+                        raw_rtt
                     };
                     let previous = session.rtt_ms.swap(rtt, Ordering::Relaxed);
-                    if previous.abs_diff(rtt) >= 5 {
+                    if previous != rtt {
                         shared_arc.publish_online(session);
                     }
                 }

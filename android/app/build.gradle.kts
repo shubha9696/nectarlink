@@ -207,6 +207,7 @@ dependencies {
     // Elevated: the phone's own wireless debugging (pairing and shell).
     implementation(libs.libadb.android)
     implementation(libs.conscrypt.android)
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
     // UniFFI's Kotlin bindings call the core through JNA.
     implementation(libs.jna) { artifact { type = "aar" } }
     testImplementation(libs.junit)
