@@ -798,25 +798,15 @@ private fun App(
 
                     // Only apply top scaffold padding here so LazyColumns in HomeScreen/SettingsScreen
                     // (which have bottom = 104.dp contentPadding) glide smoothly behind the floating glass dock.
-                    // Tabs slide toward the side of the tab you picked, on a soft spring.
+                    // Tabs transition with fluid crossfade for instant, stutter-free 120Hz navigation.
                     AnimatedContent(
                         targetState = tab,
                         transitionSpec = {
                             if (reducedMotion) {
                                 EnterTransition.None togetherWith ExitTransition.None
                             } else {
-                                val forward = targetState.ordinal > initialState.ordinal
-                                val slide = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(
-                                    dampingRatio = 0.82f,
-                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
-                                )
-                                (
-                                    slideInHorizontally(slide) { w -> if (forward) w / 6 else -w / 6 } +
-                                        fadeIn(tween(220, easing = FastOutSlowInEasing))
-                                    ) togetherWith (
-                                    slideOutHorizontally(slide) { w -> if (forward) -w / 10 else w / 10 } +
-                                        fadeOut(tween(120))
-                                    )
+                                fadeIn(tween(180, easing = FastOutSlowInEasing)) togetherWith
+                                    fadeOut(tween(140, easing = FastOutSlowInEasing))
                             }
                         },
                         modifier = Modifier

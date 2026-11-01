@@ -80,12 +80,12 @@ pub struct TransportTuning {
 
 impl Default for TransportTuning {
     fn default() -> Self {
-        // High throughput bulk transfers matching LAN Wi-Fi speed (50+ MB/s)
-        // using loss-based Cubic congestion control with large flight windows.
+        // High throughput bulk transfers without bufferbloat or latency spikes,
+        // using BBRv3 model-based congestion control and tuned flight windows.
         TransportTuning {
-            congestion: Congestion::Cubic,
-            stream_window: 128 << 20,
-            connection_window: 256 << 20,
+            congestion: Congestion::Bbr3,
+            stream_window: 64 << 20,
+            connection_window: 128 << 20,
         }
     }
 }

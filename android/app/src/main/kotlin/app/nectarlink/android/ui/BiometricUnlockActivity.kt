@@ -2,24 +2,50 @@
 package app.nectarlink.android.ui
 
 import android.app.Activity
+import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import app.nectarlink.android.NectarlinkApplication
 import app.nectarlink.android.biometric.BiometricUnlock
 
 class BiometricUnlockActivity : Activity() {
+    private var authStarted = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
         } else {
             @Suppress("DEPRECATION")
             window.addFlags(
-                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
         }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && !authStarted) {
+            authStarted = true
+            startUnlock()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Fallback delay to allow notification shade to collapse cleanly before showing biometric prompt
+        window.decorView.postDelayed({
+            if (!authStarted && !isFinishing && !isDestroyed) {
+                authStarted = true
+                startUnlock()
+            }
+        }, 300)
+    }
+
+    private fun startUnlock() {
         val core = (application as NectarlinkApplication).core
         val pc = core.state.value.devices.firstOrNull { it.online }
         if (pc != null) {
@@ -29,7 +55,10 @@ class BiometricUnlockActivity : Activity() {
                 core = core,
                 onSuccess = { finish() },
                 onError = { err ->
-                    Toast.makeText(this, err, Toast.LENGTH_SHORT).show()
+                    // Do not show cancellation messages as error toasts
+                    if (!err.contains("cancel", ignoreCase = true)) {
+                        Toast.makeText(this, err, Toast.LENGTH_SHORT).show()
+                    }
                     finish()
                 }
             )

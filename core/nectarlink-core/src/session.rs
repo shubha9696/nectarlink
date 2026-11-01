@@ -32,8 +32,8 @@ pub(crate) mod wake;
 pub(crate) const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_millis(2500);
-const HEARTBEAT_TIMEOUT: Duration = Duration::from_millis(3000);
-const HEARTBEAT_RETRY_TIMEOUT: Duration = Duration::from_millis(1500);
+const HEARTBEAT_TIMEOUT: Duration = Duration::from_millis(8000);
+const HEARTBEAT_RETRY_TIMEOUT: Duration = Duration::from_millis(4000);
 const OUTBOX_CAPACITY: usize = 256;
 
 /// QUIC close code used when a duplicate connection is dropped.

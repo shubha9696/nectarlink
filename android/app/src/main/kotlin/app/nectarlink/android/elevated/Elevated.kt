@@ -224,8 +224,30 @@ object Elevated {
         retryAttempt = 0
     }
 
+    fun isHotspotActive(): Boolean = runCatching {
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+        val isApEnabled = runCatching {
+            val method = wifi?.javaClass?.getMethod("isWifiApEnabled")
+            method?.invoke(wifi) as? Boolean == true
+        }.getOrDefault(false)
+        if (isApEnabled) return true
+        val softAp = Settings.Global.getInt(context.contentResolver, "wifi_ap_on", 0) == 1
+        if (softAp) return true
+        val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return false
+        for (iface in interfaces.asSequence()) {
+            if (iface.isUp && (iface.name.contains("ap") || iface.name.contains("wlan1") || iface.name.contains("rndis") || iface.name.contains("swlan"))) {
+                for (addr in iface.inetAddresses.asSequence()) {
+                    if (addr.hostAddress?.startsWith("192.168.43.") == true) {
+                        return true
+                    }
+                }
+            }
+        }
+        false
+    }.getOrDefault(false)
+
     private fun isNetworkOrHotspot(): Boolean = runCatching {
-        if (onWifi()) return true
+        if (onWifi() || isHotspotActive()) return true
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
         val active = connectivity.activeNetwork
         val caps = connectivity.getNetworkCapabilities(active)
@@ -430,10 +452,18 @@ object Elevated {
             discardConnection()
             val adb = connection()
             val connected = try {
-                if (LoopbackAdb.preferred()) {
-                    connectOverLoopback(adb) || runCatching { adb.connectTls(context, CONNECT_MS) }.getOrDefault(false)
+                val sysPorts = LoopbackAdb.systemPropertyPorts()
+                var directConnected = false
+                for (p in sysPorts) {
+                    if (runCatching { adb.connect(LoopbackAdb.HOST, p) }.getOrDefault(false)) {
+                        directConnected = true
+                        break
+                    }
+                }
+                if (directConnected) {
+                    true
                 } else {
-                    runCatching { adb.connectTls(context, CONNECT_MS) }.getOrDefault(false) || connectOverLoopback(adb)
+                    connectOverLoopback(adb) || runCatching { adb.connectTls(context, CONNECT_MS) }.getOrDefault(false)
                 }
             } catch (e: AdbPairingRequiredException) {
                 // adbd forgot us (the user revoked the authorizations).
