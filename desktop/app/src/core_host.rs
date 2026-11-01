@@ -147,7 +147,7 @@ pub fn compute_capabilities(
     #[cfg(any(windows, target_os = "linux"))]
     let mut pc_mirror_enabled = crate::pc_mirror::is_active();
     #[cfg(any(windows, target_os = "linux"))]
-    let mut remote_input_enabled = false;
+    let mut _remote_input_enabled = false;
     #[cfg(any(windows, target_os = "linux"))]
     if let Some(node) = node
         && let Ok(devices) = node.paired_devices()

@@ -16,7 +16,7 @@ use std::{
 
 use windows::{
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+        Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM},
         Graphics::Gdi::{
             BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS,
             DeleteObject, HBITMAP,
@@ -99,12 +99,14 @@ unsafe extern "system" fn low_level_keyboard_proc(
     if n_code >= 0 {
         let msg = wparam.0 as u32;
         if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN || msg == WM_KEYUP || msg == WM_SYSKEYUP {
-            let kbd = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+            let kbd = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
             if kbd.vkCode == 0x7A || kbd.scanCode == 0x57 {
                 if msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN {
                     let hwnd = TRAY_HWND.load(Ordering::Acquire);
                     if hwnd != 0 {
-                        let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_F11_TRIGGERED, WPARAM(0), LPARAM(0));
+                        unsafe {
+                            let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_F11_TRIGGERED, WPARAM(0), LPARAM(0));
+                        }
                     }
                 }
                 return LRESULT(1);
@@ -112,7 +114,9 @@ unsafe extern "system" fn low_level_keyboard_proc(
         }
     }
     let hook = KEYBOARD_HOOK.load(Ordering::Acquire);
-    CallNextHookEx(Some(HHOOK(hook as *mut _)), n_code, wparam, lparam)
+    unsafe {
+        CallNextHookEx(Some(HHOOK(hook as *mut _)), n_code, wparam, lparam)
+    }
 }
 const WM_PASTE_MSG: u32 = 0x0302;
 const TIMER_TRACK_FG: usize = 1;
@@ -544,7 +548,7 @@ impl Tray {
             if let Ok(hook) = SetWindowsHookExW(
                 WH_KEYBOARD_LL,
                 Some(low_level_keyboard_proc),
-                instance,
+                Some(HINSTANCE(instance.0)),
                 0,
             ) {
                 KEYBOARD_HOOK.store(hook.0 as isize, Ordering::Release);

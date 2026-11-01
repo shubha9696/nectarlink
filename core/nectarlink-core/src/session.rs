@@ -169,7 +169,10 @@ impl Session {
             .paths()
             .iter()
             .find(|p| p.is_selected())
-            .map_or(0, |p| p.rtt().as_millis().min(u128::from(u32::MAX)) as u32);
+            .map_or(1, |p| {
+                let millis = p.rtt().as_millis().min(u128::from(u32::MAX)) as u32;
+                if millis == 0 { 1 } else { millis }
+            });
         let (outbox, outbox_rx) = mpsc::channel(OUTBOX_CAPACITY);
         let session = Arc::new(Session {
             peer,
@@ -683,9 +686,9 @@ async fn heartbeat(session: &Arc<Session>, shared: &Weak<Shared>) {
         match session.request(ping, HEARTBEAT_TIMEOUT).await {
             Ok(reply) if reply.t == types::PONG => {
                 if let Some(shared_arc) = shared.upgrade() {
-                    let rtt = sent_at.elapsed().as_millis().min(u32::MAX as u128) as u32;
+                    let rtt = sent_at.elapsed().as_millis().max(1).min(u32::MAX as u128) as u32;
                     let previous = session.rtt_ms.swap(rtt, Ordering::Relaxed);
-                    if previous.abs_diff(rtt) >= 5 {
+                    if previous == 0 || previous.abs_diff(rtt) >= 1 {
                         shared_arc.publish_online(session);
                     }
                 }

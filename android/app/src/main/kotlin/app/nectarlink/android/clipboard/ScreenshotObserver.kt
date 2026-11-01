@@ -123,13 +123,11 @@ class ScreenshotObserver(
                     }
 
                     val nowSec = System.currentTimeMillis() / 1000L
-                    val isRecent = dateAddedSec == 0L || (nowSec - dateAddedSec) in -60..300
+                    val isRecent = dateAddedSec == 0L || (nowSec - dateAddedSec) in -120..600
 
                     if (isScreenshot && isRecent && id != lastHandledId) {
-                        val nowMs = System.currentTimeMillis()
-                        if (nowMs - lastHandledTimeMs < 1200L) return@use
                         lastHandledId = id
-                        lastHandledTimeMs = nowMs
+                        lastHandledTimeMs = System.currentTimeMillis()
 
                         val imageUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
                         Log.i(TAG, "New screenshot detected: $displayName (id=$id). Beaming to PC clipboard.")
