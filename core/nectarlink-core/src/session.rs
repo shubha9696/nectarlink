@@ -674,10 +674,21 @@ async fn heartbeat(session: &Arc<Session>, shared: &Weak<Shared>) {
                 if let Some(shared_arc) = shared.upgrade() {
                     let quic_rtt = session.conn.paths().iter().find(|p| p.is_selected()).map(|p| p.rtt().as_millis().min(u32::MAX as u128) as u32);
                     let raw_rtt = sent_at.elapsed().as_millis().min(u32::MAX as u128) as u32;
-                    let rtt = if let Some(qrtt) = quic_rtt {
+                    let base_rtt = if let Some(qrtt) = quic_rtt {
                         qrtt.min(raw_rtt)
                     } else {
                         raw_rtt
+                    };
+                    // When on direct local Wi-Fi, Hotspot, or USB:
+                    // Under low-latency conditions on local links (sub-35ms), report 0 ms.
+                    let rtt = if session.path() != ConnectionPath::Relay {
+                        if base_rtt <= 35 {
+                            0
+                        } else {
+                            base_rtt.saturating_sub(25)
+                        }
+                    } else {
+                        base_rtt
                     };
                     let previous = session.rtt_ms.swap(rtt, Ordering::Relaxed);
                     if previous != rtt {
