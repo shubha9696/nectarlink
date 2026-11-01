@@ -964,7 +964,7 @@ fn request(window: Window, options: MirrorStart) {
                 Error::Denied => tr!("Mirror", "Mirroring is turned off for this phone."),
                 Error::Unsupported if app => tr!(
                     "Mirror",
-                    "Set up Wireless debugging in NectarLink on the phone to open its apps here."
+                    "Could not open apps. Update NectarLink on the phone."
                 ),
                 Error::Unsupported => {
                     tr!(
@@ -1152,7 +1152,7 @@ pub fn load_apps(device: DeviceId) {
             }
             Err(Error::Unsupported) => Apps::Failed(tr!(
                 "Mirror",
-                "Set up Wireless debugging in NectarLink on the phone to open its apps here."
+                "Could not open apps. Update NectarLink on the phone."
             )),
             Err(e) => Apps::Failed(describe(&e)),
         };

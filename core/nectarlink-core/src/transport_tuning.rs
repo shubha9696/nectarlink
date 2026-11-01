@@ -72,9 +72,10 @@ impl LinkTopology {
                 // Common Android SoftAP / Hotspot / USB tethering / Wi-Fi Direct subnets:
                 // - Android 11+ SoftAP & USB tethering: 192.168.42.0/24, 192.168.43.0/24,
                 //   192.168.49.0/24 (Wi-Fi Direct), 192.168.137.0/24 (Windows Hotspot)
-                if octets[0] == 192
-                    && octets[1] == 168
-                    && matches!(octets[2], 42 | 43 | 49 | 137)
+                // Android Hotspot / SoftAP / Wi-Fi Direct / iPhone Hotspot (10.x.x.x, 172.20.10.x, 192.168.42/43/49/137.x)
+                if (octets[0] == 192 && octets[1] == 168 && matches!(octets[2], 42 | 43 | 49 | 137))
+                    || octets[0] == 10
+                    || (octets[0] == 172 && octets[1] == 20 && octets[2] == 10)
                 {
                     return Self::DirectHotspotOrUsb;
                 }
@@ -186,9 +187,9 @@ impl<W: AsyncWrite + Unpin> PacedTransferWriter<W> {
                 125 * 1024 * 1024, // Ceiling: 125 MB/s (1 Gbps)
             ),
             LinkTopology::RouterLanHairpin => (
-                12 * 1024 * 1024, // Start at 12 MB/s (96 Mbps) — below router UDP flood trigger!
-                4 * 1024 * 1024,  // Floor: 4 MB/s
-                45 * 1024 * 1024, // Ceiling: 45 MB/s (360 Mbps) smooth hairpin rate
+                30 * 1024 * 1024,
+                8 * 1024 * 1024,
+                125 * 1024 * 1024,
             ),
             LinkTopology::OverlayOrRelay => (
                 8 * 1024 * 1024,

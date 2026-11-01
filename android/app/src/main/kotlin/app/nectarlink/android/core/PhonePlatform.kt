@@ -139,10 +139,34 @@ internal class PhonePlatform(
 
     override fun mirrorRequested(pcId: String, options: MirrorOptions): Boolean =
         if (options.app != null) {
-            appWindows.open(pcId, options)
+            if (Elevated.running && appWindows.open(pcId, options)) {
+                true
+            } else {
+                // Launch the app on phone directly without wireless debugging!
+                val intent = context.packageManager.getLaunchIntentForPackage(options.app!!)
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                    context.startActivity(intent)
+                }
+                val request = MirrorRequest(
+                    pcId,
+                    options.maxSize.coerceIn(320u, 4096u).toInt(),
+                    options.fps.coerceIn(1u, 120u).toInt(),
+                    options.bitrate.coerceIn(500_000u, 50_000_000u).toInt(),
+                    options.audio,
+                    options.stayAwake,
+                    options.screenOff,
+                    options.soundOnly,
+                )
+                if (Elevated.running && MirrorService.startElevated(context, request)) {
+                    true
+                } else if (MirrorService.tryStartWithCachedConsent(context, request)) {
+                    true
+                } else {
+                    onMirror(pcId, request)
+                }
+            }
         } else {
-            // Kept within what the encoder can take: a zero or huge value from
-            // the PC would only make this mirroring fail to start.
             val request = MirrorRequest(
                 pcId,
                 options.maxSize.coerceIn(320u, 4096u).toInt(),
@@ -154,6 +178,8 @@ internal class PhonePlatform(
                 options.soundOnly,
             )
             if (Elevated.running && MirrorService.startElevated(context, request)) {
+                true
+            } else if (MirrorService.tryStartWithCachedConsent(context, request)) {
                 true
             } else {
                 onMirror(pcId, request)

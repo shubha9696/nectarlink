@@ -1906,10 +1906,10 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             PhoneStorage.capabilities(context) +
             (if (WebcamService.hasPermission(context)) listOf("camera.stream") else emptyList()) +
             (if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) listOf("camera.capture") else emptyList()) +
-            (if (InputService.running || Elevated.running) listOf("mirror.input") else emptyList()) +
+            listOf("mirror.input") +
             (if (Elevated.running) listOf("clip.read.auto") else emptyList()) +
             // Apps in windows of their own run on displays the Elevated helper makes.
-            (if (Elevated.running && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) listOf("mirror.virtual_display") else emptyList()) +
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) listOf("mirror.virtual_display") else emptyList()) +
             // Asked for when a PC wants the sound, or streamed via Elevated helper.
             (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q || Elevated.running) listOf("mirror.audio.playback") else emptyList()) +
             // The same sound on its own, without the screen.

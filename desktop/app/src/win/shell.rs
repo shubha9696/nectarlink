@@ -332,15 +332,21 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 unsafe { SetThreadDesktop(hdesk); }
             }
 
-            // 3. Wake display and raise lock curtain cleanly
+            // 3. Wake display and raise lock curtain cleanly with SPACE (NO premature ENTER!)
             press_key(0x20, 0x39); // VK_SPACE
+            std::thread::sleep(std::time::Duration::from_millis(1200));
+
+            // 4. Focus PIN input field by sending left-click at center screen (32768, 36500)
+            unsafe {
+                mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, 32768, 36500, 0, 0);
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN, 32768, 36500, 0, 0);
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP, 32768, 36500, 0, 0);
+            }
             std::thread::sleep(std::time::Duration::from_millis(100));
-            press_key(0x0D, 0x1C); // VK_RETURN
 
-            // Wait 700ms for Windows 11 LogonUI to reveal and auto-focus the PIN field
-            std::thread::sleep(std::time::Duration::from_millis(700));
-
-            // 4. Re-acquire active input desktop after curtain transition
+            // 5. Re-acquire active input desktop after curtain transition
             let hdesk2 = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
             if hdesk2 != 0 {
                 unsafe { SetThreadDesktop(hdesk2); }
@@ -350,13 +356,13 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 hdesk = hdesk2;
             }
 
-            // 5. Clear any existing characters in the PIN field using 10 Backspaces (no wallpaper clicks)
-            for _ in 0..10 {
+            // 6. Clear any existing characters in the PIN field using 6 Backspaces
+            for _ in 0..6 {
                 press_key(0x08, 0x0E);
             }
-            std::thread::sleep(std::time::Duration::from_millis(150));
+            std::thread::sleep(std::time::Duration::from_millis(100));
 
-            // 6. Type the PIN digits (EXACTLY ONCE per digit, using keybd_event to penetrate Winlogon secure desktop)
+            // 7. Type the PIN digits (EXACTLY ONCE per digit, using keybd_event to penetrate Winlogon secure desktop)
             let clean_pin = pin_to_send.trim();
             if !clean_pin.is_empty() {
                 for ch in clean_pin.chars() {

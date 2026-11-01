@@ -423,7 +423,16 @@ class MirrorService : Service() {
         }
 
         /** Starts sharing with `request`'s PC, with the user's consent (from the capture prompt). */
+        @Volatile private var cachedConsent: Pair<Int, Intent>? = null
+
+        fun tryStartWithCachedConsent(context: Context, request: MirrorRequest): Boolean {
+            val cached = cachedConsent ?: return false
+            start(context, request, cached.first, cached.second)
+            return true
+        }
+
         fun start(context: Context, request: MirrorRequest, result: Int, consent: Intent) {
+            cachedConsent = result to consent
             val intent = Intent(context, MirrorService::class.java)
                 .putExtra(EXTRA_PC, request.pcId)
                 .putExtra(EXTRA_CONSENT, consent)

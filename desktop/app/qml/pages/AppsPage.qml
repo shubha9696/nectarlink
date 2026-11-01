@@ -64,7 +64,7 @@ Item {
         anchors.centerIn: parent
         width: Math.min(parent.width - Theme.contentPadding * 2, 420)
         spacing: 12
-        visible: page.deviceId.length === 0 || !page.available
+        visible: page.deviceId.length === 0
         Icon {
             anchors.horizontalCenter: parent.horizontalCenter
             width: 40; height: 40
@@ -101,7 +101,7 @@ Item {
     // ---- The apps ----
     Item {
         id: content
-        visible: page.deviceId.length > 0 && page.available
+        visible: page.deviceId.length > 0
         anchors.fill: parent
         anchors.leftMargin: Theme.contentPadding
         anchors.rightMargin: Theme.contentPadding

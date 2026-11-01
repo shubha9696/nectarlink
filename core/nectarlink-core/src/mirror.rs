@@ -338,7 +338,11 @@ pub(crate) async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: &E
             let needs = if options.sound_only {
                 mirror::SOUND
             } else if options.app.is_some() {
-                mirror::VIRTUAL_DISPLAY
+                if shared.we_offer(mirror::VIRTUAL_DISPLAY) {
+                    mirror::VIRTUAL_DISPLAY
+                } else {
+                    mirror::CAPTURE
+                }
             } else if desktop && options.watch.is_some() {
                 nectarlink_protocol::messages::media_watch::STREAM
             } else {
@@ -420,7 +424,7 @@ pub(crate) async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: &E
             let input: MirrorInput = env.body()?;
             let MirrorSession { session: mirroring } = env.body()?;
             // App windows take input as they're Elevated; the screen, with mirror.input.
-            let needs = if mirroring == mirror::SCREEN { mirror::INPUT } else { mirror::VIRTUAL_DISPLAY };
+            let needs = if mirroring == mirror::SCREEN || !shared.we_offer(mirror::VIRTUAL_DISPLAY) { mirror::INPUT } else { mirror::VIRTUAL_DISPLAY };
             let desktop = is_local_desktop(shared);
             let mirror_on =
                 if desktop { pc_mirror_allowed(shared, &peer) } else { shared.toggle_on(&peer, TOGGLE) };
