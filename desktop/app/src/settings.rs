@@ -326,6 +326,9 @@ pub struct Settings {
     /// Closing the window keeps NectarLink running in the tray.
     #[serde(default = "default_close_to_tray", alias = "close_to_tray")]
     pub close_to_tray: bool,
+    /// Allow paired phones to unlock this PC with biometric or PIN.
+    #[serde(default = "default_true", alias = "unlock_pc_through_phone")]
+    pub unlock_pc_through_phone: bool,
     /// Send what's copied on this PC to connected phones.
     #[serde(alias = "auto_clipboard", alias = "clipboard_sync")]
     pub auto_clipboard: bool,
@@ -502,6 +505,7 @@ impl Default for Settings {
             backdrop: true,
             comb_motion: true,
             close_to_tray: default_close_to_tray(),
+            unlock_pc_through_phone: true,
             auto_clipboard: true,
             clipboard_history: true,
             suggest_clipboard_actions: true,

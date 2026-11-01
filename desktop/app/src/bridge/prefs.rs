@@ -49,6 +49,7 @@ pub mod qobject {
         /// Hive's comb breathes and pulses.
         #[qproperty(bool, comb_motion)]
         #[qproperty(bool, close_to_tray)]
+        #[qproperty(bool, unlock_pc_through_phone)]
         /// Send what's copied on this PC to connected phones.
         #[qproperty(bool, auto_clipboard)]
         /// Keep the last 50 synced clips in encrypted local history.
@@ -289,6 +290,7 @@ pub struct PreferencesRust {
     backdrop: bool,
     comb_motion: bool,
     close_to_tray: bool,
+    unlock_pc_through_phone: bool,
     auto_clipboard: bool,
     clipboard_history: bool,
     suggest_clipboard_actions: bool,
@@ -366,6 +368,7 @@ impl cxx_qt::Initialize for qobject::Preferences {
         self.as_mut().set_comb_motion(settings.comb_motion);
         let close_to_tray = if cfg!(target_os = "macos") { false } else { settings.close_to_tray };
         self.as_mut().set_close_to_tray(close_to_tray);
+        self.as_mut().set_unlock_pc_through_phone(settings.unlock_pc_through_phone);
         self.as_mut().set_auto_clipboard(settings.auto_clipboard);
         crate::clipboard::set_auto_send(settings.auto_clipboard);
         self.as_mut().set_clipboard_history(settings.clipboard_history);
@@ -990,6 +993,7 @@ impl qobject::Preferences {
             backdrop: p.backdrop,
             comb_motion: p.comb_motion,
             close_to_tray: if cfg!(target_os = "macos") { false } else { p.close_to_tray },
+            unlock_pc_through_phone: p.unlock_pc_through_phone,
             auto_clipboard: p.auto_clipboard,
             clipboard_history: p.clipboard_history,
             suggest_clipboard_actions: p.suggest_clipboard_actions,

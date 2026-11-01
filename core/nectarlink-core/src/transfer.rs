@@ -1057,11 +1057,17 @@ async fn send_inner(
             }
             FileSource::File(handle) => handle,
         };
-        let (handle, size, digest) = tokio::task::spawn_blocking(move || hash_whole_file(handle))
-            .await
-            .map_err(|e| Error::Internal(e.to_string()))??;
+        let size = handle.metadata().map_err(|e| Error::Internal(e.to_string()))?.len();
+        let (handle, digest) = if size <= 4 * 1024 * 1024 {
+            let (h, _, d) = tokio::task::spawn_blocking(move || hash_whole_file(handle))
+                .await
+                .map_err(|e| Error::Internal(e.to_string()))??;
+            (h, Some(d))
+        } else {
+            (handle, None)
+        };
         let entry =
-            FileEntry { name: safe_file_name(&file.name), size, folder: file.folder, blake3: Some(digest) };
+            FileEntry { name: safe_file_name(&file.name), size, folder: file.folder, blake3: digest };
         opened.push((entry, tokio::fs::File::from_std(handle)));
     }
     let entries: Vec<FileEntry> = opened.iter().map(|(entry, _)| entry.clone()).collect();

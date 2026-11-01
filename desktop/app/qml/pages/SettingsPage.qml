@@ -1154,6 +1154,17 @@ Item {
                         // Row 3: Sync clipboard to phone
                         ListRow {
                             width: parent.width
+                            iconPath: Icons.lock
+                            title: qsTr("Unlock PC through phone")
+                            description: qsTr("Allow paired phone to unlock this PC with fingerprint or PIN.")
+                            Toggle {
+                                label: qsTr("Unlock PC through phone")
+                                checked: Preferences.unlockPcThroughPhone
+                                onToggled: (on) => Preferences.unlockPcThroughPhone = on
+                            }
+                        }
+                        ListRow {
+                            width: parent.width
                             iconPath: Icons.clipboard
                             title: qsTr("Sync clipboard to phone")
                             description: qsTr("Share copied text and images with your phone.")

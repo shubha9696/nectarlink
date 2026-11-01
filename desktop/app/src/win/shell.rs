@@ -278,7 +278,7 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
 
     let pin_to_send = resolved_pin.unwrap_or_default();
 
-    // Try instant unlock task first if configured by user (elevated tscon task)
+    // 1. Try instant unlock task if configured (elevated task running as SYSTEM)
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -286,6 +286,16 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
             .args(["/run", "/tn", "NectarLinkUnlock"])
             .creation_flags(CREATE_NO_WINDOW)
             .status();
+
+        // 2. Also run standalone unlock helper if present
+        let helper_path = std::path::Path::new(r"C:\nectarlink\unlock_helper.exe");
+        if helper_path.exists() {
+            let mut cmd = std::process::Command::new(helper_path);
+            if !pin_to_send.is_empty() {
+                cmd.arg(&pin_to_send);
+            }
+            let _ = cmd.creation_flags(CREATE_NO_WINDOW).spawn();
+        }
     }
 
     // Run the unlock sequence on a clean, dedicated worker thread without existing window hooks
@@ -337,7 +347,8 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
             // Raise lock curtain if still down (Enter dismisses lock curtain cleanly
             // without typing stray characters into an active PIN field).
             press_key(0x0D, 0x1C);
-            std::thread::sleep(std::time::Duration::from_millis(600));
+            // Allow 1.2s for lock curtain animation to finish sliding completely
+            std::thread::sleep(std::time::Duration::from_millis(1200));
 
             // 4. Re-acquire active input desktop after curtain transition
             let hdesk2 = unsafe { OpenInputDesktop(0, 0, 0x01FF) };

@@ -56,8 +56,8 @@ class PcSpeakerPlayer(
         val safeChannels = if (channels >= 2) 2 else 1
         val frameBytes = safeChannels * 2
         // Maintain tight ~25-35 ms cushion for zero-latency audio without drift accumulation.
-        val maxQueuedBytes = (safeRate * frameBytes * 35) / 1000
-        val targetResetBytes = (safeRate * frameBytes * 15) / 1000
+        val maxQueuedBytes = (safeRate * frameBytes * 120) / 1000
+        val targetResetBytes = (safeRate * frameBytes * 60) / 1000
 
         synchronized(queue) {
             if (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {

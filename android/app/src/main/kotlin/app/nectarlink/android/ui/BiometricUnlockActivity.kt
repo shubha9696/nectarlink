@@ -26,23 +26,15 @@ class BiometricUnlockActivity : Activity() {
         }
     }
 
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus && !authStarted) {
-            authStarted = true
-            startUnlock()
-        }
-    }
-
     override fun onResume() {
         super.onResume()
-        // Fallback delay to allow notification shade to collapse cleanly before showing biometric prompt
+        // Allow notification shade collapse animation to finish completely before prompting
         window.decorView.postDelayed({
             if (!authStarted && !isFinishing && !isDestroyed) {
                 authStarted = true
                 startUnlock()
             }
-        }, 300)
+        }, 450)
     }
 
     private fun startUnlock() {

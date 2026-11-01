@@ -45,7 +45,12 @@ pub fn power_with_pin(action: PowerAction, pin: Option<&str>) -> Result<(), Stri
         PowerAction::Lock => shell::lock(),
         PowerAction::Sleep => shell::sleep(),
         PowerAction::Restart => shell::restart(),
-        PowerAction::Unlock => shell::unlock_with_pin(pin),
+        PowerAction::Unlock => {
+            if !crate::settings::Settings::load(&crate::core_host::host().data_dir).unlock_pc_through_phone {
+                return Err("Unlock PC through phone is disabled in settings".into());
+            }
+            shell::unlock_with_pin(pin)
+        }
     }
 }
 
