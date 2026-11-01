@@ -834,10 +834,11 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             is Event.PcAudioFrame -> {
                 app.nectarlink.android.mirror.StreamPower.set(context, "audio", true)
                 pcSpeakerPlayer.playFrame(
-                event.sampleRate.toInt(),
-                event.channels.toInt(),
-                event.pcm,
-            )
+                    event.sampleRate.toInt(),
+                    event.channels.toInt(),
+                    event.pcm,
+                )
+            }
             is Event.PcMirrorConfig -> {
                 _pcMirrorConfig.value = PcMirrorConfigState(
                     pcId = event.id,

@@ -9,6 +9,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
+import android.media.AudioTrack
 import android.media.projection.MediaProjection
 import android.os.Build
 import android.os.SystemClock
@@ -173,6 +174,7 @@ class SoundCapture(
             if (running) Log.w(TAG, "elevated sound capture stopped", e)
         } finally {
             running = false
+            runCatching { localPlayerTrack?.stop(); localPlayerTrack?.release(); localPlayerTrack = null }
             elevatedSocket = null
             runCatching { sock.close() }
             stream.end()
