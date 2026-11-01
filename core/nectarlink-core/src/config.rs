@@ -80,10 +80,10 @@ pub struct TransportTuning {
 
 impl Default for TransportTuning {
     fn default() -> Self {
-        // Room for a file transfer to keep the link busy through Wi-Fi's
-        // latency spikes (the QUIC defaults suit ~100 Mbit/s at 100 ms).
+        // High throughput bulk transfers matching LAN Wi-Fi speed (50+ MB/s)
+        // using loss-based Cubic congestion control with large flight windows.
         TransportTuning {
-            congestion: Congestion::Bbr3,
+            congestion: Congestion::Cubic,
             stream_window: 64 << 20,
             connection_window: 128 << 20,
         }

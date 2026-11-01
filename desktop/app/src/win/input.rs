@@ -113,6 +113,10 @@ pub fn send_key_full(vk: u16, scan: u16, extended: bool, hold_ms: u64) {
         down_flags |= KEYEVENTF_EXTENDEDKEY;
         up_flags |= KEYEVENTF_EXTENDEDKEY;
     }
+    if scan > 0 {
+        down_flags |= KEYEVENTF_SCANCODE;
+        up_flags |= KEYEVENTF_SCANCODE;
+    }
     let down = INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {

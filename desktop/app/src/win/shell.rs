@@ -241,19 +241,6 @@ pub fn unlock() -> Result<(), String> {
 }
 
 pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
-    unsafe extern "system" {
-        fn OpenInputDesktop(dw_flags: u32, f_inherit: i32, dw_desired_access: u32) -> isize;
-        fn SetThreadDesktop(h_desktop: isize) -> i32;
-        fn CloseDesktop(h_desktop: isize) -> i32;
-    }
-    unsafe {
-        let desk = OpenInputDesktop(0, 0, 0x01FF);
-        if desk != 0 {
-            SetThreadDesktop(desk);
-            CloseDesktop(desk);
-        }
-    }
-
     let pin_file = crate::core_host::try_data_dir()
         .map(|p| p.join("saved_pin.txt"))
         .unwrap_or_else(|| std::env::temp_dir().join("nectarlink_saved_pin.txt"));
@@ -263,73 +250,170 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
         }
     }
 
-    // 1. Wake display: press Space (VK_SPACE 0x20, scan 0x39)
-    super::input::send_key_full(0x20, 0x39, false, 50);
-    std::thread::sleep(std::time::Duration::from_millis(600));
-
-    // 2. Raise lock curtain / dismiss lock screen wallpaper: press Space again
-    super::input::send_key_full(0x20, 0x39, false, 50);
-    // Allow ample time for Windows 11 lock screen slide animation to finish and focus PIN field
-    std::thread::sleep(std::time::Duration::from_millis(1400));
-
-    // 3. Clear any stray character in the PIN field using Backspace (VK_BACK 0x08, scan 0x0E)
-    super::input::send_key_full(0x08, 0x0E, false, 30);
-    std::thread::sleep(std::time::Duration::from_millis(80));
-    super::input::send_key_full(0x08, 0x0E, false, 30);
-    std::thread::sleep(std::time::Duration::from_millis(80));
-    super::input::send_key_full(0x08, 0x0E, false, 30);
-    std::thread::sleep(std::time::Duration::from_millis(200));
-
-    // 4. Resolve PIN from argument, saved file, or environment
+    // Resolve PIN from argument, saved file, or environment
     let resolved_pin = pin.map(str::to_owned).or_else(|| {
         std::fs::read_to_string(&pin_file).ok().filter(|s| !s.trim().is_empty())
     }).or_else(|| {
         std::env::var("NECTARLINK_PIN").ok().filter(|s| !s.trim().is_empty())
     });
 
-    if let Some(pin_str) = resolved_pin {
-        let clean_pin = pin_str.trim();
-        if !clean_pin.is_empty() {
-            for ch in clean_pin.chars() {
-                let (vk, scan) = match ch {
-                    '1' => (0x31, 0x02),
-                    '2' => (0x32, 0x03),
-                    '3' => (0x33, 0x04),
-                    '4' => (0x34, 0x05),
-                    '5' => (0x35, 0x06),
-                    '6' => (0x36, 0x07),
-                    '7' => (0x37, 0x08),
-                    '8' => (0x38, 0x09),
-                    '9' => (0x39, 0x0A),
-                    '0' => (0x30, 0x0B),
-                    _ => {
-                        let vkey = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::VkKeyScanW(ch as u16) };
-                        if vkey != -1 {
-                            let vk = (vkey & 0xFF) as u16;
-                            let scan = unsafe {
-                                windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(
-                                    vk as u32,
-                                    windows::Win32::UI::Input::KeyboardAndMouse::MAP_VIRTUAL_KEY_TYPE(0),
-                                ) as u16
-                            };
-                            (vk, scan)
-                        } else {
-                            (0, 0)
-                        }
-                    }
-                };
-                if vk != 0 || scan != 0 {
-                    super::input::send_key_full(vk, scan, false, 40);
-                    std::thread::sleep(std::time::Duration::from_millis(70));
-                }
+    let pin_to_send = resolved_pin.unwrap_or_default();
+
+    // Run the unlock sequence on a clean, dedicated worker thread without existing window hooks
+    // so SetProcessWindowStation and SetThreadDesktop succeed cleanly.
+    let handle = std::thread::Builder::new()
+        .name("nectarlink-pc-unlock".into())
+        .spawn(move || {
+            unsafe extern "system" {
+                fn OpenWindowStationW(lpszWinSta: *const u16, fInherit: i32, dwDesiredAccess: u32) -> isize;
+                fn SetProcessWindowStation(hWinSta: isize) -> i32;
+                fn OpenInputDesktop(dwFlags: u32, fInherit: i32, dwDesiredAccess: u32) -> isize;
+                fn SetThreadDesktop(hDesktop: isize) -> i32;
+                fn CloseDesktop(hDesktop: isize) -> i32;
+                fn CloseWindowStation(hWinSta: isize) -> i32;
+                fn keybd_event(bVk: u8, bScan: u8, dwFlags: u32, dwExtraInfo: usize);
             }
-            std::thread::sleep(std::time::Duration::from_millis(250));
-            // Send Enter (VK_RETURN 0x0D, scan 0x1C) to submit the PIN
-            super::input::send_key_full(0x0D, 0x1C, false, 50);
+
+            // 1. Attach process thread to WinSta0
+            let winsta_name: Vec<u16> = "WinSta0\0".encode_utf16().collect();
+            let hwinsta = unsafe { OpenWindowStationW(winsta_name.as_ptr(), 0, 0x037F) };
+            if hwinsta != 0 {
+                unsafe { SetProcessWindowStation(hwinsta); }
+            }
+
+            // 2. Attach thread to current input desktop
+            let mut hdesk = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
+            if hdesk != 0 {
+                unsafe { SetThreadDesktop(hdesk); }
+            }
+
+            // 3. Wake display: press Space (VK_SPACE 0x20, scan 0x39)
+            unsafe {
+                keybd_event(0x20, 0x39, 0, 0);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            unsafe {
+                keybd_event(0x20, 0x39, 2, 0); // KEYUP
+            }
+            super::input::send_key_full(0x20, 0x39, false, 50);
             std::thread::sleep(std::time::Duration::from_millis(400));
-            super::input::send_key_full(0x0D, 0x1C, false, 50);
-        }
+
+            // 4. Raise lock curtain / dismiss lock screen wallpaper: press Space again
+            unsafe {
+                keybd_event(0x20, 0x39, 0, 0);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            unsafe {
+                keybd_event(0x20, 0x39, 2, 0);
+            }
+            super::input::send_key_full(0x20, 0x39, false, 50);
+
+            // 5. Allow Windows 11 lock screen slide animation to finish and focus PIN field
+            std::thread::sleep(std::time::Duration::from_millis(1200));
+
+            // 6. Re-acquire active input desktop after curtain transition
+            let hdesk2 = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
+            if hdesk2 != 0 {
+                unsafe { SetThreadDesktop(hdesk2); }
+                if hdesk != 0 && hdesk != hdesk2 {
+                    unsafe { CloseDesktop(hdesk); }
+                }
+                hdesk = hdesk2;
+            }
+
+            // 7. Clear any stray character in the PIN field using Backspace (VK_BACK 0x08, scan 0x0E)
+            for _ in 0..3 {
+                unsafe {
+                    keybd_event(0x08, 0x0E, 0, 0);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                unsafe {
+                    keybd_event(0x08, 0x0E, 2, 0);
+                }
+                super::input::send_key_full(0x08, 0x0E, false, 30);
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+
+            // 8. Type the PIN digits
+            let clean_pin = pin_to_send.trim();
+            if !clean_pin.is_empty() {
+                for ch in clean_pin.chars() {
+                    let (vk, scan) = match ch {
+                        '1' => (0x31u16, 0x02u16),
+                        '2' => (0x32u16, 0x03u16),
+                        '3' => (0x33u16, 0x04u16),
+                        '4' => (0x34u16, 0x05u16),
+                        '5' => (0x35u16, 0x06u16),
+                        '6' => (0x36u16, 0x07u16),
+                        '7' => (0x37u16, 0x08u16),
+                        '8' => (0x38u16, 0x09u16),
+                        '9' => (0x39u16, 0x0Au16),
+                        '0' => (0x30u16, 0x0Bu16),
+                        _ => {
+                            let vkey = unsafe { windows::Win32::UI::Input::KeyboardAndMouse::VkKeyScanW(ch as u16) };
+                            if vkey != -1 {
+                                let vk = (vkey & 0xFF) as u16;
+                                let scan = unsafe {
+                                    windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(
+                                        vk as u32,
+                                        windows::Win32::UI::Input::KeyboardAndMouse::MAP_VIRTUAL_KEY_TYPE(0),
+                                    ) as u16
+                                };
+                                (vk, scan)
+                            } else {
+                                (0, 0)
+                            }
+                        }
+                    };
+                    if vk != 0 || scan != 0 {
+                        unsafe {
+                            keybd_event(vk as u8, scan as u8, 0, 0);
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(35));
+                        unsafe {
+                            keybd_event(vk as u8, scan as u8, 2, 0);
+                        }
+                        super::input::send_key_full(vk, scan, false, 35);
+                        std::thread::sleep(std::time::Duration::from_millis(60));
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+
+                // 9. Send Enter (VK_RETURN 0x0D, scan 0x1C) to submit the PIN
+                unsafe {
+                    keybd_event(0x0D, 0x1C, 0, 0);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                unsafe {
+                    keybd_event(0x0D, 0x1C, 2, 0);
+                }
+                super::input::send_key_full(0x0D, 0x1C, false, 50);
+                std::thread::sleep(std::time::Duration::from_millis(300));
+
+                unsafe {
+                    keybd_event(0x0D, 0x1C, 0, 0);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                unsafe {
+                    keybd_event(0x0D, 0x1C, 2, 0);
+                }
+                super::input::send_key_full(0x0D, 0x1C, false, 50);
+            }
+
+            // Cleanup handles
+            if hdesk != 0 {
+                unsafe { CloseDesktop(hdesk); }
+            }
+            if hwinsta != 0 {
+                unsafe { CloseWindowStation(hwinsta); }
+            }
+        });
+
+    if let Ok(h) = handle {
+        let _ = h.join();
     }
+    tracing::info!("unlock: input desktop attached and PIN dispatched successfully");
     Ok(())
 }
 

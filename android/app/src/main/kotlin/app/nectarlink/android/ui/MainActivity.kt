@@ -1065,8 +1065,8 @@ private fun FloatingBottomPillDock(
                         )
                     },
                 )
-                .padding(horizontal = 6.dp, vertical = 5.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                .padding(horizontal = 8.dp, vertical = 5.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             FloatingDockTabPill(
@@ -1161,8 +1161,8 @@ private fun FloatingDockTabPill(
                 indication = null,
                 onClick = onClick,
             )
-            .padding(horizontal = 18.dp, vertical = 9.dp),
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -1175,6 +1175,9 @@ private fun FloatingDockTabPill(
             text = label,
             color = contentColor,
             style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            softWrap = false,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         )
         if (statusDotColor != null) {
             androidx.compose.foundation.layout.Spacer(
