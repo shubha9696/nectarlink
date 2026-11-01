@@ -83,7 +83,7 @@ impl Default for TransportTuning {
         // High throughput bulk transfers without bufferbloat or latency spikes,
         // using BBRv3 model-based congestion control and tuned flight windows.
         TransportTuning {
-            congestion: Congestion::Bbr3,
+            congestion: Congestion::Cubic,
             stream_window: 64 << 20,
             connection_window: 128 << 20,
         }

@@ -151,7 +151,7 @@ class AppDisplay(
                 setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                setInteger(MediaFormat.KEY_LATENCY, 1)
+                setInteger(MediaFormat.KEY_LATENCY, 0)
             }
         }
         val codec = MediaCodec.createEncoderByType(mime)
@@ -202,7 +202,7 @@ class AppDisplay(
         val info = MediaCodec.BufferInfo()
         var parameters = ByteArray(0)
         while (running && nextSize == null) {
-            val index = codec.dequeueOutputBuffer(info, 50_000)
+            val index = codec.dequeueOutputBuffer(info, 1_000)
             if (index < 0) continue
             val buffer = codec.getOutputBuffer(index)
             if (buffer != null && info.size > 0) {

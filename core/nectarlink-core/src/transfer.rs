@@ -44,11 +44,11 @@ const KEEP_PARTIAL: Duration = Duration::from_secs(60 * 60);
 const CHUNK: usize = 1024 * 1024;
 /// The sender reads ahead in blocks of this size, this many at a time, so
 /// the disk is read while the network sends.
-const BLOCK: usize = 2 * 1024 * 1024;
+const BLOCK: usize = 256 * 1024;
 const READ_AHEAD: usize = 16;
 /// The receiver writes the disk in pieces this large (QUIC delivers a few
 /// kilobytes at a time).
-const WRITE_BUFFER: usize = 8 * 1024 * 1024;
+const WRITE_BUFFER: usize = 512 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -808,10 +808,9 @@ pub(crate) async fn deliver_queued_files(
             }
         };
         let name_for_err = spec.name.clone();
-        let res = tokio::task::spawn_blocking(move || hash_whole_file(handle)).await;
-        let (handle, size, digest) = match res {
-            Ok(Ok(v)) => v,
-            _ => {
+        let meta = match handle.metadata() {
+            Ok(m) => m,
+            Err(_) => {
                 let reason = format!("Cannot read source file: {name_for_err}");
                 let _ = shared.store.mark_queue_failed(&item.id, &reason);
                 shared.emit(NodeEvent::QueueChanged);
@@ -822,11 +821,12 @@ pub(crate) async fn deliver_queued_files(
                 return;
             }
         };
+        let size = meta.len();
         let entry = FileEntry {
             name: safe_file_name(&spec.name),
             size,
             folder: spec.folder.clone(),
-            blake3: Some(digest),
+            blake3: None,
         };
         opened.push((entry, tokio::fs::File::from_std(handle)));
     }

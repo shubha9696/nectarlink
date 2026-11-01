@@ -1989,7 +1989,7 @@ fn decode(window: Window, items: &Receiver<Item>, waiting: &AtomicUsize) {
                 need_keyframe = true;
             }
             Item::Packet { keyframe, time_us, data } => {
-                let behind = waiting.fetch_sub(1, Ordering::AcqRel) > 1;
+                let behind = waiting.fetch_sub(1, Ordering::AcqRel) > 8;
                 if need_keyframe && !keyframe {
                     continue;
                 }

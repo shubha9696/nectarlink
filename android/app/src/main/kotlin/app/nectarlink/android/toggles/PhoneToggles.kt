@@ -177,11 +177,57 @@ class PhoneToggles(
                 }
                 "wifi" -> {
                     val on = (value as? PhoneToggleValue.Bool)?.on ?: return false
-                    Elevated.runCommand(if (on) "svc wifi enable" else "svc wifi disable")
+                    var handled = false
+                    if (Elevated.running) {
+                        handled = Elevated.runCommand(if (on) "svc wifi enable" else "svc wifi disable") ||
+                                  Elevated.runCommand("cmd -w wifi set-wifi-enabled " + (if (on) "enabled" else "disabled"))
+                    }
+                    if (!handled) {
+                        runCatching {
+                            @Suppress("DEPRECATION")
+                            wifi?.setWifiEnabled(on)
+                            handled = true
+                        }
+                    }
+                    if (!handled) {
+                        runCatching {
+                            val panelIntent = Intent(Settings.Panel.ACTION_WIFI).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(panelIntent)
+                            handled = true
+                        }.onFailure {
+                            runCatching {
+                                val intent = Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                                handled = true
+                            }
+                        }
+                    }
+                    schedulePush()
+                    true
                 }
                 "bluetooth" -> {
                     val on = (value as? PhoneToggleValue.Bool)?.on ?: return false
-                    Elevated.runCommand(if (on) "svc bluetooth enable" else "svc bluetooth disable")
+                    var handled = false
+                    if (Elevated.running) {
+                        handled = Elevated.runCommand(if (on) "svc bluetooth enable" else "svc bluetooth disable") ||
+                                  Elevated.runCommand("cmd bluetooth_manager " + (if (on) "enable" else "disable"))
+                    }
+                    if (!handled) {
+                        runCatching {
+                            @Suppress("DEPRECATION")
+                            if (on) bluetooth?.adapter?.enable() else bluetooth?.adapter?.disable()
+                            handled = true
+                        }
+                    }
+                    if (!handled) {
+                        runCatching {
+                            val btIntent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(btIntent)
+                            handled = true
+                        }
+                    }
+                    schedulePush()
+                    true
                 }
                 "hotspot" -> {
                     val on = (value as? PhoneToggleValue.Bool)?.on ?: return false

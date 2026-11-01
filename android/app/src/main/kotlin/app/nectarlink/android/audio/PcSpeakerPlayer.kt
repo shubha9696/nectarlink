@@ -56,8 +56,8 @@ class PcSpeakerPlayer(
         val safeChannels = if (channels >= 2) 2 else 1
         val frameBytes = safeChannels * 2
         // Maintain tight ~25-35 ms cushion for zero-latency audio without drift accumulation.
-        val maxQueuedBytes = (safeRate * frameBytes * 120) / 1000
-        val targetResetBytes = (safeRate * frameBytes * 60) / 1000
+        val maxQueuedBytes = (safeRate * frameBytes * 25) / 1000
+        val targetResetBytes = (safeRate * frameBytes * 12) / 1000
 
         synchronized(queue) {
             if (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
@@ -226,7 +226,7 @@ class PcSpeakerPlayer(
             return null
         }
         val frameBytes = (if (channels >= 2) 2 else 1) * 2
-        val targetBuf = ((sampleRate * frameBytes * 40) / 1000).coerceAtLeast(minBuf)
+        val targetBuf = ((sampleRate * frameBytes * 15) / 1000).coerceAtLeast(minBuf)
 
         return runCatching {
             val attrs = AudioAttributes.Builder()
@@ -248,7 +248,7 @@ class PcSpeakerPlayer(
                 .build()
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 val minFrames = (minBuf / frameBytes).coerceAtLeast(1)
-                val targetFrames = (sampleRate * 30) / 1000
+                val targetFrames = (sampleRate * 10) / 1000
                 runCatching { track.bufferSizeInFrames = targetFrames.coerceAtLeast(minFrames) }
             }
             track
