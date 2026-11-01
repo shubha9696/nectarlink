@@ -679,16 +679,11 @@ async fn heartbeat(session: &Arc<Session>, shared: &Weak<Shared>) {
                     } else {
                         raw_rtt
                     };
-                    // When on direct local Wi-Fi, Hotspot, or USB:
-                    // Under low-latency conditions on local links (sub-35ms), report 0 ms.
-                    let rtt = if session.path() != ConnectionPath::Relay {
-                        if base_rtt <= 35 {
-                            0
-                        } else {
-                            base_rtt.saturating_sub(25)
-                        }
+                    // Accurate, true measured round-trip latency without synthetic offsets
+                    let rtt = if let Some(qrtt) = quic_rtt {
+                        if qrtt > 0 { qrtt } else { raw_rtt }
                     } else {
-                        base_rtt
+                        raw_rtt
                     };
                     let previous = session.rtt_ms.swap(rtt, Ordering::Relaxed);
                     if previous != rtt {
