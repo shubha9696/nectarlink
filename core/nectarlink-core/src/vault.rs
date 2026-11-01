@@ -20,7 +20,6 @@
 
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use rand::RngCore;
 use rusqlite::{params, Connection};
 use thiserror::Error;
 
@@ -238,11 +237,8 @@ impl PcUnlockVault {
         account_name: String,
         pc_password: &str,
     ) -> UnlockMessage {
-        let mut rng = rand::rng();
-        let mut pc_secret_share = [0u8; 32];
-        let mut phone_key_share = [0u8; 32];
-        rng.fill_bytes(&mut pc_secret_share);
-        rng.fill_bytes(&mut phone_key_share);
+        let pc_secret_share: [u8; 32] = rand::random();
+        let mut phone_key_share: [u8; 32] = rand::random();
 
         let dummy_nonce = [0u8; 32];
         let (unwrap_token, _) =
@@ -337,8 +333,7 @@ impl PcUnlockVault {
             return Err(VaultError::LockedOut(vault_id.to_string()));
         }
 
-        let mut challenge_nonce = [0u8; 32];
-        rand::rng().fill_bytes(&mut challenge_nonce);
+        let challenge_nonce: [u8; 32] = rand::random();
         let expires_at_unix_ms = current_unix_ms() + CHALLENGE_TTL_MS;
 
         self.active_challenges.insert(

@@ -16,6 +16,7 @@
 //!    Prevents the OS kernel from silently dropping incoming or outgoing QUIC
 //!    bursts when transferring at 100+ Mbps.
 
+#![allow(unsafe_code)]
 #![warn(missing_debug_implementations)]
 
 /// Traffic class profile for NectarLink UDP sockets and streams.
