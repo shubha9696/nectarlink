@@ -3234,7 +3234,7 @@ Item {
                             title: qsTr("NectarLink %1").arg(AppController.version)
                             description: AppController.updateStatus.length > 0
                                          ? AppController.updateStatus
-                                         : qsTr("This PC: %1").arg(AppController.deviceName)
+                                         : qsTr("Designed and Developed by Shubham Chakrawarti · %1").arg(AppController.deviceName)
                             Row {
                                 spacing: 8
                                 // The download's progress, or a spinner while its size isn't known.

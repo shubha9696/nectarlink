@@ -446,8 +446,6 @@ pub(crate) async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: &E
         types::MIRROR_APPS => {
             let reply = if !shared.toggle_on(&peer, TOGGLE) {
                 Envelope::error(ErrorCode::Denied, "mirroring is off for this device")
-            } else if !shared.we_offer(mirror::VIRTUAL_DISPLAY) {
-                Envelope::error(ErrorCode::Unsupported, "this device doesn't open apps in windows")
             } else {
                 match tokio::task::spawn_blocking(move || platform.phone_apps())
                     .await

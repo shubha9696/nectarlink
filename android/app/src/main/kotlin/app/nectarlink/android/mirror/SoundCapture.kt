@@ -41,6 +41,17 @@ class SoundCapture(
 
     @SuppressLint("MissingPermission")
     fun start() {
+        // 1. Prefer Elevated internal audio submix (InputServer REMOTE_SUBMIX):
+        // Zero permission prompts, zero MediaProjection dialogs, and NEVER captures mic!
+        if (Elevated.running) {
+            running = true
+            thread = Thread({ runElevated() }, "sound-capture-elevated").apply {
+                priority = Thread.MAX_PRIORITY
+                start()
+            }
+            return
+        }
+
         val proj = projection
         if (proj != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val record = runCatching {
@@ -73,15 +84,6 @@ class SoundCapture(
             record?.runCatching { release() }
         }
 
-        if (Elevated.running) {
-            running = true
-            thread = Thread({ runElevated() }, "sound-capture-elevated").apply {
-                priority = Thread.MAX_PRIORITY
-                start()
-            }
-            return
-        }
-
         Log.w(TAG, "no sound capture available")
         stream.end()
         onEnded()
@@ -103,6 +105,23 @@ class SoundCapture(
                 }
                 if (!running) return
                 val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
+                if (dualPlayback) {
+                    if (localPlayerTrack == null) {
+                        runCatching {
+                            val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+                            localPlayerTrack = AudioTrack.Builder()
+                                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                                .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
+                                .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
+                                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                                .build().apply { play() }
+                        }
+                    }
+                    localPlayerTrack?.write(packet, 0, packet.size, AudioTrack.WRITE_NON_BLOCKING)
+                } else if (localPlayerTrack != null) {
+                    runCatching { localPlayerTrack?.stop(); localPlayerTrack?.release() }
+                    localPlayerTrack = null
+                }
                 if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) return
             }
         } catch (e: Exception) {

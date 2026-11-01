@@ -1116,6 +1116,14 @@ Item {
                             // The model is often a code (like "SM-X000"), so only the version.
                             text: home.osVersion.length > 0 ? qsTr("Android %1").arg(home.osVersion) : ""
                         }
+                        Txt {
+                            width: parent.width
+                            role: "caption"
+                            color: Theme.heroContent
+                            opacity: 0.92
+                            font.weight: Font.DemiBold
+                            text: qsTr("Designed and Developed by Shubham Chakrawarti")
+                        }
                         Flow {
                             width: parent.width
                             spacing: 6
@@ -2102,6 +2110,66 @@ Item {
                             : sound === "asking" ? qsTr("Allow it on %1").arg(MediaList.phoneSoundName)
                             : ""
                         onToggled: (on) => MediaList.setPhoneSound(on)
+                    }
+
+                    // Dual Audio Output Mode Selection
+                    Row {
+                        id: dualSoundRow
+                        width: parent.width
+                        height: 34
+                        spacing: 8
+                        visible: MediaList.phoneSoundState !== "off" || MediaList.phoneSoundName.length > 0
+                        property bool dual: false
+
+                        Rectangle {
+                            width: (parent.width - parent.spacing) / 2
+                            height: parent.height
+                            radius: Theme.radiusSm
+                            color: !dualSoundRow.dual ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
+                            border.width: 1
+                            border.color: !dualSoundRow.dual ? Theme.primary : Theme.outlineVariant
+
+                            Txt {
+                                anchors.centerIn: parent
+                                role: "label"
+                                color: !dualSoundRow.dual ? Theme.primaryContent : Theme.surfaceContent
+                                text: qsTr("Sound on PC only")
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    dualSoundRow.dual = false
+                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "false")
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: (parent.width - parent.spacing) / 2
+                            height: parent.height
+                            radius: Theme.radiusSm
+                            color: dualSoundRow.dual ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
+                            border.width: 1
+                            border.color: dualSoundRow.dual ? Theme.primary : Theme.outlineVariant
+
+                            Txt {
+                                anchors.centerIn: parent
+                                role: "label"
+                                color: dualSoundRow.dual ? Theme.primaryContent : Theme.surfaceContent
+                                text: qsTr("Sound on PC & Phone")
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    dualSoundRow.dual = true
+                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "true")
+                                }
+                            }
+                        }
                     }
 
                     LockChip {

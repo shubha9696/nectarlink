@@ -229,6 +229,11 @@ class PhoneToggles(
                     schedulePush()
                     true
                 }
+                "dual_sound" -> {
+                    val on = (value as? PhoneToggleValue.Bool)?.on ?: return false
+                    app.nectarlink.android.mirror.SoundCapture.dualPlayback = on
+                    true
+                }
                 "hotspot" -> {
                     val on = (value as? PhoneToggleValue.Bool)?.on ?: return false
                     var executed = false

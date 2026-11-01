@@ -912,8 +912,6 @@ pub const FEATURES: &[FeatureDef] = &[
         id: "mirroring.app_windows",
         group: FeatureGroup::Mirroring,
         requires: &[
-            phone("mirror.virtual_display", ELEVATED),
-            PowerAtLeast(PowerLevel::Elevated),
             AndroidAtLeast(11),
             desktop("mirror.view", UPDATE),
             DeviceToggle("mirroring"),

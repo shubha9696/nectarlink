@@ -306,13 +306,68 @@ fun HomeScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+                item(key = "audio_output_mode") {
+            var dualMode by remember { mutableStateOf(app.nectarlink.android.mirror.SoundCapture.dualPlayback) }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        "Phone Sound Output",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Choose where audio plays when phone sound is mirrored to PC:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                dualMode = false
+                                app.nectarlink.android.mirror.SoundCapture.dualPlayback = false
+                            },
+                            colors = if (!dualMode) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors(),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Sound on PC only")
+                        }
+                        Button(
+                            onClick = {
+                                dualMode = true
+                                app.nectarlink.android.mirror.SoundCapture.dualPlayback = true
+                            },
+                            colors = if (dualMode) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors(),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Sound on PC & Phone")
+                        }
+                    }
+                }
+            }
+        }
+
         item(key = "home_header", contentType = "header") {
-            Row(Modifier.padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.padding(top = 8.dp, bottom = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.home_title),
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 Text(
-                    stringResource(R.string.home_title),
-                    style = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier.weight(1f),
+                    "Designed and Developed by Shubham Chakrawarti",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
                 )
+            }
                 TextButton(
                     onClick = onOpenFeaturesGuide,
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),

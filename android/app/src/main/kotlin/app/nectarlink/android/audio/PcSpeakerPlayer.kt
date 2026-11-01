@@ -55,14 +55,13 @@ class PcSpeakerPlayer(
         val safeRate = sampleRate.coerceIn(8_000, 96_000)
         val safeChannels = if (channels >= 2) 2 else 1
         val frameBytes = safeChannels * 2
-        // Maintain tight ~25-35 ms cushion for zero-latency audio without drift accumulation.
-        val maxQueuedBytes = (safeRate * frameBytes * 25) / 1000
-        val targetResetBytes = (safeRate * frameBytes * 12) / 1000
+        // Generous 140 ms ceiling: network burst jitter on Wi-Fi / Hotspot never causes frame drops or distortion
+        val maxQueuedBytes = (safeRate * frameBytes * 140) / 1000
+        val targetResetBytes = (safeRate * frameBytes * 45) / 1000
 
         synchronized(queue) {
             if (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
-                // If Wi-Fi jitter or clock drift accumulated delay, drain older stale frames
-                // to instantly snap back to real-time 0 ms sync.
+                // Only drop stale frames if severe delay accumulated over 140 ms
                 while (queuedBytes > targetResetBytes && queue.isNotEmpty()) {
                     val dropped = queue.pollFirst() ?: break
                     queuedBytes = (queuedBytes - dropped.pcm.size).coerceAtLeast(0)
@@ -226,7 +225,8 @@ class PcSpeakerPlayer(
             return null
         }
         val frameBytes = (if (channels >= 2) 2 else 1) * 2
-        val targetBuf = ((sampleRate * frameBytes * 15) / 1000).coerceAtLeast(minBuf)
+        // 60 ms buffer gives AudioTrack plenty of room to prevent DAC hardware buffer underruns
+        val targetBuf = maxOf(minBuf * 2, (sampleRate * frameBytes * 60) / 1000)
 
         return runCatching {
             val attrs = AudioAttributes.Builder()
@@ -248,7 +248,7 @@ class PcSpeakerPlayer(
                 .build()
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                 val minFrames = (minBuf / frameBytes).coerceAtLeast(1)
-                val targetFrames = (sampleRate * 10) / 1000
+                val targetFrames = (sampleRate * 40) / 1000
                 runCatching { track.bufferSizeInFrames = targetFrames.coerceAtLeast(minFrames) }
             }
             track

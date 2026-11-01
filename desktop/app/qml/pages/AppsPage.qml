@@ -13,7 +13,7 @@ Item {
 
     readonly property var feature: AppController.capsRevision >= 0 && deviceId.length > 0
         ? AppController.featureState(deviceId, "mirroring.app_windows") : ({})
-    readonly property bool available: feature.state === "available" || feature.state === "partial"
+    readonly property bool available: deviceId.length > 0
 
     readonly property var apps: {
         if (Mirror.appsDevice !== deviceId)

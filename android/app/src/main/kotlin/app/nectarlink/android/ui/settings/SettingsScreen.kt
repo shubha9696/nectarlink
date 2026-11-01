@@ -1012,6 +1012,7 @@ fun SettingsScreen(
                     }
                     SettingRowDivider()
                     Text(stringResource(R.string.about_version, BuildConfig.VERSION_NAME), style = MaterialTheme.typography.bodyMedium)
+                    Text("Designed and Developed by Shubham Chakrawarti", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     CheckForUpdates(updater)
                 }
             }
