@@ -55,13 +55,18 @@ class PcSpeakerPlayer(
         val safeRate = sampleRate.coerceIn(8_000, 96_000)
         val safeChannels = if (channels >= 2) 2 else 1
         val frameBytes = safeChannels * 2
-        // Cap queued backlog at ~60 ms to allow smooth Wi-Fi jitter cushion while keeping true realtime 0 ms sync.
-        val maxQueuedBytes = (safeRate * frameBytes * 60) / 1000
+        // Maintain tight ~25-35 ms cushion for zero-latency audio without drift accumulation.
+        val maxQueuedBytes = (safeRate * frameBytes * 35) / 1000
+        val targetResetBytes = (safeRate * frameBytes * 15) / 1000
 
         synchronized(queue) {
-            while (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
-                val dropped = queue.pollFirst() ?: break
-                queuedBytes = (queuedBytes - dropped.pcm.size).coerceAtLeast(0)
+            if (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
+                // If Wi-Fi jitter or clock drift accumulated delay, drain older stale frames
+                // to instantly snap back to real-time 0 ms sync.
+                while (queuedBytes > targetResetBytes && queue.isNotEmpty()) {
+                    val dropped = queue.pollFirst() ?: break
+                    queuedBytes = (queuedBytes - dropped.pcm.size).coerceAtLeast(0)
+                }
             }
             if (queue.offerLast(AudioChunk(safeRate, safeChannels, pcm))) {
                 queuedBytes += pcm.size
@@ -220,7 +225,8 @@ class PcSpeakerPlayer(
             Log.w(TAG, "invalid minBufferSize=$minBuf for rate=$sampleRate channels=$channels")
             return null
         }
-        val targetBuf = (minBuf * 2).coerceAtLeast(minBuf)
+        val frameBytes = (if (channels >= 2) 2 else 1) * 2
+        val targetBuf = ((sampleRate * frameBytes * 40) / 1000).coerceAtLeast(minBuf)
 
         return runCatching {
             val attrs = AudioAttributes.Builder()
@@ -241,9 +247,9 @@ class PcSpeakerPlayer(
                 .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                 .build()
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                val frameBytes = (if (channels >= 2) 2 else 1) * 2
                 val minFrames = (minBuf / frameBytes).coerceAtLeast(1)
-                runCatching { track.bufferSizeInFrames = (minFrames * 2).coerceAtLeast(minFrames) }
+                val targetFrames = (sampleRate * 30) / 1000
+                runCatching { track.bufferSizeInFrames = targetFrames.coerceAtLeast(minFrames) }
             }
             track
         }.getOrElse {

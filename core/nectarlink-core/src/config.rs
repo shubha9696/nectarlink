@@ -84,8 +84,8 @@ impl Default for TransportTuning {
         // using loss-based Cubic congestion control with large flight windows.
         TransportTuning {
             congestion: Congestion::Cubic,
-            stream_window: 64 << 20,
-            connection_window: 128 << 20,
+            stream_window: 128 << 20,
+            connection_window: 256 << 20,
         }
     }
 }

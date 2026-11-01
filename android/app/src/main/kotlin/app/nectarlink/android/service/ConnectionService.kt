@@ -150,11 +150,14 @@ class ConnectionService : LifecycleService() {
             }
             "ACTION_RESTART_PC" -> {
                 val app = application as? NectarlinkApplication
-                val devId = intent.getStringExtra("device_id")
+                val devId = intent?.getStringExtra("device_id")
                     ?: app?.core?.state?.value?.devices?.firstOrNull { it.online }?.id
                     ?: app?.core?.state?.value?.devices?.firstOrNull()?.id
                 devId?.let { id ->
                     app?.core?.pcRestart(id)
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        android.widget.Toast.makeText(this, "Restarting PC...", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                 }
                 return START_STICKY
             }
@@ -281,6 +284,7 @@ class ConnectionService : LifecycleService() {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setAllowSystemGeneratedContextualActions(false)
 
         if (status.connectedIds.isNotEmpty()) {
             val isLocked = app.nectarlink.android.core.PcLockManager.pcLocked.value
@@ -300,11 +304,9 @@ class ConnectionService : LifecycleService() {
                 app.nectarlink.android.clipboard.SendActivity.sendFilesIntent(this, primaryDevId),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            val restartPcIntent = PendingIntent.getActivity(
+            val restartPcIntent = PendingIntent.getService(
                 this, 12,
-                Intent(this, app.nectarlink.android.ui.RestartConfirmActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                },
+                Intent(this, ConnectionService::class.java).setAction("ACTION_RESTART_PC"),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
 

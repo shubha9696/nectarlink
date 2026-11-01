@@ -1832,6 +1832,7 @@ async fn receive_bytes(
                 }
                 _ = wait_paused(pause_rx) => {
                     if write_out(&mut out, &mut pending, recv).await.is_ok() {
+                        let _ = out.flush().await;
                         reporter.progress(done);
                     }
                     let _ = recv.stop(VarInt::from_u32(files::PAUSED));
@@ -1847,6 +1848,7 @@ async fn receive_bytes(
                 }
                 Err(ReadError::Reset(code)) if code.into_inner() == u64::from(files::PAUSED) => {
                     if write_out(&mut out, &mut pending, recv).await.is_ok() {
+                        let _ = out.flush().await;
                         reporter.progress(done);
                     }
                     return Err(TransferState::Paused);
@@ -1855,6 +1857,7 @@ async fn receive_bytes(
                 // the sender resumes from there when it's back.
                 Ok(None) | Err(_) => {
                     if write_out(&mut out, &mut pending, recv).await.is_ok() {
+                        let _ = out.flush().await;
                         reporter.progress(done);
                     }
                     return Err(TransferState::Waiting);
@@ -1868,6 +1871,9 @@ async fn receive_bytes(
             pending.extend_from_slice(&bytes);
             if pending.len() >= WRITE_BUFFER || left == 0 {
                 write_out(&mut out, &mut pending, recv).await?;
+                if left == 0 {
+                    let _ = out.flush().await;
+                }
                 reporter.progress(done);
             }
         }
@@ -1888,11 +1894,10 @@ async fn write_out(
     pending: &mut Vec<u8>,
     recv: &mut RecvStream,
 ) -> std::result::Result<(), TransferState> {
+    if pending.is_empty() {
+        return Ok(());
+    }
     let written = out.write_all(pending).await;
-    let written = match written {
-        Ok(()) => out.flush().await,
-        Err(e) => Err(e),
-    };
     pending.clear();
     written.map_err(|e| {
         let no_space = e.kind() == std::io::ErrorKind::StorageFull;

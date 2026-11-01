@@ -81,8 +81,8 @@ mod imp {
 
     /// Enables or disables PC-to-phone audio loopback streaming.
     pub fn set_enabled(enabled: bool) {
-        let prev = ENABLED.swap(enabled, Ordering::SeqCst);
-        if enabled && !prev && core_host::node().is_some() {
+        ENABLED.store(enabled, Ordering::SeqCst);
+        if enabled {
             ensure_worker();
         }
     }
@@ -134,6 +134,46 @@ mod imp {
                 };
                 let l_i16 = (l_in.clamp(-1.0, 1.0) * 32767.0).round() as i16;
                 let r_i16 = (r_in.clamp(-1.0, 1.0) * 32767.0).round() as i16;
+                out.extend_from_slice(&l_i16.to_le_bytes());
+                out.extend_from_slice(&r_i16.to_le_bytes());
+            }
+            out
+        }
+
+        #[cfg_attr(target_os = "linux", allow(dead_code))]
+        fn encode_stereo_i32(&mut self, samples: &[i32], channels: usize) -> Vec<u8> {
+            let frames = samples.len() / channels.max(1);
+            let mut out = Vec::with_capacity(frames * 4);
+            for frame in samples.chunks_exact(channels.max(1)) {
+                let (l, r) = if channels == 2 {
+                    (frame[0], frame[1])
+                } else if channels > 1 {
+                    (frame[0], frame[1])
+                } else {
+                    (frame[0], frame[0])
+                };
+                let l_i16 = (l >> 16) as i16;
+                let r_i16 = (r >> 16) as i16;
+                out.extend_from_slice(&l_i16.to_le_bytes());
+                out.extend_from_slice(&r_i16.to_le_bytes());
+            }
+            out
+        }
+
+        #[cfg_attr(target_os = "linux", allow(dead_code))]
+        fn encode_stereo_i24(&mut self, bytes: &[u8], channels: usize) -> Vec<u8> {
+            let bytes_per_frame = channels.max(1) * 3;
+            let frames = bytes.len() / bytes_per_frame;
+            let mut out = Vec::with_capacity(frames * 4);
+            for frame in bytes.chunks_exact(bytes_per_frame) {
+                let l_i24 = i32::from_le_bytes([0, frame[0], frame[1], frame[2]]) >> 8;
+                let r_i24 = if channels >= 2 {
+                    i32::from_le_bytes([0, frame[3], frame[4], frame[5]]) >> 8
+                } else {
+                    l_i24
+                };
+                let l_i16 = (l_i24 >> 8) as i16;
+                let r_i16 = (r_i24 >> 8) as i16;
                 out.extend_from_slice(&l_i16.to_le_bytes());
                 out.extend_from_slice(&r_i16.to_le_bytes());
             }
@@ -377,7 +417,7 @@ mod imp {
         };
 
         // SAFETY: WASAPI loopback initialization on the default render endpoint.
-        let (client, capture, rate, channels, bits_per_sample) = unsafe {
+        let (client, capture, rate, channels, bits_per_sample, is_float) = unsafe {
             let enumerator: IMMDeviceEnumerator =
                 CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).map_err(|e| e.to_string())?;
             let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).map_err(|e| e.to_string())?;
@@ -390,6 +430,17 @@ mod imp {
             let rate = mix.nSamplesPerSec.clamp(8_000, 96_000);
             let channels = mix.nChannels.max(1) as usize;
             let bits = mix.wBitsPerSample;
+            let mut is_float = mix.wFormatTag == 3; // WAVE_FORMAT_IEEE_FLOAT
+            if mix.wFormatTag == 0xFFFE && mix.cbSize >= 22 { // WAVE_FORMAT_EXTENSIBLE
+                let ext_ptr = mix_ptr as *const u8;
+                // SubFormat GUID is at offset 24
+                let subformat_bytes = std::slice::from_raw_parts(ext_ptr.add(24), 16);
+                // KSDATAFORMAT_SUBTYPE_IEEE_FLOAT: {00000003-0000-0010-8000-00aa00389b71}
+                let float_subformat = [3u8, 0, 0, 0, 0, 0, 16, 0, 128, 0, 0, 170, 0, 56, 155, 113];
+                if subformat_bytes == float_subformat {
+                    is_float = true;
+                }
+            }
             // 10 ms shared loopback buffer in 100-ns units = 100_000.
             let init_res = client.Initialize(
                 AUDCLNT_SHAREMODE_SHARED,
@@ -403,7 +454,8 @@ mod imp {
             init_res.map_err(|e| e.to_string())?;
             let capture: IAudioCaptureClient = client.GetService().map_err(|e| e.to_string())?;
             client.Start().map_err(|e| e.to_string())?;
-            (client, capture, rate, channels, bits)
+            tracing::info!(rate, channels, bits, is_float, "WASAPI loopback capture initialized");
+            (client, capture, rate, channels, bits, is_float)
         };
 
         let mut enhancer = SpeakerEnhancer::new(rate);
@@ -455,12 +507,36 @@ mod imp {
                         } else {
                             Vec::new()
                         }
-                    } else if bits_per_sample == 32 {
+                    } else if is_float && bits_per_sample == 32 {
                         let floats = std::slice::from_raw_parts(data_ptr.cast::<f32>(), frames * channels);
                         let has_signal = floats.iter().any(|&s| s.is_finite() && s.abs() > 1e-5);
                         if has_signal {
                             silence_tail_packets = 50;
                             enhancer.encode_stereo_f32(floats, channels)
+                        } else if silence_tail_packets > 0 {
+                            silence_tail_packets -= 1;
+                            vec![0u8; frames * 4]
+                        } else {
+                            Vec::new()
+                        }
+                    } else if bits_per_sample == 32 {
+                        let i32s = std::slice::from_raw_parts(data_ptr.cast::<i32>(), frames * channels);
+                        let has_signal = i32s.iter().any(|&s| s.abs() > 200);
+                        if has_signal {
+                            silence_tail_packets = 50;
+                            enhancer.encode_stereo_i32(i32s, channels)
+                        } else if silence_tail_packets > 0 {
+                            silence_tail_packets -= 1;
+                            vec![0u8; frames * 4]
+                        } else {
+                            Vec::new()
+                        }
+                    } else if bits_per_sample == 24 {
+                        let raw_bytes = std::slice::from_raw_parts(data_ptr, frames * channels * 3);
+                        let has_signal = raw_bytes.iter().any(|&b| b != 0);
+                        if has_signal {
+                            silence_tail_packets = 50;
+                            enhancer.encode_stereo_i24(raw_bytes, channels)
                         } else if silence_tail_packets > 0 {
                             silence_tail_packets -= 1;
                             vec![0u8; frames * 4]
@@ -478,6 +554,10 @@ mod imp {
                             vec![0u8; frames * 4]
                         } else {
                             Vec::new()
+                        }
+                    } else {
+                        Vec::new()
+                    };
                         }
                     } else {
                         Vec::new()

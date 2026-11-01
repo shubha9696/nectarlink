@@ -271,8 +271,11 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 fn SetThreadDesktop(hDesktop: isize) -> i32;
                 fn CloseDesktop(hDesktop: isize) -> i32;
                 fn CloseWindowStation(hWinSta: isize) -> i32;
-                fn keybd_event(bVk: u8, bScan: u8, dwFlags: u32, dwExtraInfo: usize);
+                fn mouse_event(dwFlags: u32, dx: u32, dy: u32, dwData: u32, dwExtraInfo: usize);
             }
+
+            const MOUSEEVENTF_LEFTDOWN: u32 = 0x0002;
+            const MOUSEEVENTF_LEFTUP: u32 = 0x0004;
 
             // 1. Attach process thread to WinSta0
             let winsta_name: Vec<u16> = "WinSta0\0".encode_utf16().collect();
@@ -287,31 +290,20 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 unsafe { SetThreadDesktop(hdesk); }
             }
 
-            // 3. Wake display: press Space (VK_SPACE 0x20, scan 0x39)
+            // 3. Wake display & dismiss lock curtain: mouse click wakes and dismisses curtain
+            // without typing stray space characters into an already-focused PIN box.
             unsafe {
-                keybd_event(0x20, 0x39, 0, 0);
+                mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+                std::thread::sleep(std::time::Duration::from_millis(40));
+                mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
             }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            unsafe {
-                keybd_event(0x20, 0x39, 2, 0); // KEYUP
-            }
-            super::input::send_key_full(0x20, 0x39, false, 50);
             std::thread::sleep(std::time::Duration::from_millis(400));
 
-            // 4. Raise lock curtain / dismiss lock screen wallpaper: press Space again
-            unsafe {
-                keybd_event(0x20, 0x39, 0, 0);
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            unsafe {
-                keybd_event(0x20, 0x39, 2, 0);
-            }
-            super::input::send_key_full(0x20, 0x39, false, 50);
+            // Raise lock curtain if still down
+            super::input::send_key_full(0x20, 0x39, false, 40);
+            std::thread::sleep(std::time::Duration::from_millis(600));
 
-            // 5. Allow Windows 11 lock screen slide animation to finish and focus PIN field
-            std::thread::sleep(std::time::Duration::from_millis(1200));
-
-            // 6. Re-acquire active input desktop after curtain transition
+            // 4. Re-acquire active input desktop after curtain transition
             let hdesk2 = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
             if hdesk2 != 0 {
                 unsafe { SetThreadDesktop(hdesk2); }
@@ -321,21 +313,18 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 hdesk = hdesk2;
             }
 
-            // 7. Clear any stray character in the PIN field using Backspace (VK_BACK 0x08, scan 0x0E)
-            for _ in 0..3 {
-                unsafe {
-                    keybd_event(0x08, 0x0E, 0, 0);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(30));
-                unsafe {
-                    keybd_event(0x08, 0x0E, 2, 0);
-                }
-                super::input::send_key_full(0x08, 0x0E, false, 30);
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            // 5. Dismiss any open menus or popups using Escape (VK_ESCAPE 0x1B, scan 0x01)
+            super::input::send_key_full(0x1B, 0x01, false, 40);
+            std::thread::sleep(std::time::Duration::from_millis(150));
 
-            // 8. Type the PIN digits
+            // 6. Clear any characters in the PIN field using 8 Backspaces (VK_BACK 0x08, scan 0x0E)
+            for _ in 0..8 {
+                super::input::send_key_full(0x08, 0x0E, false, 30);
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+
+            // 7. Type the PIN digits (EXACTLY ONCE per digit, using scancodes)
             let clean_pin = pin_to_send.trim();
             if !clean_pin.is_empty() {
                 for ch in clean_pin.chars() {
@@ -367,37 +356,13 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                         }
                     };
                     if vk != 0 || scan != 0 {
-                        unsafe {
-                            keybd_event(vk as u8, scan as u8, 0, 0);
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(35));
-                        unsafe {
-                            keybd_event(vk as u8, scan as u8, 2, 0);
-                        }
-                        super::input::send_key_full(vk, scan, false, 35);
-                        std::thread::sleep(std::time::Duration::from_millis(60));
+                        super::input::send_key_full(vk, scan, false, 40);
+                        std::thread::sleep(std::time::Duration::from_millis(50));
                     }
                 }
-                std::thread::sleep(std::time::Duration::from_millis(200));
+                std::thread::sleep(std::time::Duration::from_millis(150));
 
-                // 9. Send Enter (VK_RETURN 0x0D, scan 0x1C) to submit the PIN
-                unsafe {
-                    keybd_event(0x0D, 0x1C, 0, 0);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                unsafe {
-                    keybd_event(0x0D, 0x1C, 2, 0);
-                }
-                super::input::send_key_full(0x0D, 0x1C, false, 50);
-                std::thread::sleep(std::time::Duration::from_millis(300));
-
-                unsafe {
-                    keybd_event(0x0D, 0x1C, 0, 0);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                unsafe {
-                    keybd_event(0x0D, 0x1C, 2, 0);
-                }
+                // 8. Send Enter (VK_RETURN 0x0D, scan 0x1C) to submit the PIN
                 super::input::send_key_full(0x0D, 0x1C, false, 50);
             }
 

@@ -3566,7 +3566,9 @@ private fun PcFilesSheet(
     }
 
     val quickFolders = listOf(
-        "" to stringResource(R.string.pc_files_root),
+        "" to "All Drives / Home",
+        "C:" to "Drive C:",
+        "D:" to "Drive D:",
         "Downloads" to stringResource(R.string.pc_files_folder_downloads),
         "Documents" to stringResource(R.string.pc_files_folder_documents),
         "Desktop" to stringResource(R.string.pc_files_folder_desktop),
