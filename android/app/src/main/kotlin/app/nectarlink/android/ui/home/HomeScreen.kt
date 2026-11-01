@@ -306,7 +306,56 @@ fun HomeScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-                item(key = "audio_output_mode") {
+                        item(key = "home_header", contentType = "header") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.home_title),
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
+                    Text(
+                        "Designed and Developed by Shubham Chakrawarti",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+                TextButton(
+                    onClick = onOpenFeaturesGuide,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text(stringResource(R.string.home_guide_title))
+                }
+                // Reconnects and syncs with the PCs; spins once to say so.
+                val spin = remember { androidx.compose.animation.core.Animatable(0f) }
+                val scope = rememberCoroutineScope()
+                IconButton(onClick = {
+                    onRefresh()
+                    if (!reducedMotion) {
+                        scope.launch {
+                            spin.snapTo(0f)
+                            spin.animateTo(360f, androidx.compose.animation.core.tween(700))
+                        }
+                    }
+                }) {
+                    Icon(
+                        painterResource(R.drawable.ic_refresh),
+                        contentDescription = stringResource(R.string.action_refresh),
+                        modifier = Modifier.graphicsLayer { rotationZ = spin.value },
+                    )
+                }
+                FilledTonalIconButton(onClick = onPairNew) {
+                    Icon(painterResource(R.drawable.ic_qr), contentDescription = stringResource(R.string.action_pair_new))
+                }
+            }
+        }
+
+        item(key = "audio_output_mode") {
             var dualMode by remember { mutableStateOf(app.nectarlink.android.mirror.SoundCapture.dualPlayback) }
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -348,52 +397,6 @@ fun HomeScreen(
                             Text("Sound on PC & Phone")
                         }
                     }
-                }
-            }
-        }
-
-        item(key = "home_header", contentType = "header") {
-            Column(Modifier.padding(top = 8.dp, bottom = 4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        stringResource(R.string.home_title),
-                        style = MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Text(
-                    "Designed and Developed by Shubham Chakrawarti",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
-                )
-            }
-                TextButton(
-                    onClick = onOpenFeaturesGuide,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                ) {
-                    Text(stringResource(R.string.home_guide_title))
-                }
-                // Reconnects and syncs with the PCs; spins once to say so.
-                val spin = remember { androidx.compose.animation.core.Animatable(0f) }
-                val scope = rememberCoroutineScope()
-                IconButton(onClick = {
-                    onRefresh()
-                    if (!reducedMotion) {
-                        scope.launch {
-                            spin.snapTo(0f)
-                            spin.animateTo(360f, androidx.compose.animation.core.tween(700))
-                        }
-                    }
-                }) {
-                    Icon(
-                        painterResource(R.drawable.ic_refresh),
-                        contentDescription = stringResource(R.string.action_refresh),
-                        modifier = Modifier.graphicsLayer { rotationZ = spin.value },
-                    )
-                }
-                FilledTonalIconButton(onClick = onPairNew) {
-                    Icon(painterResource(R.drawable.ic_qr), contentDescription = stringResource(R.string.action_pair_new))
                 }
             }
         }

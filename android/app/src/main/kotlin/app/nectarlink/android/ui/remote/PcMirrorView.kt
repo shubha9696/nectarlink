@@ -73,6 +73,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -347,7 +354,7 @@ fun PcMirrorView(
     var showFloatingTouchpad by rememberSaveable { mutableStateOf(false) }
     val isPcLocked by app.nectarlink.android.core.PcLockManager.pcLocked.collectAsStateWithLifecycle()
     var showKeyboardBar by rememberSaveable { mutableStateOf(false) }
-    var typedText by rememberSaveable { mutableStateOf("") }
+    var typedText by remember { mutableStateOf(TextFieldValue("")) }
     var surface by remember { mutableStateOf<Surface?>(null) }
     var hasRenderedFrame by remember(pcId) { mutableStateOf(false) }
     var reconnectTick by remember { mutableIntStateOf(0) }
@@ -1336,8 +1343,19 @@ fun PcMirrorView(
             ) {
                 OutlinedTextField(
                     value = typedText,
-                    onValueChange = {
-                        typedText = it
+                    onValueChange = { next ->
+                        val diff = typingDiff(typedText.text, next.text)
+                        repeat(diff.backspaces) {
+                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Key("backspace"))
+                        }
+                        if (diff.added.isNotEmpty()) {
+                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Text(diff.added))
+                        }
+                        typedText = if (next.selection == TextRange(next.text.length)) {
+                            next
+                        } else {
+                            next.copy(selection = TextRange(next.text.length))
+                        }
                         if (isFullScreen) bumpOverlay()
                     },
                     placeholder = { Text(typePlaceholder) },
@@ -1345,27 +1363,27 @@ fun PcMirrorView(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(
                         onSend = {
-                            if (typedText.isNotEmpty()) {
-                                core.sendPcMirrorInput(pcId, MirrorInputEvent.Text(typedText))
-                                typedText = ""
-                            } else {
-                                core.sendPcMirrorInput(pcId, MirrorInputEvent.Key("enter"))
-                            }
+                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Key("enter"))
+                            typedText = TextFieldValue("")
                         },
                     ),
                     modifier = Modifier
                         .weight(1f)
                         .focusRequester(keyboardFocusRequester)
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown && event.key == Key.Backspace && typedText.text.isEmpty()) {
+                                core.sendPcMirrorInput(pcId, MirrorInputEvent.Key("backspace"))
+                                true
+                            } else {
+                                false
+                            }
+                        }
                         .semantics { contentDescription = typePlaceholder },
                 )
                 FilledTonalButton(
                     onClick = {
-                        if (typedText.isNotEmpty()) {
-                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Text(typedText))
-                            typedText = ""
-                        } else {
-                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Key("enter"))
-                        }
+                        core.sendPcMirrorInput(pcId, MirrorInputEvent.Key("enter"))
+                        typedText = TextFieldValue("")
                     },
                     modifier = Modifier.semantics { contentDescription = sendLabel },
                 ) {

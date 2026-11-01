@@ -251,7 +251,7 @@ mod imp {
                 "right_click" => win::input::mouse_button(nectarlink_core::MouseButton::Right, nectarlink_core::ButtonAction::Click),
                 "left_click" | "click" => win::input::mouse_button(nectarlink_core::MouseButton::Left, nectarlink_core::ButtonAction::Click),
                 mirror_keys::NOTIFICATIONS => win::input::press_key("n", &[KeyMod::Win]),
-                _ => {}
+                other => win::input::press_key(other, &[]),
             },
             MirrorInput::Gamepad { .. } => {}
         }
