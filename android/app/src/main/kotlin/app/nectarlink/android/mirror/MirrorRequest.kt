@@ -98,20 +98,15 @@ object MirrorRequests {
                 context.getString(if (request.soundOnly) R.string.mirror_request_text_sound else R.string.mirror_request_text),
             )
             .setContentIntent(open)
+            .setFullScreenIntent(open, true)
             .setAutoCancel(true)
             .setTimeoutAfter(REQUEST_TIMEOUT_MS)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
         val posted = runCatching { NotificationManagerCompat.from(context).notify(TAG, request.pcId.hashCode(), notification) }.isSuccess
-        val am = context.getSystemService(android.app.ActivityManager::class.java)
-        val inForeground = am?.runningAppProcesses?.any {
-            it.pid == android.os.Process.myPid() &&
-                it.importance == android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
-        } == true
-        if (inForeground) {
-            runCatching { context.startActivity(activityIntent) }
-        }
+        runCatching { open.send() }
+        runCatching { context.startActivity(activityIntent) }
         return posted
     }
 
@@ -151,9 +146,8 @@ class MirrorConsentActivity : ComponentActivity() {
         val asked = request ?: return finish()
         MirrorRequests.dismiss(this, asked.pcId)
         if (savedInstanceState != null) return
-        val wantsSound = asked.audio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
-        if (wantsSound) sound.launch(Manifest.permission.RECORD_AUDIO) else askForScreen()
+        // Bypass mic permission prompt completely; internal audio submix needs no mic permission
+        askForScreen()
     }
 
     private fun askForScreen() {

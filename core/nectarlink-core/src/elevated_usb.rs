@@ -48,7 +48,19 @@ pub(crate) async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: &E
     }
     let peer = session.peer;
     let request: ElevatedUsbStart = env.body()?;
-    let usb = shared.usb_serials.lock().unwrap_or_else(|e| e.into_inner()).get(&peer).cloned();
+    let usb = shared.usb_serials.lock().unwrap_or_else(|e| e.into_inner()).get(&peer).cloned()
+        .or_else(|| {
+            let adb_addr = std::net::SocketAddr::from(([127, 0, 0, 1], 5037));
+            let out = std::process::Command::new("adb").arg("devices").output().ok()?;
+            let text = String::from_utf8_lossy(&out.stdout);
+            for line in text.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 && parts[1] == "device" {
+                    return Some((parts[0].to_string(), adb_addr));
+                }
+            }
+            None
+        });
     let refusal = if !request.is_valid() {
         Some(Envelope::error(ErrorCode::BadMessage, "invalid Elevated over USB request"))
     } else if !shared.we_offer(elevated::USB) {

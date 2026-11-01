@@ -77,7 +77,55 @@ class InputService : AccessibilityService() {
         super.onDestroy()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null) return
+        val root = rootInActiveWindow ?: return
+        try {
+            val pkg = event.packageName?.toString().orEmpty()
+            if (pkg.contains("systemui") || pkg == "android") {
+                // If Android 14 has the "A single app" / "Entire screen" spinner, select "Entire screen"
+                val entireScreenNodes = root.findAccessibilityNodeInfosByText("Entire screen")
+                for (node in entireScreenNodes) {
+                    if (node.isClickable) node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                }
+
+                // Auto-confirm screen capture prompt without requiring manual user touch
+                val buttonIds = listOf(
+                    "android:id/button1",
+                    "com.android.systemui:id/button_start",
+                    "com.android.systemui:id/start_button",
+                )
+                for (btnId in buttonIds) {
+                    val buttons = root.findAccessibilityNodeInfosByViewId(btnId)
+                    for (btn in buttons) {
+                        if (btn.isEnabled) {
+                            btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            return
+                        }
+                    }
+                }
+
+                val targetTexts = listOf("Start now", "Share screen", "Start", "Allow", "Starten")
+                for (txt in targetTexts) {
+                    val matching = root.findAccessibilityNodeInfosByText(txt)
+                    for (node in matching) {
+                        if (node.isClickable && node.isEnabled) {
+                            node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            return
+                        }
+                        var parent = node.parent
+                        while (parent != null) {
+                            if (parent.isClickable && parent.isEnabled) {
+                                parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                                return
+                            }
+                            parent = parent.parent
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
 
     override fun onInterrupt() {}
 
