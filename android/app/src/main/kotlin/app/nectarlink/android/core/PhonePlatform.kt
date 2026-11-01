@@ -207,9 +207,16 @@ internal class PhonePlatform(
 
     // Real events when Elevated runs; gestures through the accessibility service otherwise.
     override fun mirrorInput(pcId: String, session: UInt, input: MirrorInputEvent) {
-        if (session != SCREEN) return appWindows.input(pcId, session, input)
         if (input is MirrorInputEvent.Key) {
             when (input.key) {
+                "sound_mode:pc" -> {
+                    app.nectarlink.android.mirror.SoundCapture.dualPlayback = false
+                    return
+                }
+                "sound_mode:both", "sound_mode:phone" -> {
+                    app.nectarlink.android.mirror.SoundCapture.dualPlayback = true
+                    return
+                }
                 "keyboard_on" -> {
                     onKeyboardFromPc(pcId, true)
                     return
@@ -220,6 +227,7 @@ internal class PhonePlatform(
                 }
             }
         }
+        if (session != SCREEN) return appWindows.input(pcId, session, input)
         if (input is MirrorInputEvent.Text && input.text.any { it.code > 127 } && InputService.running) {
             InputService.handle(input)
             return

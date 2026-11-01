@@ -507,14 +507,32 @@ Window {
             }
             IconButton {
                 id: soundBtn
-                visible: win.info.sound === true
+                visible: true
+                property int audioMode: 1 // 0: PC only, 1: Both (PC & Phone), 2: Phone only
                 implicitWidth: 26
                 implicitHeight: 26
                 iconSize: 14
-                iconPath: Mirror.muted ? Icons.soundOff : Icons.speaker
-                iconColor: Mirror.muted ? "gray" : Theme.primary
-                label: Mirror.muted ? qsTr("Sound: Muted (Click to play on PC)") : qsTr("Sound: Playing on PC (Click to mute)")
-                onClicked: Mirror.toggleSound()
+                iconPath: audioMode === 2 ? Icons.phone : (audioMode === 1 ? Icons.speaker : (Mirror.muted ? Icons.soundOff : Icons.speaker))
+                iconColor: audioMode === 1 ? Theme.primary : (audioMode === 2 ? "#ff9800" : (Mirror.muted ? "gray" : "white"))
+                label: audioMode === 0 ? qsTr("Sound: PC only (Click for Both)") :
+                       audioMode === 1 ? qsTr("Sound: Both PC & Phone (Click for Phone only)") :
+                       qsTr("Sound: Phone only (Click for PC only)")
+                onClicked: {
+                    audioMode = (audioMode + 1) % 3;
+                    if (audioMode === 0) {
+                        if (Mirror.muted) Mirror.toggleSound();
+                        Mirror.press(win.mirrorKey, "sound_mode:pc");
+                        win.localNotice = qsTr("Sound output: PC only");
+                    } else if (audioMode === 1) {
+                        if (Mirror.muted) Mirror.toggleSound();
+                        Mirror.press(win.mirrorKey, "sound_mode:both");
+                        win.localNotice = qsTr("Sound output: Both (PC & Phone)");
+                    } else {
+                        if (!Mirror.muted) Mirror.toggleSound();
+                        Mirror.press(win.mirrorKey, "sound_mode:phone");
+                        win.localNotice = qsTr("Sound output: Phone only");
+                    }
+                }
             }
             IconButton {
                 id: qualityBtn

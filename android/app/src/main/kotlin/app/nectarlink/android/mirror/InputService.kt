@@ -277,6 +277,14 @@ class InputService : AccessibilityService() {
 
     private fun key(key: String) {
         when (key) {
+            "sound_mode:pc" -> {
+                app.nectarlink.android.mirror.SoundCapture.dualPlayback = false
+                return
+            }
+            "sound_mode:both", "sound_mode:phone" -> {
+                app.nectarlink.android.mirror.SoundCapture.dualPlayback = true
+                return
+            }
             "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)
             "recents" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
