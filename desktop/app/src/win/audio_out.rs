@@ -28,14 +28,14 @@ use windows::Win32::{
 };
 
 /// Sound packets waiting for the player thread, at most.
-const QUEUE: usize = 64;
+const QUEUE: usize = 256;
 /// How much sound is gathered before playing (and again after a stall).
-const START_MS: u32 = 10;
+const START_MS: u32 = 15;
 /// More than this waiting, and the oldest is dropped down to [`TRIM_TO_MS`].
-const MOST_MS: u32 = 25;
-const TRIM_TO_MS: u32 = 10;
+const MOST_MS: u32 = 120;
+const TRIM_TO_MS: u32 = 30;
 /// The device's buffer.
-const DEVICE_BUFFER: Duration = Duration::from_millis(10);
+const DEVICE_BUFFER: Duration = Duration::from_millis(15);
 
 /// Plays sound until dropped.
 #[derive(Debug)]
@@ -141,9 +141,10 @@ impl Jitter {
                 self.bytes.drain(..n);
             }
             if n < out.len() {
-                // Ran dry: gather again before playing on.
-                self.waiting = true;
-                self.stalls += 1;
+                // Ran dry momentarily: zero-pad missing tail but don't stall future packets
+                if self.bytes.is_empty() {
+                    self.stalls += 1;
+                }
             }
         }
         out[n..].fill(0);

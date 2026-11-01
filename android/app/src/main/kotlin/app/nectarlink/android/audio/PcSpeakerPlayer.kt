@@ -55,17 +55,15 @@ class PcSpeakerPlayer(
         val safeRate = sampleRate.coerceIn(8_000, 96_000)
         val safeChannels = if (channels >= 2) 2 else 1
         val frameBytes = safeChannels * 2
-        // Generous 140 ms ceiling: network burst jitter on Wi-Fi / Hotspot never causes frame drops or distortion
-        val maxQueuedBytes = (safeRate * frameBytes * 140) / 1000
-        val targetResetBytes = (safeRate * frameBytes * 45) / 1000
+        // Allow up to ~60 ms buffer cushion (12 chunks at 5 ms each)
+        // so normal Wi-Fi packet bursts never starve or cause frame drops,
+        // while preserving imperceptible ~15-20 ms low latency.
+        val maxQueuedBytes = (safeRate * frameBytes * 60) / 1000
 
         synchronized(queue) {
-            if (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
-                // Only drop stale frames if severe delay accumulated over 140 ms
-                while (queuedBytes > targetResetBytes && queue.isNotEmpty()) {
-                    val dropped = queue.pollFirst() ?: break
-                    queuedBytes = (queuedBytes - dropped.pcm.size).coerceAtLeast(0)
-                }
+            while (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
+                val dropped = queue.pollFirst() ?: break
+                queuedBytes = (queuedBytes - dropped.pcm.size).coerceAtLeast(0)
             }
             if (queue.offerLast(AudioChunk(safeRate, safeChannels, pcm))) {
                 queuedBytes += pcm.size
@@ -150,7 +148,7 @@ class PcSpeakerPlayer(
         var enhancer: LoudnessEnhancer? = null
         var currentRate = 0
         var currentChannels = 0
-        var totalFramesWritten = 0L
+        var needsPrebuffer = true
 
         try {
             while (true) {
@@ -167,7 +165,7 @@ class PcSpeakerPlayer(
                     enhancer = track?.let { createEnhancer(it.audioSessionId) }
                     currentRate = first.sampleRate
                     currentChannels = first.channels
-                    totalFramesWritten = 0L
+                    needsPrebuffer = true
                 }
 
                 val activeTrack = track ?: continue
@@ -176,19 +174,16 @@ class PcSpeakerPlayer(
                     runCatching { activeTrack.play() }
                 }
 
-                val frameBytes = (if (currentChannels >= 2) 2 else 1) * 2
-
+                val startedWriteNs = System.nanoTime()
                 var offset = 0
-                val total = first.pcm.size
-                while (offset < total) {
-                    val written = activeTrack.write(first.pcm, offset, total - offset, AudioTrack.WRITE_BLOCKING)
-                    if (written > 0) {
-                        totalFramesWritten += (written / frameBytes)
-                        offset += written
-                    } else {
-                        Log.w(TAG, "AudioTrack write failed with code $written")
-                        break
-                    }
+                while (offset < first.pcm.size) {
+                    val written = activeTrack.write(first.pcm, offset, first.pcm.size - offset, AudioTrack.WRITE_BLOCKING)
+                    if (written <= 0) break
+                    offset += written
+                }
+                val writeMs = (System.nanoTime() - startedWriteNs) / 1_000_000L
+                if (writeMs > 25L) {
+                    Log.d(TAG, "AudioTrack write blocked ${writeMs}ms (queuedBytes=$queuedBytes)")
                 }
             }
         } catch (_: InterruptedException) {
@@ -224,9 +219,7 @@ class PcSpeakerPlayer(
             Log.w(TAG, "invalid minBufferSize=$minBuf for rate=$sampleRate channels=$channels")
             return null
         }
-        val frameBytes = (if (channels >= 2) 2 else 1) * 2
-        // 60 ms buffer gives AudioTrack plenty of room to prevent DAC hardware buffer underruns
-        val targetBuf = maxOf(minBuf * 2, (sampleRate * frameBytes * 60) / 1000)
+        val targetBuf = minBuf
 
         return runCatching {
             val attrs = AudioAttributes.Builder()
@@ -239,19 +232,13 @@ class PcSpeakerPlayer(
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setChannelMask(channelMask)
                 .build()
-            val track = AudioTrack.Builder()
+            AudioTrack.Builder()
                 .setAudioAttributes(attrs)
                 .setAudioFormat(format)
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .setBufferSizeInBytes(targetBuf)
                 .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                 .build()
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                val minFrames = (minBuf / frameBytes).coerceAtLeast(1)
-                val targetFrames = (sampleRate * 40) / 1000
-                runCatching { track.bufferSizeInFrames = targetFrames.coerceAtLeast(minFrames) }
-            }
-            track
         }.getOrElse {
             Log.w(TAG, "failed to create AudioTrack", it)
             null
