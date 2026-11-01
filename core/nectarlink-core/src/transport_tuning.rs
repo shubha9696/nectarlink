@@ -32,13 +32,13 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::time::Instant;
 
 /// Stream-level receive window for bulk file transfers (8 MiB).
-pub const FILE_STREAM_RECEIVE_WINDOW_BYTES: u32 = 8 * 1024 * 1024;
+pub const FILE_STREAM_RECEIVE_WINDOW_BYTES: u32 = 2 * 1024 * 1024;
 
 /// Connection-level receive window across all concurrent streams (16 MiB).
-pub const CONNECTION_RECEIVE_WINDOW_BYTES: u32 = 16 * 1024 * 1024;
+pub const CONNECTION_RECEIVE_WINDOW_BYTES: u32 = 4 * 1024 * 1024;
 
 /// Connection-level send window (16 MiB).
-pub const CONNECTION_SEND_WINDOW_BYTES: u64 = 16 * 1024 * 1024;
+pub const CONNECTION_SEND_WINDOW_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Safe UDP payload ceiling that avoids IP fragmentation across Wi-Fi + VLAN/PPPoE headers.
 pub const WIFI_SAFE_MAX_UDP_PAYLOAD: u16 = 1350;

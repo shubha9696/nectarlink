@@ -478,7 +478,7 @@ mod imp {
         let mut silence_tail_packets: u32 = 0;
 
         'capture: while is_enabled() {
-            std::thread::sleep(Duration::from_millis(1));
+            std::thread::sleep(Duration::from_millis(8));
             // Another phone asked for the sound (it watches the PC's playback):
             // start over for that one.
             if target() != wanted && target().is_some_and(|t| peers.contains(&t)) {
