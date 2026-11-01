@@ -672,7 +672,7 @@ async fn heartbeat(session: &Arc<Session>, shared: &Weak<Shared>) {
         match session.request(ping, HEARTBEAT_TIMEOUT).await {
             Ok(reply) if reply.t == types::PONG => {
                 if let Some(shared_arc) = shared.upgrade() {
-                    let quic_rtt = session.conn.paths().find(|p| p.is_selected()).map(|p| p.rtt().as_millis().min(u32::MAX as u128) as u32);
+                    let quic_rtt = session.conn.paths().iter().find(|p| p.is_selected()).map(|p| p.rtt().as_millis().min(u32::MAX as u128) as u32);
                     let raw_rtt = sent_at.elapsed().as_millis().min(u32::MAX as u128) as u32;
                     let rtt = if let Some(qrtt) = quic_rtt {
                         qrtt
