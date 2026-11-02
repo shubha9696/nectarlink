@@ -199,7 +199,7 @@ fn send_inputs(inputs: &[INPUT]) {
         for input in inputs {
             match input.r#type {
                 INPUT_KEYBOARD => {
-                    let ki = input.Anonymous.ki;
+                    let ki = unsafe { input.Anonymous.ki };
                     let msg = format!("KEY {} {} {}\n", ki.wVk.0, ki.wScan, ki.dwFlags.0);
                     if !send_to_lock_pipe(&msg) {
                         unsafe {
@@ -209,7 +209,7 @@ fn send_inputs(inputs: &[INPUT]) {
                     std::thread::sleep(std::time::Duration::from_millis(15));
                 }
                 INPUT_MOUSE => {
-                    let mi = input.Anonymous.mi;
+                    let mi = unsafe { input.Anonymous.mi };
                     let move_flags = mi.dwFlags.0 & (MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
                     if move_flags != 0 {
                         let msg = format!("MOUSE {} {} {} 0\n", move_flags, mi.dx, mi.dy);
@@ -245,11 +245,11 @@ fn send_inputs(inputs: &[INPUT]) {
         for input in inputs {
             match input.r#type {
                 INPUT_KEYBOARD => unsafe {
-                    let ki = input.Anonymous.ki;
+                    let ki = unsafe { input.Anonymous.ki };
                     keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
                 },
                 INPUT_MOUSE => unsafe {
-                    let mi = input.Anonymous.mi;
+                    let mi = unsafe { input.Anonymous.mi };
                     mouse_event(mi.dwFlags.0, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
                 },
                 _ => {}
@@ -656,3 +656,4 @@ mod tests {
         assert!(resolve_key("unknown_key").is_none());
     }
 }
+

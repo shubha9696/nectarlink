@@ -62,7 +62,7 @@ static ACTIVE: Mutex<Option<(DeviceId, Phase)>> = Mutex::new(None);
 
 
 
-fn active() -> Option<(DeviceId, Phase)> {
+pub fn active() -> Option<(DeviceId, Phase)> {
 
     *ACTIVE.lock().unwrap_or_else(|e| e.into_inner())
 
@@ -391,4 +391,5 @@ impl MirrorSink for Sink {
     }
 
 }
+
 
