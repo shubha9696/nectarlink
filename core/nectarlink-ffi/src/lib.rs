@@ -3271,49 +3271,50 @@ impl NectarlinkNode {
 
         let mut events = node.events();
         let node_for_events = node.clone();
+        let listener_for_events = listener.clone();
         runtime.spawn(async move {
             loop {
                 match events.recv().await {
                     Ok(event) => {
                         if let Some(ev) = Event::from_node(event) {
-                            listener.on_event(ev);
+                            listener_for_events.on_event(ev);
                         }
                     }
                     Err(RecvError::Lagged(missed)) => {
                         tracing::warn!(missed, "event listener fell behind; resynchronizing state");
                         if let Ok(devices) = node_for_events.paired_devices() {
                             for d in devices {
-                                listener.on_event(Event::LinkChanged {
+                                listener_for_events.on_event(Event::LinkChanged {
                                     id: d.id.to_string(),
                                     link: d.link.into(),
                                 });
-                                listener.on_event(Event::WakeInfoChanged {
+                                listener_for_events.on_event(Event::WakeInfoChanged {
                                     id: d.id.to_string(),
                                     can_wake: d.can_wake,
                                 });
-                                listener.on_event(Event::ReconnectChanged {
+                                listener_for_events.on_event(Event::ReconnectChanged {
                                     id: d.id.to_string(),
                                     on: d.reconnect,
                                 });
-                                listener.on_event(Event::PeerInfoChanged {
+                                listener_for_events.on_event(Event::PeerInfoChanged {
                                     id: d.id.to_string(),
                                     info: d.info.into(),
                                 });
                                 if let Ok(matrix) = node_for_events.capabilities(d.id) {
-                                    listener.on_event(Event::Capabilities {
+                                    listener_for_events.on_event(Event::Capabilities {
                                         id: d.id.to_string(),
                                         features: features(&matrix),
                                     });
                                 }
                             }
                         }
-                        listener.on_event(Event::QueueChanged);
+                        listener_for_events.on_event(Event::QueueChanged);
                     }
                     Err(RecvError::Closed) => return,
                 }
             }
         });
-        Ok(Arc::new(NectarlinkNode { runtime, node, listener: listener.clone() }))
+        Ok(Arc::new(NectarlinkNode { runtime, node, listener }))
     }
 
     /// This device's ID (z-base-32).
@@ -4389,7 +4390,7 @@ impl NectarlinkNode {
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "file".to_string());
-            let transfer_id = format!("storage-{}", fastrand::u64(..));
+            let transfer_id = format!("storage-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
             let mut total_size = 0u64;
             let mut first = true;
             let mut last_emit = std::time::Instant::now();
