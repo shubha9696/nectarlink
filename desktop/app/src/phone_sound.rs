@@ -42,7 +42,7 @@ const ASK_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 
-enum Phase {
+pub enum Phase {
 
     /// Asked; the phone may be showing its prompt.
 
@@ -391,5 +391,6 @@ impl MirrorSink for Sink {
     }
 
 }
+
 
 
