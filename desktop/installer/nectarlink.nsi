@@ -241,6 +241,9 @@ Section "Install"
   ; Lenovo Fn+F11 / Smart Connect OEM key routing
   WriteRegStr HKLM "Software\Lenovo\ReadyFor" "path" "$INSTDIR\${EXE}"
   WriteRegStr HKLM "Software\WOW6432Node\Lenovo\ReadyFor" "path" "$INSTDIR\${EXE}"
+  ; Mark Lenovo ReadyFor/Smart Connect component as hidden system component so Windows Settings never displays duplicate app
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "SystemComponent" 1
+  WriteRegDWORD HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "SystemComponent" 1
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "DisplayName" "Smart Connect"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "DisplayVersion" "${DISPLAY_VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "Publisher" "Lenovo"

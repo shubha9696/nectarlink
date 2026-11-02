@@ -164,16 +164,9 @@ class PcSpeakerPlayer(
                 if (chunk == null) {
                     val activeTrack = track ?: break
                     if (activeTrack.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                        // Queue momentarily empty:
-                        // Write up to ~50 ms of zeroes (clean silence) to prevent DAC starvation crackles during jitter.
-                        if (silenceFillMs < 50 && currentRate > 0 && currentChannels > 0) {
-                            val silenceBytes = (currentRate * currentChannels * 2 * 10) / 1000
-                            val zeros = ByteArray(silenceBytes)
-                            activeTrack.write(zeros, 0, zeros.size, AudioTrack.WRITE_BLOCKING)
-                            silenceFillMs += 10
-                        } else {
-                            // PC stopped sending audio: pause and flush immediately!
-                            // A paused & flushed AudioTrack eliminates idle crackling and clears stale DAC buffers
+                        silenceFillMs += 15
+                        if (silenceFillMs >= 250) {
+                            // PC paused/stopped audio: pause and flush to clear stale DAC buffers
                             runCatching {
                                 activeTrack.pause()
                                 activeTrack.flush()
@@ -210,15 +203,23 @@ class PcSpeakerPlayer(
                     needsCrossfade = false
                 }
 
-                // Pre-buffer ~10 ms before starting playback to eliminate underrun crackles
-                val prebufferThreshold = (chunk.sampleRate * chunk.channels * 2 * PREBUFFER_MS) / 1000
+                val prebufferMs = if (exactQuality) PREBUFFER_MS_EXACT else PREBUFFER_MS_LOW_LATENCY
+                val prebufferThreshold = (chunk.sampleRate * chunk.channels * 2 * prebufferMs) / 1000
                 if (needsPrebuffer) {
                     prebufferedBytes += chunk.pcm.size
                     var offset = 0
-                    while (offset < chunk.pcm.size) {
-                        val written = activeTrack.write(chunk.pcm, offset, chunk.pcm.size - offset, AudioTrack.WRITE_BLOCKING)
-                        if (written <= 0) break
-                        offset += written
+                    var retries = 0
+                    while (offset < chunk.pcm.size && retries < 10) {
+                        val written = activeTrack.write(chunk.pcm, offset, chunk.pcm.size - offset, AudioTrack.WRITE_NON_BLOCKING)
+                        if (written > 0) {
+                            offset += written
+                            retries = 0
+                        } else if (written == 0) {
+                            retries++
+                            Thread.sleep(1)
+                        } else {
+                            break
+                        }
                     }
                     if (prebufferedBytes >= prebufferThreshold) {
                         if (activeTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
@@ -234,10 +235,18 @@ class PcSpeakerPlayer(
                 }
 
                 var offset = 0
-                while (offset < chunk.pcm.size) {
-                    val written = activeTrack.write(chunk.pcm, offset, chunk.pcm.size - offset, AudioTrack.WRITE_BLOCKING)
-                    if (written <= 0) break
-                    offset += written
+                var retries = 0
+                while (offset < chunk.pcm.size && retries < 10) {
+                    val written = activeTrack.write(chunk.pcm, offset, chunk.pcm.size - offset, AudioTrack.WRITE_NON_BLOCKING)
+                    if (written > 0) {
+                        offset += written
+                        retries = 0
+                    } else if (written == 0) {
+                        retries++
+                        Thread.sleep(1)
+                    } else {
+                        break
+                    }
                 }
             }
         } catch (_: InterruptedException) {
@@ -273,17 +282,15 @@ class PcSpeakerPlayer(
             Log.w(TAG, "invalid minBufferSize=$minBuf for rate=$sampleRate channels=$channels")
             return null
         }
-        val targetMs = if (exactQuality) 50 else 15
-        val targetBuf = maxOf(if (exactQuality) minBuf * 2 else minBuf, (sampleRate * channels * 2 * targetMs) / 1000)
+        val targetMs = if (exactQuality) 40 else 15
+        val targetBuf = maxOf(minBuf, (sampleRate * channels * 2 * targetMs) / 1000)
 
         return runCatching {
             val attrsBuilder = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(if (exactQuality) AudioAttributes.CONTENT_TYPE_MOVIE else AudioAttributes.CONTENT_TYPE_MUSIC)
+                .setContentType(if (exactQuality) AudioAttributes.CONTENT_TYPE_MUSIC else AudioAttributes.CONTENT_TYPE_GAME)
+                .setFlags(AudioAttributes.FLAG_LOW_LATENCY)
 
-            if (!exactQuality) {
-                attrsBuilder.setFlags(AudioAttributes.FLAG_LOW_LATENCY)
-            }
             if (android.os.Build.VERSION.SDK_INT >= 32) {
                 runCatching {
                     // AudioAttributes.SPATIALIZATION_BEHAVIOR_AUTO
@@ -304,12 +311,7 @@ class PcSpeakerPlayer(
                 .setAudioFormat(format)
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .setBufferSizeInBytes(targetBuf)
-
-            if (!exactQuality) {
-                trackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-            } else {
-                trackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
-            }
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
 
             trackBuilder.build().also { trk ->
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -364,11 +366,12 @@ class PcSpeakerPlayer(
         private const val TAG = "PcSpeakerPlayer"
         private const val INACTIVITY_TIMEOUT_MS = 30_000L
         private const val MAX_QUEUE_CHUNKS = 128
-        private const val MAX_BUFFER_MS_LOW_LATENCY = 25
-        private const val TARGET_TRIM_MS_LOW_LATENCY = 10
-        private const val MAX_BUFFER_MS_EXACT = 80
+        private const val MAX_BUFFER_MS_LOW_LATENCY = 60
+        private const val TARGET_TRIM_MS_LOW_LATENCY = 15
+        private const val MAX_BUFFER_MS_EXACT = 160
         private const val TARGET_TRIM_MS_EXACT = 40
-        private const val PREBUFFER_MS = 10
+        private const val PREBUFFER_MS_LOW_LATENCY = 10
+        private const val PREBUFFER_MS_EXACT = 25
         const val ACTIVE_WINDOW_MS = 3_000L
         private const val WATCHDOG_CHECK_INTERVAL_MS = 1_000L
 
