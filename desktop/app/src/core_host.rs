@@ -159,7 +159,7 @@ pub fn compute_capabilities(
                         pc_mirror_enabled = true;
                     }
                     if on && name == "remote_input" {
-                        remote_input_enabled = true;
+                        _remote_input_enabled = true;
                     }
                 }
             }
