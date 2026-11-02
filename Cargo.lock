@@ -2415,7 +2415,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-adb"
-version = "0.1.4"
+version = "0.1.11"
 dependencies = [
  "thiserror 2.0.21",
  "tokio",
@@ -2425,7 +2425,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-cli"
-version = "0.1.4"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "clap",
@@ -2445,13 +2445,14 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-core"
-version = "0.1.4"
+version = "0.1.11"
 dependencies = [
  "blake3",
  "bytes",
  "data-encoding",
  "iroh",
  "iroh-mdns-address-lookup",
+ "libc",
  "material-colors",
  "n0-future",
  "nectarlink-adb",
@@ -2478,8 +2479,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nectarlink-credprov"
+version = "0.1.11"
+dependencies = [
+ "ciborium",
+ "serde",
+]
+
+[[package]]
 name = "nectarlink-desktop"
-version = "0.1.4"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2512,7 +2521,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-ffi"
-version = "0.1.4"
+version = "0.1.11"
 dependencies = [
  "jni-sys 0.4.1",
  "nectarlink-core",
@@ -2526,8 +2535,9 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-protocol"
-version = "0.1.4"
+version = "0.1.11"
 dependencies = [
+ "blake3",
  "ciborium",
  "data-encoding",
  "hmac",
@@ -2541,7 +2551,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-vcam"
-version = "0.1.4"
+version = "0.1.11"
 dependencies = [
  "ab_glyph",
  "embed-resource",
@@ -5221,7 +5231,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.4"
+version = "0.1.11"
 dependencies = [
  "anyhow",
  "serde_json",
