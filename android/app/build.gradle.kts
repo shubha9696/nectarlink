@@ -209,5 +209,7 @@ dependencies {
     implementation(libs.conscrypt.android)
     // UniFFI's Kotlin bindings call the core through JNA.
     implementation(libs.jna) { artifact { type = "aar" } }
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    implementation("androidx.fragment:fragment-ktx:1.8.6")
     testImplementation(libs.junit)
 }

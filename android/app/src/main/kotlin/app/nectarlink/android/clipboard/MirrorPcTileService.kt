@@ -8,6 +8,7 @@ import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import app.nectarlink.android.NectarlinkApplication
+import app.nectarlink.android.elevated.Elevated
 import app.nectarlink.android.mirror.MirrorConsentActivity
 import app.nectarlink.android.mirror.MirrorRequest
 import app.nectarlink.android.mirror.MirrorService
@@ -51,7 +52,7 @@ class MirrorPcTileService : TileService() {
             screenOff = false,
             soundOnly = false,
         )
-        if (app.nectarlink.android.elevated.Elevated.running && MirrorService.startElevated(this, req)) {
+        if (Elevated.running && MirrorService.startElevated(this, req)) {
             onStartListening()
             return
         }

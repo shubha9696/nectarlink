@@ -732,7 +732,6 @@ fun HomeScreen(
 
             }
 
-        }
 
         // After the What's new card, one at a time.
 
