@@ -356,21 +356,51 @@ class ConnectionService : LifecycleService() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
 
-            val subtitle = if (isLocked) "PC is locked · Tap Unlock to authenticate" else "Connected · Screen mirror, files & lock ready"
+            val subtitle = if (isLocked) "PC is locked · Tap to unlock" else "Connected · Screen mirror, files & lock ready"
+            val badgeText = if (isLocked) "Locked" else "Active"
             builder.setContentText(subtitle)
-            builder.setSubText(if (isLocked) "Locked" else "Active")
-            builder.setStyle(NotificationCompat.BigTextStyle().bigText(subtitle))
+            builder.setSubText(badgeText)
 
-            builder.clearActions()
-            builder.addAction(R.drawable.ic_notif_control, "Mirror", controlPcIntent)
-            if (isLocked) {
-                builder.addAction(R.drawable.ic_notif_unlock, "Unlock", unlockPcIntent)
-            } else {
-                builder.addAction(R.drawable.ic_notif_lock, "Lock", lockPcIntent)
+            val remoteViews = android.widget.RemoteViews(packageName, R.layout.notification_connected).apply {
+                setTextViewText(R.id.notif_title, text)
+                setTextViewText(R.id.notif_subtitle, subtitle)
+                setViewVisibility(R.id.notif_badge, android.view.View.VISIBLE)
+                setTextViewText(R.id.notif_badge, badgeText)
+
+                // 1. Mirror / Control
+                setOnClickPendingIntent(R.id.btn_control, controlPcIntent)
+
+                // 2. Lock / Unlock
+                if (isLocked) {
+                    setTextViewText(R.id.text_lock, "Unlock")
+                    setImageViewResource(R.id.icon_lock, R.drawable.ic_notif_unlock)
+                    setInt(R.id.btn_lock, "setBackgroundResource", R.drawable.bg_notif_pill_amber)
+                    setTextColor(R.id.text_lock, android.graphics.Color.parseColor("#FFF59E0B"))
+                    setInt(R.id.icon_lock, "setColorFilter", android.graphics.Color.parseColor("#FFF59E0B"))
+                    setOnClickPendingIntent(R.id.btn_lock, unlockPcIntent)
+                } else {
+                    setTextViewText(R.id.text_lock, "Lock")
+                    setImageViewResource(R.id.icon_lock, R.drawable.ic_notif_lock)
+                    setInt(R.id.btn_lock, "setBackgroundResource", R.drawable.bg_notif_pill)
+                    setTextColor(R.id.text_lock, android.graphics.Color.WHITE)
+                    setInt(R.id.icon_lock, "setColorFilter", android.graphics.Color.WHITE)
+                    setOnClickPendingIntent(R.id.btn_lock, lockPcIntent)
+                }
+
+                // 3. Files
+                setOnClickPendingIntent(R.id.btn_files, sendFilesIntent)
+
+                // 4. Restart
+                setOnClickPendingIntent(R.id.btn_restart, restartPcIntent)
+
+                // 5. Quit
+                setOnClickPendingIntent(R.id.btn_quit, quitIntent)
             }
-            builder.addAction(R.drawable.ic_notif_files, "Files", sendFilesIntent)
-            builder.addAction(R.drawable.ic_notif_restart, "Restart", restartPcIntent)
-            builder.addAction(R.drawable.ic_notif_quit, "Quit", quitIntent)
+
+            builder.setCustomContentView(remoteViews)
+            builder.setCustomBigContentView(remoteViews)
+            builder.setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            builder.clearActions()
         }
         return builder.build()
     }
