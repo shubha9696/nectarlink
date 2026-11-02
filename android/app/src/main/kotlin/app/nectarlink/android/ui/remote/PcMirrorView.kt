@@ -1023,7 +1023,7 @@ fun PcMirrorView(
                 },
         ) {
             // Floating zoom indicator and reset pill when magnified
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = zoomScale > 1.05f,
                 enter = fadeIn() + scaleIn(),
                 exit = fadeOut() + scaleOut(),

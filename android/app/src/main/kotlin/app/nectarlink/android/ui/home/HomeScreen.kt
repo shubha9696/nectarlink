@@ -138,6 +138,8 @@ import androidx.compose.material3.TextButton
 
 import androidx.compose.material3.rememberModalBottomSheetState
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.Composable
 
 import androidx.compose.runtime.getValue
@@ -7858,9 +7860,11 @@ private fun PcFilesSheet(
 
                                         )
 
-                                                                                val activeTransfer = appState.transfers.firstOrNull {
-                                            (it.names.contains(entry.name) || it.names.any { n -> n.endsWith(entry.name) }) &&
-                                            it.status is app.nectarlink.core.TransferStatus.Running
+                                                                                val nectarApp = context.applicationContext as? app.nectarlink.android.NectarlinkApplication
+                                        val activeTransfers = nectarApp?.core?.state?.value?.transfers.orEmpty()
+                                        val activeTransfer = activeTransfers.firstOrNull { t ->
+                                            (t.names.contains(entry.name) || t.names.any { n: String -> n.endsWith(entry.name) }) &&
+                                            t.status is app.nectarlink.core.TransferStatus.Running
                                         }
                                         val meta = if (isDownloading || activeTransfer != null) {
                                             if (activeTransfer != null && activeTransfer.total > 0uL) {
