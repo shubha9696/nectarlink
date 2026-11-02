@@ -78,15 +78,6 @@ class AppWindows(
         val pkg = options.app ?: return false
         if (pkg == context.packageName) return false
 
-        // Launch app on phone immediately so it is brought to foreground and interactive
-        runCatching {
-            val intent = context.packageManager.getLaunchIntentForPackage(pkg)?.apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-            }
-            if (intent != null) {
-                context.startActivity(intent)
-            }
-        }
 
         val maxSize = options.maxSize.toInt().coerceIn(320, 1920)
         val (width, height, dpi) = size(maxSize)

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
+import QtCore
 import QtQuick.Window
 import app.nectarlink
 
@@ -7,6 +8,13 @@ import app.nectarlink
 // the phone. One per mirroring (`mirrorKey`); closing it ends that one.
 Window {
     id: win
+
+    Settings {
+        id: mirrorPrefs
+        category: "MirrorQuality"
+        property int fps: 60
+        property int bitrate: 8000000
+    }
     required property string mirrorKey
     // This window's mirroring (see Mirror.windows).
     readonly property var info: {
@@ -421,6 +429,44 @@ Window {
             spacing: 2
 
             IconButton {
+                id: backBtn
+                iconPath: Icons.back
+                iconColor: "white"
+                label: qsTr("Back (Esc / Backspace / Right-click)")
+                onClicked: {
+                    video.forceActiveFocus()
+                    Mirror.press(win.mirrorKey, "back")
+                }
+            }
+            IconButton {
+                id: homeBtn
+                iconPath: Icons.home
+                iconColor: "white"
+                label: qsTr("Home (Middle-click)")
+                onClicked: {
+                    video.forceActiveFocus()
+                    Mirror.press(win.mirrorKey, "home")
+                }
+            }
+            IconButton {
+                id: recentsBtn
+                iconPath: Icons.apps
+                iconColor: "white"
+                label: qsTr("Recent apps")
+                onClicked: {
+                    video.forceActiveFocus()
+                    Mirror.press(win.mirrorKey, "app_switch")
+                }
+            }
+
+            Rectangle {
+                width: 1
+                height: 20
+                anchors.verticalCenter: parent.verticalCenter
+                color: Qt.rgba(255, 255, 255, 0.2)
+            }
+
+            IconButton {
                 id: copyShotBtn
                 iconPath: Icons.copy
                 iconColor: "white"
@@ -534,29 +580,18 @@ Window {
                             }
                         }
 
-                        // Option 3: Both
-                        Rectangle {
-                            width: bothText.implicitWidth + 14
-                            height: 24
-                            radius: 12
-                            color: audioToggleRow.currentMode === "both" ? Theme.primary : "transparent"
-                            Text {
-                                id: bothText
-                                anchors.centerIn: parent
-                                text: qsTr("Both")
-                                font.pixelSize: 11
-                                font.bold: audioToggleRow.currentMode === "both"
-                                color: audioToggleRow.currentMode === "both" ? "white" : Qt.rgba(1, 1, 1, 0.72)
-                            }
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: Mirror.setAudioMode(win.mirrorKey, "both")
-                            }
-                        }
+
                     }
                 }
             }
+            IconButton {
+                id: qualityBtn
+                iconPath: Icons.settings
+                iconColor: qualityPopup.visible ? Theme.primary : "white"
+                label: qsTr("Streaming Quality (FPS & Bitrate)")
+                onClicked: qualityPopup.visible = !qualityPopup.visible
+            }
+
             IconButton {
                 id: windowModeBtn
                 visible: win.info.app === true
@@ -568,6 +603,97 @@ Window {
                     ? qsTr("Window mode: Stretched (Click for full screen)")
                     : qsTr("Window mode: Full screen (Click for phone default)")
                 onClicked: win.cycleWindowSizeMode()
+            }
+        }
+    }
+
+    // Quality Popover for FPS and Bitrate controls
+    Rectangle {
+        id: qualityPopup
+        visible: false
+        anchors.top: toolbar.bottom
+        anchors.right: toolbar.right
+        anchors.topMargin: 8
+        width: 260
+        height: qualityCol.implicitHeight + 24
+        radius: 16
+        color: Qt.rgba(0.08, 0.08, 0.10, 0.94)
+        border.width: 1
+        border.color: Qt.rgba(255, 255, 255, 0.16)
+
+        Column {
+            id: qualityCol
+            anchors.centerIn: parent
+            width: parent.width - 24
+            spacing: 12
+
+            Txt {
+                role: "label"
+                color: "white"
+                text: qsTr("Frame Rate (FPS)")
+            }
+            Row {
+                spacing: 6
+                Repeater {
+                    model: [30, 60, 90, 120]
+                    Rectangle {
+                        width: (qualityCol.width - 18) / 4
+                        height: 28
+                        radius: 14
+                        color: mirrorPrefs.fps === modelData ? Theme.primary : Qt.rgba(255, 255, 255, 0.12)
+                        Txt {
+                            anchors.centerIn: parent
+                            role: "caption"
+                            color: mirrorPrefs.fps === modelData ? "white" : Qt.rgba(1, 1, 1, 0.72)
+                            text: modelData + " FPS"
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                mirrorPrefs.fps = modelData
+                                win.showNotice(qsTr("Frame rate set to %1 FPS").arg(modelData))
+                            }
+                        }
+                    }
+                }
+            }
+
+            Txt {
+                role: "label"
+                color: "white"
+                text: qsTr("Video Bitrate")
+            }
+            Row {
+                spacing: 6
+                Repeater {
+                    model: [
+                        { label: "4M", val: 4000000 },
+                        { label: "8M", val: 8000000 },
+                        { label: "16M", val: 16000000 },
+                        { label: "24M", val: 24000000 }
+                    ]
+                    Rectangle {
+                        width: (qualityCol.width - 18) / 4
+                        height: 28
+                        radius: 14
+                        color: mirrorPrefs.bitrate === modelData.val ? Theme.primary : Qt.rgba(255, 255, 255, 0.12)
+                        Txt {
+                            anchors.centerIn: parent
+                            role: "caption"
+                            color: mirrorPrefs.bitrate === modelData.val ? "white" : Qt.rgba(1, 1, 1, 0.72)
+                            text: modelData.label
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                mirrorPrefs.bitrate = modelData.val
+                                win.showNotice(qsTr("Bitrate set to %1").arg(modelData.label + "bps"))
+                            }
+                        }
+                    }
+                }
             }
         }
     }

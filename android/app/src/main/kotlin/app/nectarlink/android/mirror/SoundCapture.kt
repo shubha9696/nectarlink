@@ -250,9 +250,8 @@ class SoundCapture(
 
         fun setMode(mode: String) {
             soundMode = when (mode.lowercase()) {
-                "sound_mode:pc", "pc" -> 0
                 "sound_mode:phone", "phone" -> 2
-                else -> 1 // both
+                else -> 0 // pc
             }
         }
 
