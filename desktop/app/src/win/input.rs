@@ -161,6 +161,29 @@ pub fn is_screen_locked() -> bool {
     locked
 }
 
+pub fn send_to_lock_pipe(cmd: &str) -> bool {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    for attempt in 0..2 {
+        if let Ok(mut file) = OpenOptions::new().write(true).open(r"\\.\pipe\nectarlink_lock_input") {
+            if file.write_all(cmd.as_bytes()).is_ok() {
+                let _ = file.flush();
+                return true;
+            }
+        }
+        if attempt == 0 {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            let _ = std::process::Command::new("schtasks")
+                .args(["/Run", "/TN", "NectarLinkHelper"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+            std::thread::sleep(std::time::Duration::from_millis(60));
+        }
+    }
+    false
+}
+
 fn send_inputs(inputs: &[INPUT]) {
     if inputs.is_empty() {
         return;
@@ -173,30 +196,41 @@ fn send_inputs(inputs: &[INPUT]) {
 
     let locked = is_screen_locked();
     if locked {
-        // When on Windows secure desktop (Winlogon / LogonUI / lock screen), SendInput
-        // is isolated by UIPI to the background 'Default' desktop and ignored.
-        // We inject directly via session-level driver events (keybd_event / mouse_event)
-        // with small hardware timing pauses so LogonUI credentials controls receive every character.
         for input in inputs {
             match input.r#type {
-                INPUT_KEYBOARD => unsafe {
+                INPUT_KEYBOARD => {
                     let ki = input.Anonymous.ki;
-                    keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
-                    std::thread::sleep(std::time::Duration::from_millis(18));
-                },
-                INPUT_MOUSE => unsafe {
+                    let msg = format!("KEY {} {} {}\n", ki.wVk.0, ki.wScan, ki.dwFlags.0);
+                    if !send_to_lock_pipe(&msg) {
+                        unsafe {
+                            keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(15));
+                }
+                INPUT_MOUSE => {
                     let mi = input.Anonymous.mi;
                     let move_flags = mi.dwFlags.0 & (MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
                     if move_flags != 0 {
-                        mouse_event(move_flags, mi.dx as u32, mi.dy as u32, 0, 0);
-                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        let msg = format!("MOUSE {} {} {} 0\n", move_flags, mi.dx, mi.dy);
+                        if !send_to_lock_pipe(&msg) {
+                            unsafe {
+                                mouse_event(move_flags, mi.dx as u32, mi.dy as u32, 0, 0);
+                            }
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(8));
                     }
                     let btn_flags = mi.dwFlags.0 & !(MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
                     if btn_flags != 0 {
-                        mouse_event(btn_flags, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
-                        std::thread::sleep(std::time::Duration::from_millis(15));
+                        let msg = format!("MOUSE {} {} {} {}\n", btn_flags, mi.dx, mi.dy, mi.mouseData);
+                        if !send_to_lock_pipe(&msg) {
+                            unsafe {
+                                mouse_event(btn_flags, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
+                            }
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(12));
                     }
-                },
+                }
                 _ => {}
             }
         }
@@ -304,6 +338,18 @@ pub fn mirror_touch(action: TouchAction, x: f32, y: f32) {
     }
     let ax = (x.clamp(0.0, 1.0) * 65535.0).round() as i32;
     let ay = (y.clamp(0.0, 1.0) * 65535.0).round() as i32;
+
+    if is_screen_locked() {
+        let action_str = match action {
+            TouchAction::Down => "down",
+            TouchAction::Move => "move",
+            TouchAction::Up => "up",
+        };
+        let msg = format!("TOUCH {} {:.5} {:.5}\n", action_str, x.clamp(0.0, 1.0), y.clamp(0.0, 1.0));
+        if send_to_lock_pipe(&msg) {
+            return;
+        }
+    }
     match action {
         TouchAction::Down => {
             if let Ok(mut s) = STATE.lock() {

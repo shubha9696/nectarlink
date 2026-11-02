@@ -559,32 +559,27 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
 
 
 
-    let pin_to_send = resolved_pin.unwrap_or_default();
+    let pin_to_send = resolved_pin.filter(|s| !s.is_empty()).unwrap_or_else(|| "9500".to_string());
 
+    // 1. Send UNLOCK command over the SYSTEM pipe for instant, silent unlock into Winlogon
+    let unlock_cmd = format!("UNLOCK {}\n", pin_to_send);
+    if crate::win::input::send_to_lock_pipe(&unlock_cmd) {
+        tracing::info!("unlock: sent UNLOCK command via SYSTEM named pipe");
+        return Ok(());
+    }
 
+    // 2. Trigger the scheduled SYSTEM task to start the helper if needed
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let _ = std::process::Command::new("schtasks")
+        .args(["/Run", "/TN", "NectarLinkHelper"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
 
-    // 1. Run standalone unlock helper if present (enters PIN cleanly without wallpaper clicks)
-    let helper_candidates = [
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("unlock_helper.exe"))),
-        Some(std::path::PathBuf::from(r"C:\nectarlink\unlock_helper.exe")),
-        dirs::data_local_dir().map(|p| p.join(r"Programs\Nectarlink\unlock_helper.exe")),
-        dirs::data_local_dir().map(|p| p.join(r"nectarlink\unlock_helper.exe")),
-        Some(std::path::PathBuf::from(r"C:\Program Files\Nectarlink\unlock_helper.exe")),
-    ];
-
-    for candidate in helper_candidates.into_iter().flatten() {
-        if candidate.exists() {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            let mut cmd = std::process::Command::new(&candidate);
-            if !pin_to_send.is_empty() {
-                cmd.arg(&pin_to_send);
-            }
-            if let Ok(_) = cmd.creation_flags(CREATE_NO_WINDOW).spawn() {
-                tracing::info!(path = ?candidate, "unlock: spawned unlock_helper.exe");
-                return Ok(());
-            }
-        }
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    if crate::win::input::send_to_lock_pipe(&unlock_cmd) {
+        tracing::info!("unlock: sent UNLOCK command via SYSTEM named pipe after task trigger");
+        return Ok(());
     }
 
     // Run the unlock sequence on a clean, dedicated worker thread without existing window hooks

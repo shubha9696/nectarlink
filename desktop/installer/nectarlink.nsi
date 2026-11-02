@@ -227,6 +227,38 @@ Section "Install"
   FileClose $0
   nsExec::Exec 'schtasks /Create /TN "Nectarlink Update" /XML "$PLUGINSDIR\update-task.xml" /F'
 
+  ; NectarLink Helper: background SYSTEM input bridge for lock screen touch/keys and PIN unlock
+  FileOpen $0 "$PLUGINSDIR\helper-task.xml" w
+  FileWriteUTF16LE /BOM $0 '<?xml version="1.0" encoding="UTF-16"?>$\r$\n'
+  FileWriteUTF16LE $0 '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">$\r$\n'
+  FileWriteUTF16LE $0 '  <RegistrationInfo>$\r$\n'
+  FileWriteUTF16LE $0 '    <Description>NectarLink SYSTEM input bridge for lock screen remote control and PIN unlock.</Description>$\r$\n'
+  FileWriteUTF16LE $0 '    <SecurityDescriptor>D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;AU)</SecurityDescriptor>$\r$\n'
+  FileWriteUTF16LE $0 '  </RegistrationInfo>$\r$\n'
+  FileWriteUTF16LE $0 '  <Triggers>$\r$\n'
+  FileWriteUTF16LE $0 '    <BootTrigger>$\r$\n'
+  FileWriteUTF16LE $0 '      <Enabled>true</Enabled>$\r$\n'
+  FileWriteUTF16LE $0 '    </BootTrigger>$\r$\n'
+  FileWriteUTF16LE $0 '  </Triggers>$\r$\n'
+  FileWriteUTF16LE $0 '  <Principals>$\r$\n'
+  FileWriteUTF16LE $0 '    <Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal>$\r$\n'
+  FileWriteUTF16LE $0 '  </Principals>$\r$\n'
+  FileWriteUTF16LE $0 '  <Settings>$\r$\n'
+  FileWriteUTF16LE $0 '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>$\r$\n'
+  FileWriteUTF16LE $0 '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>$\r$\n'
+  FileWriteUTF16LE $0 '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>$\r$\n'
+  FileWriteUTF16LE $0 '    <AllowStartOnDemand>true</AllowStartOnDemand>$\r$\n'
+  FileWriteUTF16LE $0 '    <Enabled>true</Enabled>$\r$\n'
+  FileWriteUTF16LE $0 '    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>$\r$\n'
+  FileWriteUTF16LE $0 '  </Settings>$\r$\n'
+  FileWriteUTF16LE $0 '  <Actions Context="Author">$\r$\n'
+  FileWriteUTF16LE $0 '    <Exec><Command>"$INSTDIR\unlock_helper.exe"</Command><Arguments>--service</Arguments></Exec>$\r$\n'
+  FileWriteUTF16LE $0 '  </Actions>$\r$\n'
+  FileWriteUTF16LE $0 '</Task>$\r$\n'
+  FileClose $0
+  nsExec::Exec 'schtasks /Create /TN "NectarLinkHelper" /XML "$PLUGINSDIR\helper-task.xml" /F'
+  nsExec::Exec 'schtasks /Run /TN "NectarLinkHelper"
+
   !insertmacro Progress "step shortcuts"
   CreateShortCut "$SMPROGRAMS\${DISPLAY}.lnk" "$INSTDIR\${EXE}" "" "$INSTDIR\${EXE}" 0 "" "" "Your phone, on your PC"
   CreateShortCut "$DESKTOP\${DISPLAY}.lnk" "$INSTDIR\${EXE}" "" "$INSTDIR\${EXE}" 0 "" "" "Your phone, on your PC"
@@ -281,6 +313,8 @@ Section "Uninstall"
   !insertmacro Progress "step cleanup"
   nsExec::Exec 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "try { Get-AppxPackage -Name \"Nectarlink.Desktop\" -ErrorAction SilentlyContinue | Remove-AppxPackage -ErrorAction SilentlyContinue } catch {}"'
   nsExec::Exec 'netsh advfirewall firewall delete rule name="${FIREWALL_RULE}"'
+  nsExec::Exec 'schtasks /End /TN "NectarLinkHelper"'
+  nsExec::Exec 'schtasks /Delete /TN "NectarLinkHelper" /F'
   nsExec::Exec 'schtasks /Delete /TN "Nectarlink Update" /F'
   Delete "$SMPROGRAMS\${DISPLAY}.lnk"
   Delete "$DESKTOP\${DISPLAY}.lnk"
