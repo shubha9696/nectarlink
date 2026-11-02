@@ -2261,7 +2261,6 @@ private fun PermissionsSetupCard(
         val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val core = (context.applicationContext as? NectarlinkApplication)?.core
-    val appState by (core?.state ?: kotlinx.coroutines.flow.MutableStateFlow(State.INITIAL)).collectAsStateWithLifecycle()
 
     val isGlass = LocalGlassTheme.current
 
