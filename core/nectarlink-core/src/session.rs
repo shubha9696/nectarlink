@@ -222,7 +222,7 @@ impl Session {
         let quic_rtt = paths
             .iter()
             .find(|p| p.is_selected())
-            .or_else(|| paths.first())
+            .or_else(|| paths.iter().next())
             .map(|p| p.rtt().as_millis().min(u128::from(u32::MAX)) as u32)
             .filter(|&ms| ms > 0);
         quic_rtt.unwrap_or(1)
