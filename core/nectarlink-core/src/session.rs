@@ -218,11 +218,11 @@ impl Session {
         if stored > 0 {
             return stored;
         }
-        let quic_rtt = self.conn
-            .paths()
+        let paths = self.conn.paths();
+        let quic_rtt = paths
             .iter()
             .find(|p| p.is_selected())
-            .or_else(|| self.conn.paths().iter().next())
+            .or_else(|| paths.first())
             .map(|p| p.rtt().as_millis().min(u128::from(u32::MAX)) as u32)
             .filter(|&ms| ms > 0);
         quic_rtt.unwrap_or(1)

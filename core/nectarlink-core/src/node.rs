@@ -1232,7 +1232,7 @@ impl Shared {
         tokio::spawn(maintain(Arc::downgrade(self), peer, wake, cancel));
     }
 
-    fn wake_supervisor(&self, peer: &DeviceId) {
+    pub(crate) fn wake_supervisor(&self, peer: &DeviceId) {
         if let Some(sup) = lock(&self.supervisors).get(peer) {
             sup.wake.notify_one();
         }
