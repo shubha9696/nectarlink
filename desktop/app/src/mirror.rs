@@ -258,10 +258,10 @@ pub fn set_audio_mode(device: DeviceId, mode: String) {
     core_host::spawn(async move {
         if let Some(node) = core_host::node() {
             let _ = node
-                .phone_toggle_set(
+                .set_phone_toggle(
                     device,
-                    nectarlink_protocol::toggle_ids::AUDIO_MODE.into(),
-                    nectarlink_protocol::PhoneToggleValue::Mode(mode_clone),
+                    nectarlink_core::toggle_ids::AUDIO_MODE.into(),
+                    nectarlink_core::PhoneToggleValue::Mode(mode_clone),
                 )
                 .await;
         }
