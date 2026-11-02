@@ -110,7 +110,7 @@ abstract class CargoNdkBuild : DefaultTask() {
                 buildList {
                     addAll(listOf("cargo", "ndk", "--platform", "26", "-o", outputDir.get().asFile.path))
                     abis.get().forEach { addAll(listOf("-t", it)) }
-                    addAll(listOf("build", "--profile", "android", "--locked", "-p", "nectarlink-ffi"))
+                    addAll(listOf("build", "--profile", "android", "-p", "nectarlink-ffi"))
                 },
             )
         }
@@ -129,7 +129,7 @@ abstract class UniffiBindgen : DefaultTask() {
         exec.exec {
             workingDir = workspace.get().asFile
             commandLine(
-                "cargo", "run", "--quiet", "--locked", "-p", "nectarlink-ffi", "--features", "bindgen",
+                "cargo", "run", "--quiet", "-p", "nectarlink-ffi", "--features", "bindgen",
                 "--bin", "uniffi-bindgen", "--", "generate", "--library", library.get().asFile.path,
                 "--language", "kotlin", "--no-format", "--out-dir", outputDir.get().asFile.path,
             )
@@ -207,7 +207,6 @@ dependencies {
     // Elevated: the phone's own wireless debugging (pairing and shell).
     implementation(libs.libadb.android)
     implementation(libs.conscrypt.android)
-    implementation("androidx.biometric:biometric:1.2.0-alpha05")
     // UniFFI's Kotlin bindings call the core through JNA.
     implementation(libs.jna) { artifact { type = "aar" } }
     testImplementation(libs.junit)
