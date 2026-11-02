@@ -241,23 +241,9 @@ Section "Install"
   ; Lenovo Fn+F11 / Smart Connect OEM key routing
   WriteRegStr HKLM "Software\Lenovo\ReadyFor" "path" "$INSTDIR\${EXE}"
   WriteRegStr HKLM "Software\WOW6432Node\Lenovo\ReadyFor" "path" "$INSTDIR\${EXE}"
-  ; Mark Lenovo ReadyFor/Smart Connect component as hidden system component so Windows Settings never displays duplicate app
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "SystemComponent" 1
-  WriteRegDWORD HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "SystemComponent" 1
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "DisplayName" "Smart Connect"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "DisplayVersion" "${DISPLAY_VERSION}"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "Publisher" "Lenovo"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "SmartConnect" "$INSTDIR\${EXE}"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "path" "$INSTDIR\${EXE}"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "DisplayIcon" "$INSTDIR\${EXE}"
-  WriteRegStr HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "DisplayName" "Smart Connect"
-  WriteRegStr HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "DisplayVersion" "${DISPLAY_VERSION}"
-  WriteRegStr HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "Publisher" "Lenovo"
-  WriteRegStr HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "SmartConnect" "$INSTDIR\${EXE}"
-  WriteRegStr HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "path" "$INSTDIR\${EXE}"
-  WriteRegStr HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}" "DisplayIcon" "$INSTDIR\${EXE}"
+  ; Clean up any legacy Smart Connect uninstall entries so they never appear in Installed Apps
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}"
+  DeleteRegKey HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}"
   WriteRegStr HKLM "${UNINSTALL_KEY}" "DisplayName" "${DISPLAY}"
   WriteRegStr HKLM "${UNINSTALL_KEY}" "DisplayVersion" "${DISPLAY_VERSION}"
   WriteRegStr HKLM "${UNINSTALL_KEY}" "Publisher" "The NectarLink contributors"
