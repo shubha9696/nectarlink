@@ -70,12 +70,19 @@ class MirrorService : Service() {
             stopSharing()
             return START_NOT_STICKY
         }
+        createChannel(this)
+        val initialType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0
+        runCatching {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(""), initialType)
+        }.onFailure {
+            runCatching { ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(""), 0) }
+        }
         val pc = intent?.getStringExtra(EXTRA_PC)
         val isElevated = intent?.getBooleanExtra(EXTRA_ELEVATED, false) == true
         val soundOnly = intent?.getBooleanExtra(EXTRA_SOUND_ONLY, false) == true
         val consent = intent?.let { IntentCompat.getParcelableExtra(it, EXTRA_CONSENT, Intent::class.java) }
         if (pc == null || (!isElevated && !soundOnly && consent == null) || projection != null || elevatedSocket != null || elevatedStarting) {
-            if (projection == null && elevatedSocket == null && !elevatedStarting) stopSelf()
+            if (projection == null && elevatedSocket == null && !elevatedStarting) stopSharing()
             return START_NOT_STICKY
         }
         val core = (application as NectarlinkApplication).core

@@ -1726,7 +1726,7 @@ impl qobject::AppController {
                 Some(PhoneToggleValue::Bool(raw == "true"))
             }
             "volume" | "brightness" => raw.parse::<u8>().ok().map(|v| PhoneToggleValue::Level(v.min(100))),
-            "ringer" => Some(PhoneToggleValue::Mode(raw)),
+            "ringer" | "dual_sound" | "audio_mode" | "audio_quality" => Some(PhoneToggleValue::Mode(raw)),
             _ => None,
         };
         let Some(val) = parsed else { return };

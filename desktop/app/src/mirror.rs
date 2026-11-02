@@ -1805,9 +1805,13 @@ fn ensure_gamepad_loop() {
 /// stream of its own): only for mirrorings this PC asked for.
 pub fn sink(device: &DeviceId, session: u32) -> Option<Arc<dyn MirrorSink>> {
     let window = Window { device: *device, session };
+    // Sound-only mode: if phone sound is active, route directly to phone_sound sink without a window.
+    if session == MIRROR_SCREEN && crate::phone_sound::active().is_some_and(|(d, _)| d == *device) {
+        return crate::phone_sound::sink(device);
+    }
     if session == MIRROR_SCREEN {
-        let needs_show = phase(&window).map_or(true, |p| p == Phase::Asking);
-        if needs_show {
+        let p = phase(&window);
+        if p == Some(Phase::Asking) {
             ffi::video_clear(&window.key());
             state(|s| {
                 for (w, shown) in s.windows.iter_mut() {
@@ -1821,9 +1825,9 @@ pub fn sink(device: &DeviceId, session: u32) -> Option<Arc<dyn MirrorSink>> {
             return Some(Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>);
         }
     }
-    matches!(phase(&window), Some(Phase::Asking | Phase::Showing))
+    matches!(phase(&window), Some(Phase::Showing))
         .then(|| Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>)
-        // No window: the phone's sound on its own, if it was asked for.
+        // No window: the phone's sound on its own, if it was asked for or offered.
         .or_else(|| if session == MIRROR_SCREEN { crate::phone_sound::sink(device) } else { None })
 }
 

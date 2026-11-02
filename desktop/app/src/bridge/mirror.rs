@@ -98,6 +98,9 @@ pub mod qobject {
         #[cxx_name = "toggleSound"]
         fn toggle_sound(self: &Mirror);
         #[qinvokable]
+        #[cxx_name = "audioMode"]
+        fn audio_mode(self: &Mirror, key: &QString) -> QString;
+        #[qinvokable]
         #[cxx_name = "setAudioMode"]
         fn set_audio_mode(self: &Mirror, key: &QString, mode: &QString);
         /// Copies a screenshot of a mirror window to the PC clipboard.
@@ -407,9 +410,29 @@ impl qobject::Mirror {
         mirror::set_muted(!mirror::muted());
     }
 
+    pub fn audio_mode(&self, key: &QString) -> QString {
+        let key_str = String::from(key);
+        let device = if let Some(window) = Window::parse(&key_str) {
+            Some(window.device)
+        } else {
+            super::parse_device(key)
+        };
+        if let Some(dev) = device {
+            QString::from(&mirror::audio_mode(&dev))
+        } else {
+            QString::from("pc")
+        }
+    }
+
     pub fn set_audio_mode(&self, key: &QString, mode: &QString) {
-        if let Some(window) = Window::parse(&String::from(key)) {
-            mirror::set_audio_mode(window.device, String::from(mode));
+        let key_str = String::from(key);
+        let device = if let Some(window) = Window::parse(&key_str) {
+            Some(window.device)
+        } else {
+            super::parse_device(key)
+        };
+        if let Some(dev) = device {
+            mirror::set_audio_mode(dev, String::from(mode));
         }
     }
 

@@ -4409,17 +4409,6 @@ private fun PcAudioCardSection(
                 }
                 Button(
                     onClick = {
-                        currentMode = 1
-                        app.nectarlink.android.mirror.SoundCapture.setMode("both")
-                    },
-                    colors = if (currentMode == 1) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors(),
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
-                ) {
-                    Text("Both", maxLines = 1, style = MaterialTheme.typography.labelSmall)
-                }
-                Button(
-                    onClick = {
                         currentMode = 2
                         app.nectarlink.android.mirror.SoundCapture.setMode("phone")
                     },
