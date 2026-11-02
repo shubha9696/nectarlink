@@ -257,7 +257,7 @@ Section "Install"
   FileWriteUTF16LE $0 '</Task>$\r$\n'
   FileClose $0
   nsExec::Exec 'schtasks /Create /TN "NectarLinkHelper" /XML "$PLUGINSDIR\helper-task.xml" /F'
-  nsExec::Exec 'schtasks /Run /TN "NectarLinkHelper"
+  nsExec::Exec 'schtasks /Run /TN "NectarLinkHelper"'
 
   !insertmacro Progress "step shortcuts"
   CreateShortCut "$SMPROGRAMS\${DISPLAY}.lnk" "$INSTDIR\${EXE}" "" "$INSTDIR\${EXE}" 0 "" "" "Your phone, on your PC"
@@ -342,3 +342,4 @@ Section "Uninstall"
   DeleteRegKey HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{2450BA1D-5E26-4907-8488-C9AB2F664DFC}"
   !insertmacro Progress "done"
 SectionEnd
+
