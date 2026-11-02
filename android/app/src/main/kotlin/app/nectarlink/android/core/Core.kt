@@ -2540,6 +2540,34 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         command { it.refresh() }
     }
 
+    fun uploadPcFile(deviceId: String, destPath: String, file: java.io.File, onResult: (Boolean) -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            startJob?.join()
+            withContext(Dispatchers.Main) { onResult(false) }
+        }
+    }
+
+    fun deletePcFile(deviceId: String, path: String, onResult: (Boolean) -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            startJob?.join()
+            withContext(Dispatchers.Main) { onResult(false) }
+        }
+    }
+
+    fun renamePcFile(deviceId: String, fromPath: String, toPath: String, onResult: (Boolean) -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            startJob?.join()
+            withContext(Dispatchers.Main) { onResult(false) }
+        }
+    }
+
+    fun mkdirPcFile(deviceId: String, path: String, onResult: (Boolean) -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            startJob?.join()
+            withContext(Dispatchers.Main) { onResult(false) }
+        }
+    }
+
     fun unpair(id: String) = command { it.unpair(id) }
 
     /** Stops this phone ringing. */

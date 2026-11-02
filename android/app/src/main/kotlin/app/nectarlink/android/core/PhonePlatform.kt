@@ -142,11 +142,13 @@ internal class PhonePlatform(
             val opened = appWindows.open(pcId, options)
             if (!opened) {
                 val pkg = options.app
-                val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)?.apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                }
-                if (launchIntent != null) {
-                    runCatching { context.startActivity(launchIntent) }
+                if (pkg != null) {
+                    val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)?.apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                    }
+                    if (launchIntent != null) {
+                        runCatching { context.startActivity(launchIntent) }
+                    }
                 }
                 val request = MirrorRequest(
                     pcId,
@@ -243,7 +245,7 @@ internal class PhonePlatform(
 
     override fun micStopRequested(pcId: String) {
         onMicStop(pcId)
-        app.nectarlink.android.mic.MicService.stop(context, pcId)
+        app.nectarlink.android.mic.MicService.stop(context)
     }
 
     override fun webcamStopRequested(pcId: String) {

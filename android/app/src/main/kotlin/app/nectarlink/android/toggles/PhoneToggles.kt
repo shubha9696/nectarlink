@@ -258,7 +258,7 @@ class PhoneToggles(
                     }
                     if (!handled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         runCatching {
-                            val panelIntent = Intent(Settings.Panel.ACTION_BLUETOOTH).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            val panelIntent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             context.startActivity(panelIntent)
                             handled = true
                         }
@@ -269,7 +269,6 @@ class PhoneToggles(
                 "audio_mode", "dual_sound" -> {
                     when (value) {
                         is PhoneToggleValue.Mode -> app.nectarlink.android.mirror.SoundCapture.setMode(value.mode)
-                        is PhoneToggleValue.Text -> app.nectarlink.android.mirror.SoundCapture.setMode(value.text)
                         is PhoneToggleValue.Bool -> app.nectarlink.android.mirror.SoundCapture.setMode(if (value.on) "both" else "pc")
                         else -> return false
                     }
@@ -287,7 +286,7 @@ class PhoneToggles(
                             if (on) {
                                 val method = cm?.javaClass?.methods?.firstOrNull { it.name == "startTethering" }
                                 if (method != null) {
-                                    val callbackClass = Class.forName("android.net.ConnectivityManager$OnStartTetheringCallback")
+                                    val callbackClass = Class.forName("android.net.ConnectivityManager\$OnStartTetheringCallback")
                                     val proxy = java.lang.reflect.Proxy.newProxyInstance(
                                         callbackClass.classLoader,
                                         arrayOf(callbackClass)
@@ -314,11 +313,11 @@ class PhoneToggles(
                             val tm = context.getSystemService("tethering")
                             if (tm != null) {
                                 if (on) {
-                                    val reqClass = Class.forName("android.net.TetheringManager$TetheringRequest$Builder")
+                                    val reqClass = Class.forName("android.net.TetheringManager\$TetheringRequest\$Builder")
                                     val reqBuilder = reqClass.getConstructor(Int::class.javaPrimitiveType).newInstance(0)
                                     val req = reqClass.getMethod("build").invoke(reqBuilder)
                                     val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
-                                    val callbackClass = Class.forName("android.net.TetheringManager$StartTetheringCallback")
+                                    val callbackClass = Class.forName("android.net.TetheringManager\$StartTetheringCallback")
                                     val proxy = java.lang.reflect.Proxy.newProxyInstance(
                                         callbackClass.classLoader,
                                         arrayOf(callbackClass)

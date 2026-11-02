@@ -216,7 +216,7 @@ class SoundCapture(
         // 0: PC only, 1: Both (PC & Phone), 2: Phone only
         @Volatile var soundMode: Int = 0
 
-        @Volatile var dualPlayback: Boolean
+        var dualPlayback: Boolean
             get() = soundMode == 1
             set(v) { soundMode = if (v) 1 else 0 }
 
