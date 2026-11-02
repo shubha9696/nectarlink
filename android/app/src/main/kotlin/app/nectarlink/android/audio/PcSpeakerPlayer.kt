@@ -263,8 +263,8 @@ class PcSpeakerPlayer(
 
         return runCatching {
             val attrsBuilder = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(if (exactQuality) AudioAttributes.CONTENT_TYPE_MUSIC else AudioAttributes.CONTENT_TYPE_GAME)
+                .setUsage(if (exactQuality) AudioAttributes.USAGE_MEDIA else AudioAttributes.USAGE_GAME)
+                .setContentType(if (exactQuality) AudioAttributes.CONTENT_TYPE_MUSIC else AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .setFlags(AudioAttributes.FLAG_LOW_LATENCY)
 
             if (android.os.Build.VERSION.SDK_INT >= 32) {
@@ -359,3 +359,4 @@ class PcSpeakerPlayer(
         var exactQuality: Boolean = true
     }
 }
+
