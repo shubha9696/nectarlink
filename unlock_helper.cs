@@ -22,6 +22,33 @@ namespace NectarLinkUnlockHelper
         [DllImport("user32.dll", SetLastError = true)]
         static extern bool CloseDesktop(IntPtr hDesktop);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool GetUserObjectInformation(IntPtr hObj, int nIndex, [Out] byte[] pvInfo, uint nLength, out uint lpnLengthNeeded);
+
+        static bool IsWorkstationLocked()
+        {
+            try
+            {
+                IntPtr hdesk = OpenInputDesktop(0, false, 0x0001);
+                if (hdesk == IntPtr.Zero)
+                {
+                    // Access denied or Winlogon desktop active -> screen is locked
+                    return true;
+                }
+                byte[] buf = new byte[256];
+                uint needed;
+                if (GetUserObjectInformation(hdesk, 2, buf, (uint)buf.Length, out needed))
+                {
+                    string name = System.Text.Encoding.ASCII.GetString(buf, 0, (int)needed).TrimEnd('\0');
+                    CloseDesktop(hdesk);
+                    return !name.Equals("Default", StringComparison.OrdinalIgnoreCase);
+                }
+                CloseDesktop(hdesk);
+            }
+            catch { }
+            return false;
+        }
+
         [DllImport("user32.dll")]
         static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
 
@@ -193,6 +220,12 @@ namespace NectarLinkUnlockHelper
         static void Main(string[] args)
         {
             Log("=== NectarLink 64-bit unlock helper started ===");
+
+            if (!IsWorkstationLocked())
+            {
+                Log("Workstation is already unlocked; skipping input simulation.");
+                return;
+            }
             string pin = "";
             if (args.Length > 0 && !string.IsNullOrWhiteSpace(args[0]))
             {

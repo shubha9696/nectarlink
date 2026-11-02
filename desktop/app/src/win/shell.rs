@@ -484,6 +484,10 @@ pub fn unlock() -> Result<(), String> {
 
 
 pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
+    if !is_locked() {
+        tracing::info!("unlock: workstation is already unlocked; ignoring");
+        return Ok(());
+    }
 
     let pin_file = crate::core_host::try_data_dir()
 
