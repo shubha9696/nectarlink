@@ -131,17 +131,8 @@ object MirrorRequests {
 class MirrorConsentActivity : ComponentActivity() {
     private var request: MirrorRequest? = null
 
-    private val sound = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        // Only the sound was asked for, and it can't be captured without this.
-        val asked = request
-        if (asked?.soundOnly == true) {
-            if (granted) {
-                MirrorService.startSoundOnly(this, asked)
-            }
-            finish()
-        } else {
-            askForScreen()
-        }
+    private val sound = registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+        askForScreen()
     }
 
     private val prompt = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -160,30 +151,23 @@ class MirrorConsentActivity : ComponentActivity() {
         MirrorRequests.dismiss(this, asked.pcId)
         if (savedInstanceState != null) return
 
-        if (asked.soundOnly) {
-            val hasRecordAudio = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
-                ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-            if (hasRecordAudio || app.nectarlink.android.elevated.Elevated.running) {
-                MirrorService.startSoundOnly(this, asked)
-                finish()
-                return
-            } else {
-                sound.launch(Manifest.permission.RECORD_AUDIO)
-                return
-            }
+        if (MirrorService.tryStartWithCachedConsent(this, asked)) {
+            finish()
+            return
         }
 
-        val wantsSound = asked.audio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+        if (asked.soundOnly && app.nectarlink.android.elevated.Elevated.running) {
+            MirrorService.startElevated(this, asked)
+            finish()
+            return
+        }
+
+        val wantsSound = (asked.audio || asked.soundOnly) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
         if (wantsSound) sound.launch(Manifest.permission.RECORD_AUDIO) else askForScreen()
     }
 
     private fun askForScreen() {
-        if (request?.soundOnly == true) {
-            MirrorService.startSoundOnly(this, request!!)
-            finish()
-            return
-        }
         prompt.launch(getSystemService(MediaProjectionManager::class.java).createScreenCaptureIntent())
     }
 }

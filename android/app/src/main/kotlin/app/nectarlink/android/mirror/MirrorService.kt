@@ -72,8 +72,9 @@ class MirrorService : Service() {
         }
         val pc = intent?.getStringExtra(EXTRA_PC)
         val isElevated = intent?.getBooleanExtra(EXTRA_ELEVATED, false) == true
+        val soundOnly = intent?.getBooleanExtra(EXTRA_SOUND_ONLY, false) == true
         val consent = intent?.let { IntentCompat.getParcelableExtra(it, EXTRA_CONSENT, Intent::class.java) }
-        if (pc == null || (!isElevated && consent == null) || projection != null || elevatedSocket != null || elevatedStarting) {
+        if (pc == null || (!isElevated && !soundOnly && consent == null) || projection != null || elevatedSocket != null || elevatedStarting) {
             if (projection == null && elevatedSocket == null && !elevatedStarting) stopSelf()
             return START_NOT_STICKY
         }
@@ -86,9 +87,9 @@ class MirrorService : Service() {
         val audio = intent.getBooleanExtra(EXTRA_AUDIO, false)
         stayAwake = intent.getBooleanExtra(EXTRA_STAY_AWAKE, false)
         screenOff = intent.getBooleanExtra(EXTRA_SCREEN_OFF, false)
-        soundOnly = intent.getBooleanExtra(EXTRA_SOUND_ONLY, false)
+        this.soundOnly = soundOnly
 
-        if (isElevated || soundOnly) {
+        if (isElevated || (soundOnly && consent == null)) {
             val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0
             runCatching {
                 ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), type)
@@ -119,7 +120,10 @@ class MirrorService : Service() {
         val manager = getSystemService(MediaProjectionManager::class.java)
         val granted = runCatching {
             manager.getMediaProjection(intent.getIntExtra(EXTRA_RESULT, 0), consent!!)
-        }.getOrNull()
+        }.getOrElse {
+            cachedConsent = null
+            null
+        }
         if (granted == null) {
             Log.w(TAG, "no screen capture granted")
             stopSharing()
@@ -347,12 +351,12 @@ class MirrorService : Service() {
         }
         main.post {
             val running = projection
-            if ((running == null && !app.nectarlink.android.elevated.Elevated.running) || pcId != pc) {
+            if ((running == null && !app.nectarlink.android.elevated.Elevated.running && !soundOnly) || pcId != pc) {
                 stream.end()
                 endSharing()
                 return@post
             }
-            sound = SoundCapture(running, stream) { endSharing() }.also { it.start() }
+            sound = SoundCapture(running, stream, this) { endSharing() }.also { it.start() }
         }
     }
 
@@ -448,13 +452,12 @@ class MirrorService : Service() {
             if (app.nectarlink.android.elevated.Elevated.running) {
                 return startElevated(context, request)
             }
-            val intent = Intent(context, MirrorService::class.java)
-                .putExtra(EXTRA_PC, request.pcId)
-                .putExtra(EXTRA_AUDIO, true)
-                .putExtra(EXTRA_SOUND_ONLY, true)
-            runCatching {
-                ContextCompat.startForegroundService(context, intent)
+            if (tryStartWithCachedConsent(context, request)) {
+                return true
             }
+            val intent = request.toIntent(Intent(context, MirrorConsentActivity::class.java))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
             return true
         }
 

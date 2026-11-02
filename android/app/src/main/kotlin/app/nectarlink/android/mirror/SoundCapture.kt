@@ -31,6 +31,7 @@ import java.net.Socket
 class SoundCapture(
     private val projection: MediaProjection?,
     private val stream: MirrorStream,
+    private val context: Context? = null,
     /** Called once the sound stops (the PC stopped listening, or capture failed). */
     private val onEnded: () -> Unit = {},
 ) {
@@ -77,6 +78,33 @@ class SoundCapture(
             if (record != null && record.state == AudioRecord.STATE_INITIALIZED) {
                 running = true
                 thread = Thread({ runRecord(record) }, "sound-capture").apply {
+                    priority = Thread.MAX_PRIORITY
+                    start()
+                }
+                return
+            }
+            record?.runCatching { release() }
+        }
+
+        val ctx = context
+        if (ctx != null && ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            val record = runCatching {
+                val format = AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
+                    .build()
+                val minimum = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+                AudioRecord.Builder()
+                    .setAudioSource(android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION)
+                    .setAudioFormat(format)
+                    .setBufferSizeInBytes(maxOf(minimum, PACKET_BYTES * 8))
+                    .build()
+            }.getOrNull()
+
+            if (record != null && record.state == AudioRecord.STATE_INITIALIZED) {
+                running = true
+                thread = Thread({ runRecord(record) }, "sound-capture-mic").apply {
                     priority = Thread.MAX_PRIORITY
                     start()
                 }

@@ -102,7 +102,7 @@ class AppWindows(
                     null
                 }
                 if (audioStream != null) {
-                    sound = SoundCapture(null, audioStream) {
+                    sound = SoundCapture(null, audioStream, context) {
                         sound = null
                     }.also { it.start() }
                 }

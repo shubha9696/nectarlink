@@ -1133,14 +1133,14 @@ Item {
                                 iconPath: !home.online ? Icons.unlink
                                           : (home.path === "usb" && (home.wifiBars < 0 || !home.online)) ? Icons.usb
                                           : home.path === "relay" ? Icons.globe
-                                          : (home.cellType === "Hotspot" || (phoneControls.state && phoneControls.state.hotspot === true) || phoneControls.hotspotActive) ? Icons.globe
+                                          : ((phoneControls.state && phoneControls.state.hotspot === true) || phoneControls.hotspotActive) ? Icons.globe
                                           : (home.wifiBars < 0 && home.cellBars >= 0 ? Icons.signal : Icons.wifi)
                                 text: home.online
                                       ? (home.path === "relay"
                                          ? (home.rttMs > 0 ? qsTr("Away · %1 ms").arg(home.rttMs) : qsTr("Away"))
                                          : (home.path === "usb" && (home.wifiBars < 0 || !home.online)
                                             ? (home.rttMs > 0 ? qsTr("USB · %1 ms").arg(home.rttMs) : qsTr("USB"))
-                                            : ((home.cellType === "Hotspot" || (phoneControls.state && phoneControls.state.hotspot === true) || phoneControls.hotspotActive)
+                                            : (((phoneControls.state && phoneControls.state.hotspot === true) || phoneControls.hotspotActive)
                                                ? (home.rttMs > 0 ? qsTr("Hotspot · %1 ms").arg(home.rttMs) : qsTr("Hotspot"))
                                                : (home.wifiBars >= 0
                                                   ? (home.rttMs > 0 ? qsTr("Wi‑Fi · %1 ms").arg(home.rttMs) : qsTr("Wi‑Fi"))

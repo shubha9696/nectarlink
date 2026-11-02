@@ -233,10 +233,18 @@ object Elevated {
         if (isApEnabled) return true
         val softAp = Settings.Global.getInt(context.contentResolver, "wifi_ap_on", 0) == 1
         if (softAp) return true
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val tetheredIfaces = runCatching {
+            val method = cm?.javaClass?.getMethod("getTetheredIfaces")
+            (method?.invoke(cm) as? Array<*>)?.filterIsInstance<String>()
+        }.getOrNull()
+        if (!tetheredIfaces.isNullOrEmpty()) {
+            return true
+        }
         val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return false
         for (iface in interfaces.asSequence()) {
             val name = iface.name.lowercase()
-            if (iface.isUp && (name.contains("ap") || name.contains("wlan1") || name.contains("rndis") || name.contains("swlan") || name.contains("tether") || name.contains("hotspot"))) {
+            if (iface.isUp && (name.startsWith("ap") || name.startsWith("softap") || name.contains("tether") || name.startsWith("rndis"))) {
                 for (addr in iface.inetAddresses.asSequence()) {
                     if (!addr.isLoopbackAddress && addr.hostAddress?.contains(':') == false) {
                         return true
