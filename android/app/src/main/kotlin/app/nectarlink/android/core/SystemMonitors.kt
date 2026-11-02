@@ -395,6 +395,25 @@ class BatteryMonitor(private val context: Context, private val onChange: (Batter
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            val bm = context.getSystemService(BatteryManager::class.java)
+            if (intent.action == Intent.ACTION_POWER_DISCONNECTED) {
+                val level = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 } ?: last?.level?.toInt() ?: 100
+                val battery = Battery(
+                    level = level.toUByte(),
+                    charging = false,
+                    plugged = null,
+                    fullIn = null,
+                    cellBars = null,
+                    cellType = null,
+                    wifiBars = null,
+                )
+                if (battery != last) {
+                    last = battery
+                    onChange(battery)
+                }
+                return
+            }
+
             val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
             val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
             if (level < 0 || scale <= 0) return
@@ -405,10 +424,9 @@ class BatteryMonitor(private val context: Context, private val onChange: (Batter
                 else -> null
             }
             val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
-            val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-                status == BatteryManager.BATTERY_STATUS_FULL
+            val charging = plugged != null && (status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL)
             val fullIn: UShort? = if (charging && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val bm = context.getSystemService(BatteryManager::class.java)
                 val remainingMs = runCatching { bm?.computeChargeTimeRemaining() ?: -1L }.getOrDefault(-1L)
                 if (remainingMs > 0L) {
                     ((remainingMs + 59_999L) / 60_000L).coerceIn(1L, 1440L).toUShort()
@@ -435,9 +453,13 @@ class BatteryMonitor(private val context: Context, private val onChange: (Batter
     }
 
     fun start() {
-        // ACTION_BATTERY_CHANGED is sticky: the current state arrives at once.
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_BATTERY_CHANGED)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+        }
         ContextCompat.registerReceiver(
-            context, receiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED,
+            context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED,
         )
     }
 
