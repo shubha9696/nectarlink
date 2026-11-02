@@ -88,9 +88,13 @@ class MirrorService : Service() {
         screenOff = intent.getBooleanExtra(EXTRA_SCREEN_OFF, false)
         soundOnly = intent.getBooleanExtra(EXTRA_SOUND_ONLY, false)
 
-        if (isElevated) {
+        if (isElevated || soundOnly) {
             val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), type)
+            runCatching {
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), type)
+            }.onFailure {
+                runCatching { ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), 0) }
+            }
             pcId = pc
             current = this
             _session.value = MirrorSession(
@@ -111,17 +115,26 @@ class MirrorService : Service() {
             return START_NOT_STICKY
         }
 
-        // The screen capture needs the service in the foreground first.
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else 0
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), type)
+        // Obtain MediaProjection first before startForeground (required on Android 14+)
         val manager = getSystemService(MediaProjectionManager::class.java)
         val granted = runCatching {
             manager.getMediaProjection(intent.getIntExtra(EXTRA_RESULT, 0), consent!!)
         }.getOrNull()
         if (granted == null) {
-            Log.w(TAG, "no screen capture")
+            Log.w(TAG, "no screen capture granted")
             stopSharing()
             return START_NOT_STICKY
+        }
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        } else {
+            0
+        }
+        runCatching {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), type)
+        }.onFailure { e ->
+            Log.w(TAG, "startForeground with type failed, falling back", e)
+            runCatching { ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), 0) }
         }
         projection = granted
         pcId = pc
@@ -428,6 +441,20 @@ class MirrorService : Service() {
         fun tryStartWithCachedConsent(context: Context, request: MirrorRequest): Boolean {
             val cached = cachedConsent ?: return false
             start(context, request, cached.first, cached.second)
+            return true
+        }
+
+        fun startSoundOnly(context: Context, request: MirrorRequest): Boolean {
+            if (app.nectarlink.android.elevated.Elevated.running) {
+                return startElevated(context, request)
+            }
+            val intent = Intent(context, MirrorService::class.java)
+                .putExtra(EXTRA_PC, request.pcId)
+                .putExtra(EXTRA_AUDIO, true)
+                .putExtra(EXTRA_SOUND_ONLY, true)
+            runCatching {
+                ContextCompat.startForegroundService(context, intent)
+            }
             return true
         }
 

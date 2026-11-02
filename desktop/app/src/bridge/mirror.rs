@@ -97,6 +97,9 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "toggleSound"]
         fn toggle_sound(self: &Mirror);
+        #[qinvokable]
+        #[cxx_name = "setAudioMode"]
+        fn set_audio_mode(self: &Mirror, key: &QString, mode: &QString);
         /// Copies a screenshot of a mirror window to the PC clipboard.
         #[qinvokable]
         #[cxx_name = "screenshotClipboard"]
@@ -232,7 +235,8 @@ impl qobject::Mirror {
                     "phase": phase,
                     "reason": reason,
                     "canControl": control,
-                    "sound": window.session == MIRROR_SCREEN && mirror::has_sound(&window.device),
+                    "sound": mirror::has_sound(&window.device) || window.session != MIRROR_SCREEN,
+                    "audioMode": mirror::audio_mode(&window.device),
                     "recording": mirror::is_recording(&window),
                     "recordingStartedMs": mirror::recording_started_ms(&window),
                     "stayAwake": mirror::stay_awake(&window.device),
@@ -401,6 +405,12 @@ impl qobject::Mirror {
 
     pub fn toggle_sound(&self) {
         mirror::set_muted(!mirror::muted());
+    }
+
+    pub fn set_audio_mode(&self, key: &QString, mode: &QString) {
+        if let Some(window) = Window::parse(&String::from(key)) {
+            mirror::set_audio_mode(window.device, String::from(mode));
+        }
     }
 
     pub fn screenshot_clipboard(&self, key: &QString) {

@@ -48,14 +48,15 @@ class PhoneStorage(
 
     /** Lists entries in `path` (`""` for the root). */
     fun list(path: String): List<StorageEntry> {
-        if (!isValidDirPath(path)) {
+        val cleanPath = path.trim().replace('\\', '/').trim('/')
+        if (!isValidDirPath(cleanPath)) {
             throw StorageFailure.Invalid("invalid directory path")
         }
         if (hasAllFilesAccess(context)) {
             val root = sharedRoot()
-            val dir = resolveExistingInRoot(root, blockedDirs(context, root), path, allowRoot = true)
+            val dir = resolveExistingInRoot(root, blockedDirs(context, root), cleanPath, allowRoot = true)
             if (!dir.isDirectory) throw StorageFailure.NotFound()
-            watchDirectory(path, dir)
+            watchDirectory(cleanPath, dir)
             val children = dir.listFiles() ?: throw StorageFailure.Denied()
             val canonRoot = runCatching { root.canonicalFile }.getOrElse { throw StorageFailure.NotFound() }
             val blocked = blockedDirs(context, root)
@@ -63,15 +64,15 @@ class PhoneStorage(
             for (child in children) {
                 val name = child.name
                 if (!isValidName(name) || name.startsWith(".nectarlink")) continue
-                val canon = runCatching { child.canonicalFile }.getOrNull() ?: continue
-                if (!isInsideRoot(canonRoot, blocked, canon)) continue
-                val isDir = canon.isDirectory
-                if (!isDir && !canon.isFile) continue
+                val canon = runCatching { child.canonicalFile }.getOrElse { child }
+                if (!isInsideRoot(canonRoot, blocked, canon) && !isInsideRoot(canonRoot, blocked, child)) continue
+                val isDir = child.isDirectory || canon.isDirectory
+                if (!isDir && !child.isFile && !canon.isFile) continue
                 out.add(
                     StorageEntry(
                         name = name,
-                        size = if (isDir) 0uL else canon.length().coerceAtLeast(0L).toULong(),
-                        modified = canon.lastModified(),
+                        size = if (isDir) 0uL else (if (child.isFile) child.length() else canon.length()).coerceAtLeast(0L).toULong(),
+                        modified = if (child.lastModified() > 0) child.lastModified() else canon.lastModified(),
                         isDir = isDir,
                     ),
                 )
@@ -80,17 +81,18 @@ class PhoneStorage(
         }
         val folders = safFolders(context)
         if (folders.isEmpty()) throw StorageFailure.Unsupported()
-        return listSaf(folders, path)
+        return listSaf(folders, cleanPath)
     }
 
     /** Opens `path` for ranged reading (`storage.read`). */
     fun openRead(path: String): StorageReadFile {
-        if (!isValidPath(path)) {
+        val cleanPath = path.trim().replace('\\', '/').trim('/')
+        if (!isValidPath(cleanPath)) {
             throw StorageFailure.Invalid("invalid file path")
         }
         if (hasAllFilesAccess(context)) {
             val root = sharedRoot()
-            val file = resolveExistingInRoot(root, blockedDirs(context, root), path, allowRoot = false)
+            val file = resolveExistingInRoot(root, blockedDirs(context, root), cleanPath, allowRoot = false)
             if (!file.isFile) throw StorageFailure.NotFound()
             return StorageReadFile(
                 source = FileToSend.Path(
@@ -104,12 +106,13 @@ class PhoneStorage(
         }
         val folders = safFolders(context)
         if (folders.isEmpty()) throw StorageFailure.Unsupported()
-        return openReadSaf(folders, path)
+        return openReadSaf(folders, cleanPath)
     }
 
     /** Commits a staged upload at `stagedPath` into `path` (`storage.write`). */
     fun write(path: String, stagedPath: String, modified: Long?): StorageWriteDone {
-        if (!isValidPath(path)) {
+        val cleanPath = path.trim().replace('\\', '/').trim('/')
+        if (!isValidPath(cleanPath)) {
             throw StorageFailure.Invalid("invalid destination path")
         }
         val staged = File(stagedPath)
@@ -119,7 +122,7 @@ class PhoneStorage(
         if (hasAllFilesAccess(context)) {
             val root = sharedRoot()
             val blocked = blockedDirs(context, root)
-            val dest = resolveTargetInRoot(root, blocked, path)
+            val dest = resolveTargetInRoot(root, blocked, cleanPath)
             val parent = dest.parentFile ?: throw StorageFailure.Denied()
             if (!parent.exists() && !parent.mkdirs() && !parent.isDirectory) {
                 throw StorageFailure.Failed("cannot create parent folder")
@@ -146,13 +149,14 @@ class PhoneStorage(
 
     /** Creates a directory (and any missing parents) at `path` (`storage.mkdir`). */
     fun mkdir(path: String) {
-        if (!isValidPath(path)) {
+        val cleanPath = path.trim().replace('\\', '/').trim('/')
+        if (!isValidPath(cleanPath)) {
             throw StorageFailure.Invalid("invalid folder path")
         }
         if (hasAllFilesAccess(context)) {
             val root = sharedRoot()
             val blocked = blockedDirs(context, root)
-            val dest = resolveTargetInRoot(root, blocked, path)
+            val dest = resolveTargetInRoot(root, blocked, cleanPath)
             if (!dest.exists() && !dest.mkdirs() && !dest.isDirectory) {
                 throw StorageFailure.Failed("cannot create folder")
             }
@@ -170,14 +174,16 @@ class PhoneStorage(
 
     /** Renames or moves `from` to `to` (`storage.rename`). */
     fun rename(from: String, to: String) {
-        if (!isValidPath(from) || !isValidPath(to)) {
+        val cleanFrom = from.trim().replace('\\', '/').trim('/')
+        val cleanTo = to.trim().replace('\\', '/').trim('/')
+        if (!isValidPath(cleanFrom) || !isValidPath(cleanTo)) {
             throw StorageFailure.Invalid("invalid rename path")
         }
         if (hasAllFilesAccess(context)) {
             val root = sharedRoot()
             val blocked = blockedDirs(context, root)
-            val src = resolveExistingInRoot(root, blocked, from, allowRoot = false)
-            val dst = resolveTargetInRoot(root, blocked, to)
+            val src = resolveExistingInRoot(root, blocked, cleanFrom, allowRoot = false)
+            val dst = resolveTargetInRoot(root, blocked, cleanTo)
             val parent = dst.parentFile ?: throw StorageFailure.Denied()
             if (!parent.exists() && !parent.mkdirs() && !parent.isDirectory) {
                 throw StorageFailure.Failed("cannot create destination parent")
@@ -215,13 +221,14 @@ class PhoneStorage(
      * requires `confirmed = true` from the PC.
      */
     fun delete(path: String, confirmed: Boolean) {
-        if (!isValidPath(path)) {
+        val cleanPath = path.trim().replace('\\', '/').trim('/')
+        if (!isValidPath(cleanPath)) {
             throw StorageFailure.Invalid("invalid delete path")
         }
         if (hasAllFilesAccess(context)) {
             val root = sharedRoot()
             val blocked = blockedDirs(context, root)
-            val target = resolveExistingInRoot(root, blocked, path, allowRoot = false)
+            val target = resolveExistingInRoot(root, blocked, cleanPath, allowRoot = false)
             if (target.isFile && isMediaFile(target) && moveToMediaStoreTrash(target)) {
                 return
             }
@@ -636,7 +643,8 @@ class PhoneStorage(
         }
 
         internal fun blockedDirs(context: Context, root: File): List<File> = buildList {
-            add(File("/data"))
+            add(File("/data/data"))
+            add(File("/data/user"))
             add(File(root, "Android/data"))
             add(File(root, "Android/obb"))
             context.dataDir?.let { add(it) }
@@ -672,7 +680,11 @@ class PhoneStorage(
             val rootPath = canonRoot.path
             val candPath = candidate.path
             val underRoot = candPath == rootPath ||
-                candPath.startsWith(if (rootPath.endsWith(File.separator)) rootPath else "$rootPath${File.separator}")
+                candPath.startsWith(if (rootPath.endsWith(File.separator)) rootPath else "$rootPath${File.separator}") ||
+                (candPath.startsWith("/data/media/") && (rootPath.startsWith("/data/media/") || rootPath.startsWith("/storage/emulated/"))) ||
+                (candPath.startsWith("/storage/emulated/") && (rootPath.startsWith("/data/media/") || rootPath.startsWith("/storage/emulated/"))) ||
+                candPath.startsWith("/storage/self/primary") ||
+                candPath.startsWith("/sdcard")
             if (!underRoot) return false
             for (b in blocked) {
                 val bp = runCatching { b.canonicalPath }.getOrDefault(b.absolutePath)

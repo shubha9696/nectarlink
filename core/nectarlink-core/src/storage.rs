@@ -42,7 +42,7 @@ pub const TOGGLE: &str = "storage";
 pub const REMOTE_FILES_TOGGLE: &str = "remote_files";
 
 const STREAM_TIMEOUT: Duration = Duration::from_secs(30);
-const CHUNK_SIZE: usize = 1024 * 1024;
+const CHUNK_SIZE: usize = 64 * 1024;
 const MAX_OPEN_FOLDERS_PER_PEER: usize = 256;
 const CHANGED_DEBOUNCE: Duration = Duration::from_millis(250);
 
@@ -99,8 +99,12 @@ impl StorageState {
 
     pub fn record_open_folder(&mut self, peer: DeviceId, path: &str) {
         let set = self.open_folders.entry(peer).or_default();
-        if set.len() >= MAX_OPEN_FOLDERS_PER_PEER && !set.contains(path) {
-            set.clear();
+        // At the cap one folder makes room, rather than every watched one going quiet.
+        if set.len() >= MAX_OPEN_FOLDERS_PER_PEER
+            && !set.contains(path)
+            && let Some(evicted) = set.iter().next().cloned()
+        {
+            set.remove(&evicted);
         }
         set.insert(path.to_owned());
     }
@@ -183,7 +187,7 @@ fn check_phone_allowed(
         return Err((ErrorCode::Denied, "storage access is turned off for this device".into()));
     }
     if shared.session(peer).is_some_and(|s| s.path() == crate::ConnectionPath::Relay)
-        && !shared.toggle_on(peer, REMOTE_FILES_TOGGLE)
+        && shared.store.toggle(peer, REMOTE_FILES_TOGGLE).ok().flatten() == Some(false)
     {
         return Err((
             ErrorCode::Denied,
@@ -227,7 +231,8 @@ pub(crate) async fn notify_changed(shared: &Arc<Shared>, path: String) {
         if shared.toggle_on(&peer, TOGGLE)
             && let Some(session) = shared.session(&peer)
         {
-            if session.path() == crate::ConnectionPath::Relay && !shared.toggle_on(&peer, REMOTE_FILES_TOGGLE)
+            if session.path() == crate::ConnectionPath::Relay
+                && shared.store.toggle(&peer, REMOTE_FILES_TOGGLE).ok().flatten() == Some(false)
             {
                 continue;
             }
@@ -1098,7 +1103,15 @@ impl FolderStorage {
             self.ensure_inside(&canon_root, &canon_parent)?;
         }
         if std::fs::rename(staged, &dest).is_err() {
-            std::fs::copy(staged, &dest).map_err(|e| StorageError::Failed(e.to_string()))?;
+            // Another volume: copy beside the file, then swap it in, so a
+            // failed copy leaves the file that was there untouched.
+            let name = dest.file_name().unwrap_or_default().to_string_lossy();
+            let temp = dest.with_file_name(format!(".{name}.nectarlink-part"));
+            let swapped = std::fs::copy(staged, &temp).and_then(|_| std::fs::rename(&temp, &dest));
+            if let Err(e) = swapped {
+                let _ = std::fs::remove_file(&temp);
+                return Err(StorageError::Failed(e.to_string()));
+            }
         }
         if let Some(ms) = modified.filter(|m| *m >= 0)
             && let Some(st) = UNIX_EPOCH.checked_add(Duration::from_millis(ms as u64))

@@ -1762,7 +1762,7 @@ impl Store {
                     &format!(
                         "{SELECT_SEND_QUEUE_WITH_BLOB}
                          WHERE peer_id = ?1 AND status = 'waiting'
-                         ORDER BY seq ASC LIMIT 1"
+                         ORDER BY CASE kind WHEN 'clipboard' THEN 0 WHEN 'clipboard_image' THEN 1 ELSE 2 END ASC, seq ASC LIMIT 1"
                     ),
                     [&peer_str],
                     raw_queue_row_with_blob,

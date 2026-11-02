@@ -139,11 +139,7 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         toggles = { toggles },
         storage = { storage },
         onMirror = { pc, request ->
-            if (Elevated.running) {
-                MirrorService.startElevated(this.context, request)
-            } else {
-                MirrorRequests.show(this.context, request, _state.value.nameOf(pc).orEmpty())
-            }
+            MirrorRequests.show(this.context, request, _state.value.nameOf(pc).orEmpty())
         },
         onWebcam = { pc, request ->
             val session = WebcamService.session.value
@@ -156,7 +152,7 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                 true
             }
         },
-        appWindows = AppWindows(this.context, scope, open = { pc -> mirrorOpen(pc) }, nameOf = { pc -> _state.value.nameOf(pc).orEmpty() }),
+        appWindows = AppWindows(this.context, scope, open = { pc -> mirrorOpen(pc) }, nameOf = { pc -> _state.value.nameOf(pc).orEmpty() }, openAudio = { pc -> mirrorOpenAudio(pc) }),
         nameOf = { pc -> _state.value.nameOf(pc).orEmpty() },
         onKeyboardFromPc = { pc, on -> setKeyboardFromPc(pc, on) },
     )
@@ -640,7 +636,6 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                     photos.stop()
                     phoneMedia.stop()
                     pcSpeakerPlayer.stop()
-                    app.nectarlink.android.mirror.StreamPower.set(context, "audio", false)
                 }
 
                 lastReportedBattery = null
@@ -836,14 +831,11 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                 val (peer, name) = peerOf(event.id)
                 pcNotificationPoster.reset(event.id, event.items, peer, name)
             }
-            is Event.PcAudioFrame -> {
-                app.nectarlink.android.mirror.StreamPower.set(context, "audio", true)
-                pcSpeakerPlayer.playFrame(
-                    event.sampleRate.toInt(),
-                    event.channels.toInt(),
-                    event.pcm,
-                )
-            }
+            is Event.PcAudioFrame -> pcSpeakerPlayer.playFrame(
+                event.sampleRate.toInt(),
+                event.channels.toInt(),
+                event.pcm,
+            )
             is Event.PcMirrorConfig -> {
                 _pcMirrorConfig.value = PcMirrorConfigState(
                     pcId = event.id,
@@ -880,7 +872,6 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                         pcMedia.update(event.id, "", emptyList())
                     }
                     pcSpeakerPlayer.stop()
-                    app.nectarlink.android.mirror.StreamPower.set(context, "audio", false)
                     if (_pcMirrorConfig.value?.pcId == event.id) {
                         _pcMirrorConfig.value = null
                     }
@@ -905,7 +896,6 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                     pcNotificationPoster.cancelAll(event.id)
                 }
                 pcSpeakerPlayer.stop()
-                app.nectarlink.android.mirror.StreamPower.set(context, "audio", false)
                 if (_pcMirrorConfig.value?.pcId == event.id) {
                     _pcMirrorConfig.value = null
                 }
@@ -1266,10 +1256,6 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         scope.launch(Dispatchers.IO) {
             send(pcId, OutgoingFiles.open(context, uris), handoff)
         }
-    }
-
-    fun sendOpenedFiles(pcId: String, files: List<FileToSend>, handoff: Boolean = false) {
-        send(pcId, files, handoff)
     }
 
     /** Sends a folder the user picked, with everything in it. */
@@ -1906,10 +1892,10 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             PhoneStorage.capabilities(context) +
             (if (WebcamService.hasPermission(context)) listOf("camera.stream") else emptyList()) +
             (if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) listOf("camera.capture") else emptyList()) +
-            listOf("mirror.input") +
+            (if (InputService.running || Elevated.running) listOf("mirror.input") else emptyList()) +
             (if (Elevated.running) listOf("clip.read.auto") else emptyList()) +
             // Apps in windows of their own run on displays the Elevated helper makes.
-            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) listOf("mirror.virtual_display") else emptyList()) +
+            (if (Elevated.running && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) listOf("mirror.virtual_display") else emptyList()) +
             // Asked for when a PC wants the sound, or streamed via Elevated helper.
             (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q || Elevated.running) listOf("mirror.audio.playback") else emptyList()) +
             // The same sound on its own, without the screen.
@@ -2042,6 +2028,54 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             val node = node ?: return@launch
             try {
                 node.pcRestart(id)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun pcSetBluetooth(id: String, enable: Boolean) {
+        scope.launch {
+            startJob?.join()
+            val node = node ?: return@launch
+            try {
+                node.pcSetBluetooth(id, enable)
+                PcLockManager.setPcBluetooth(enable)
+                val msg = if (enable) "Turning Windows Bluetooth on..." else "Turning Windows Bluetooth off..."
+                _messages.tryEmit(msg)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun pcToggleBluetooth(id: String) {
+        scope.launch {
+            startJob?.join()
+            val node = node ?: return@launch
+            val current = PcLockManager.pcBluetooth.value ?: false
+            val next = !current
+            try {
+                node.pcToggleBluetooth(id)
+                PcLockManager.setPcBluetooth(next)
+                val msg = if (next) "Turning Windows Bluetooth on..." else "Turning Windows Bluetooth off..."
+                _messages.tryEmit(msg)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /** Sets audio streaming quality mode (Exact Lossless / Dolby Cinema vs Low Latency) */
+    fun setAudioQuality(id: String, exact: Boolean) {
+        scope.launch {
+            startJob?.join()
+            val node = node ?: return@launch
+            app.nectarlink.android.audio.PcSpeakerPlayer.exactQuality = exact
+            try {
+                node.pcSetAudioQuality(id, exact)
+                val msg = if (exact) "Exact Audio Quality Mode (Dolby Atmos / Lossless Stereo)" else "Low Latency Audio Mode"
+                _messages.tryEmit(msg)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -2396,6 +2430,7 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             startJob?.join()
             val currentNode = node ?: return@launch
             runCatching { currentNode.setDeviceToggle(pcId, PhoneStorage.TOGGLE_NAME, enabled) }
+            runCatching { currentNode.setDeviceToggle(pcId, "remote_files", enabled) }
             enqueueNotificationOp {
                 it.updatePower(powerLevel(), capabilities(_state.value.notificationAccess))
             }
@@ -2471,87 +2506,25 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             val cacheDir = java.io.File(context.cacheDir, "pc_downloads").apply { mkdirs() }
             val safeName = fileName.replace(Regex("""[\\/:*?"<>|]"""), "_").ifBlank { "file" }
             val tempFile = java.io.File(cacheDir, "${System.currentTimeMillis()}_$safeName")
+            val pcName = _state.value.nameOf(deviceId).orEmpty()
+            val notifId = safeName.hashCode()
+            TransferNotifications.downloadProgress(context, notifId, safeName, pcName)
             val ok = runCatching {
                 currentNode.downloadRemoteStorage(deviceId, remotePath, tempFile.absolutePath)
             }.getOrDefault(false)
+            TransferNotifications.cancel(context, notifId)
             val savedUri = if (ok && tempFile.exists()) {
-                ReceivedFiles.saveToDownloads(context, tempFile, safeName)
+                val uri = ReceivedFiles.saveToDownloads(context, tempFile, safeName)
+                if (uri != null) {
+                    TransferNotifications.received(context, uri, safeName, pcName)
+                }
+                uri
             } else {
                 null
             }
             runCatching { tempFile.delete() }
             withContext(Dispatchers.Main) {
                 onSaved(savedUri)
-            }
-        }
-    }
-
-    /** Deletes `remotePath` from a paired PC (`storage.delete`). */
-    fun deletePcFile(
-        deviceId: String,
-        remotePath: String,
-        onDone: (Boolean) -> Unit,
-    ) {
-        scope.launch(Dispatchers.IO) {
-            startJob?.join()
-            val ok = runCatching {
-                node?.deleteRemoteStorage(deviceId, remotePath) ?: false
-            }.getOrDefault(false)
-            withContext(Dispatchers.Main) {
-                onDone(ok)
-            }
-        }
-    }
-
-    /** Renames or moves `fromPath` to `toPath` on a paired PC (`storage.rename`). */
-    fun renamePcFile(
-        deviceId: String,
-        fromPath: String,
-        toPath: String,
-        onDone: (Boolean) -> Unit,
-    ) {
-        scope.launch(Dispatchers.IO) {
-            startJob?.join()
-            val ok = runCatching {
-                node?.renameRemoteStorage(deviceId, fromPath, toPath) ?: false
-            }.getOrDefault(false)
-            withContext(Dispatchers.Main) {
-                onDone(ok)
-            }
-        }
-    }
-
-    /** Creates a directory at `remotePath` on a paired PC (`storage.mkdir`). */
-    fun mkdirPcFile(
-        deviceId: String,
-        remotePath: String,
-        onDone: (Boolean) -> Unit,
-    ) {
-        scope.launch(Dispatchers.IO) {
-            startJob?.join()
-            val ok = runCatching {
-                node?.mkdirRemoteStorage(deviceId, remotePath) ?: false
-            }.getOrDefault(false)
-            withContext(Dispatchers.Main) {
-                onDone(ok)
-            }
-        }
-    }
-
-    /** Uploads a local file to `remotePath` on a paired PC (`storage.write`). */
-    fun uploadPcFile(
-        deviceId: String,
-        remotePath: String,
-        localFile: java.io.File,
-        onDone: (Boolean) -> Unit,
-    ) {
-        scope.launch(Dispatchers.IO) {
-            startJob?.join()
-            val ok = runCatching {
-                node?.uploadRemoteStorage(deviceId, remotePath, localFile.absolutePath) ?: false
-            }.getOrDefault(false)
-            withContext(Dispatchers.Main) {
-                onDone(ok)
             }
         }
     }

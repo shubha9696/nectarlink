@@ -298,7 +298,7 @@ fn reconcile_adb_devices(
     active.retain(|serial, token| {
         let still_online = devices
             .iter()
-            .any(|d| d.serial == *serial && d.is_online() && nectarlink_adb::is_serial_allowed(&d.serial));
+            .any(|d| d.serial == *serial && d.is_online() && nectarlink_adb::is_serial_allowed(&d.serial) );
         if !still_online {
             token.cancel();
         }
@@ -306,7 +306,7 @@ fn reconcile_adb_devices(
     });
 
     for dev in devices {
-        if !dev.is_online() || !nectarlink_adb::is_serial_allowed(&dev.serial) || dev.is_wireless() {
+        if !dev.is_online() || !nectarlink_adb::is_serial_allowed(&dev.serial)  {
             continue;
         }
         if active.contains_key(&dev.serial) {

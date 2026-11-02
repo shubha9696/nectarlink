@@ -49,8 +49,8 @@ class SendActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val intent = intent ?: return finish()
-        if (intent.action == ACTION_SEND_CLIPBOARD) {
-            // The clipboard is read in onWindowFocusChanged.
+        if (intent.action == ACTION_SEND_CLIPBOARD || intent.action == ACTION_WRITE_CLIPBOARD) {
+            // Handled in onWindowFocusChanged
             return
         }
         if (intent.action == ACTION_SEND_FILES) {
@@ -88,15 +88,8 @@ class SendActivity : ComponentActivity() {
             val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
             val html = intent.getStringExtra(Intent.EXTRA_HTML_TEXT)?.takeIf(String::isNotBlank)
             val link = text?.let(::handoffUrl)
-            val clipUris = mutableListOf<Uri>()
-            intent.clipData?.let { clip ->
-                for (i in 0 until clip.itemCount) {
-                    clip.getItemAt(i).uri?.let { clipUris.add(it) }
-                }
-            }
             when {
                 stream != null -> SharePayload.Files(uris = listOf(stream), handoff = true)
-                clipUris.isNotEmpty() -> SharePayload.Files(uris = clipUris, handoff = true)
                 !text.isNullOrBlank() && link != null -> SharePayload.Link(url = link, text = text)
                 !text.isNullOrBlank() -> SharePayload.Text(text = text, html = html)
                 else -> null
@@ -104,17 +97,10 @@ class SendActivity : ComponentActivity() {
         }
         Intent.ACTION_SEND_MULTIPLE -> {
             val streams = IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-            val clipUris = mutableListOf<Uri>()
-            intent.clipData?.let { clip ->
-                for (i in 0 until clip.itemCount) {
-                    clip.getItemAt(i).uri?.let { clipUris.add(it) }
-                }
-            }
-            val finalUris = if (!streams.isNullOrEmpty()) streams else clipUris
-            if (finalUris.isEmpty()) {
+            if (streams.isNullOrEmpty()) {
                 null
             } else {
-                SharePayload.Files(uris = finalUris, handoff = false)
+                SharePayload.Files(uris = streams, handoff = false)
             }
         }
         else -> null
@@ -165,18 +151,38 @@ class SendActivity : ComponentActivity() {
      * confirmation show as notifications; an offline one queues, and says so.
      */
     private fun sendFilesTo(pc: Device, uris: List<Uri>, handoff: Boolean) {
-        scope.launch(Dispatchers.IO) {
-            val opened = app.nectarlink.android.files.OutgoingFiles.open(this@SendActivity, uris)
-            (application as NectarlinkApplication).core.sendOpenedFiles(pc.id, opened, handoff)
-            kotlinx.coroutines.withContext(Dispatchers.Main) {
-                if (pc.online) finish() else finishWith(getString(R.string.send_queue_offline_toast, pc.name))
-            }
-        }
+        (application as NectarlinkApplication).core.sendFiles(pc.id, uris, handoff)
+        if (pc.online) finish() else finishWith(getString(R.string.send_queue_offline_toast, pc.name))
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (!hasFocus || sent || intent?.action != ACTION_SEND_CLIPBOARD) return
+        if (!hasFocus || sent) return
+        if (intent?.action == ACTION_WRITE_CLIPBOARD) {
+            sent = true
+            val text = intent?.getStringExtra(EXTRA_WRITE_TEXT)
+            val html = intent?.getStringExtra(EXTRA_WRITE_HTML)
+            if (!text.isNullOrEmpty()) {
+                val mgr = getSystemService(android.content.ClipboardManager::class.java)
+                val clip = if (!html.isNullOrBlank()) {
+                    android.content.ClipData.newHtmlText("Nectarlink", text, html)
+                } else {
+                    android.content.ClipData.newPlainText("Nectarlink", text)
+                }
+                runCatching {
+                    val extras = (clip.description.extras ?: android.os.PersistableBundle()).apply {
+                        putBoolean("com.android.systemui.SUPPRESS_CLIPBOARD_OVERLAY", true)
+                        putBoolean("android.content.extra.IS_REMOTE_DEVICE", true)
+                    }
+                    clip.description.extras = extras
+                }
+                runCatching { mgr?.setPrimaryClip(clip) }
+            }
+            finish()
+            return
+        }
+        if (intent?.action != ACTION_SEND_CLIPBOARD) return
+        sent = true
         when (val clip = PhoneClipboard.read(this)) {
             is PhoneClipboard.Read.Text -> send(clip.text, clip.html)
             is PhoneClipboard.Read.Image -> sendImage(clip.uri)
@@ -273,7 +279,19 @@ class SendActivity : ComponentActivity() {
 
         const val ACTION_SEND_CLIPBOARD = "app.nectarlink.action.SEND_CLIPBOARD"
         const val ACTION_SEND_FILES = "app.nectarlink.action.SEND_FILES"
+        const val ACTION_WRITE_CLIPBOARD = "app.nectarlink.action.WRITE_CLIPBOARD"
         const val EXTRA_PC_ID = "app.nectarlink.extra.PC_ID"
+        const val EXTRA_WRITE_TEXT = "app.nectarlink.extra.WRITE_TEXT"
+        const val EXTRA_WRITE_HTML = "app.nectarlink.extra.WRITE_HTML"
+
+        fun writeClipboardIntent(context: Context, text: String, html: String? = null): Intent =
+            Intent(context, SendActivity::class.java)
+                .setAction(ACTION_WRITE_CLIPBOARD)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                .putExtra(EXTRA_WRITE_TEXT, text)
+                .apply {
+                    if (!html.isNullOrEmpty()) putExtra(EXTRA_WRITE_HTML, html)
+                }
 
         fun sendClipboardIntent(context: Context, pcId: String? = null): Intent =
             Intent(context, SendActivity::class.java)

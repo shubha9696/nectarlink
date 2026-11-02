@@ -147,7 +147,7 @@ pub fn compute_capabilities(
     #[cfg(any(windows, target_os = "linux"))]
     let mut pc_mirror_enabled = crate::pc_mirror::is_active();
     #[cfg(any(windows, target_os = "linux"))]
-    let mut _remote_input_enabled = false;
+    let mut remote_input_enabled = false;
     #[cfg(any(windows, target_os = "linux"))]
     if let Some(node) = node
         && let Ok(devices) = node.paired_devices()
@@ -159,7 +159,7 @@ pub fn compute_capabilities(
                         pc_mirror_enabled = true;
                     }
                     if on && name == "remote_input" {
-                        _remote_input_enabled = true;
+                        remote_input_enabled = true;
                     }
                 }
             }
@@ -276,8 +276,10 @@ async fn run(data_dir: PathBuf, platform: Arc<dyn Platform>) {
     host.runtime.spawn(async {
         let mut was_active = false;
         let mut was_locked: Option<bool> = None;
+        let mut was_bt: Option<bool> = None;
         let mut last_sent_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
         let mut last_lock_sent_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
+        let mut last_bt_sent_at = std::time::Instant::now() - std::time::Duration::from_secs(60);
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             let Some(node) = self::node() else { continue };
@@ -318,7 +320,7 @@ async fn run(data_dir: PathBuf, platform: Arc<dyn Platform>) {
             if should_send_lock {
                 was_locked = Some(locked);
                 last_lock_sent_at = std::time::Instant::now();
-                for peer in online_peers {
+                for peer in online_peers.clone() {
                     let node = node.clone();
                     tokio::spawn(async move {
                         let _ = node
@@ -326,6 +328,26 @@ async fn run(data_dir: PathBuf, platform: Arc<dyn Platform>) {
                                 peer,
                                 "pc_locked".into(),
                                 nectarlink_core::PhoneToggleValue::Bool(locked),
+                            )
+                            .await;
+                    });
+                }
+            }
+
+            let bt_on = crate::links::is_bluetooth_on();
+            let should_send_bt = was_bt != Some(bt_on)
+                || last_bt_sent_at.elapsed() >= std::time::Duration::from_secs(5);
+            if should_send_bt {
+                was_bt = Some(bt_on);
+                last_bt_sent_at = std::time::Instant::now();
+                for peer in online_peers {
+                    let node = node.clone();
+                    tokio::spawn(async move {
+                        let _ = node
+                            .set_phone_toggle(
+                                peer,
+                                "pc_bluetooth".into(),
+                                nectarlink_core::PhoneToggleValue::Bool(bt_on),
                             )
                             .await;
                     });

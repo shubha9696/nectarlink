@@ -13,7 +13,7 @@ Item {
 
     readonly property var feature: AppController.capsRevision >= 0 && deviceId.length > 0
         ? AppController.featureState(deviceId, "mirroring.app_windows") : ({})
-    readonly property bool available: deviceId.length > 0
+    readonly property bool available: feature.state === "available" || feature.state === "partial"
 
     readonly property var apps: {
         if (Mirror.appsDevice !== deviceId)
@@ -45,11 +45,14 @@ Item {
 
     function launch(app) {
         Mirror.startApp(deviceId, app.pkg, app.label)
+        if (feature.state !== "available") {
+            Mirror.start(deviceId)
+        }
     }
 
     // Loads the list the first time the page shows for a phone; Refresh reloads it.
     function loadIfNeeded() {
-        if (!active || !available || deviceId.length === 0)
+        if (!active || deviceId.length === 0)
             return
         if (Mirror.appsDevice !== deviceId || Mirror.appsState === "" || Mirror.appsState === "failed")
             Mirror.loadApps(deviceId)
@@ -64,7 +67,7 @@ Item {
         anchors.centerIn: parent
         width: Math.min(parent.width - Theme.contentPadding * 2, 420)
         spacing: 12
-        visible: page.deviceId.length === 0
+        visible: page.deviceId.length === 0 || (!page.available && apps.length === 0)
         Icon {
             anchors.horizontalCenter: parent.horizontalCenter
             width: 40; height: 40
@@ -101,7 +104,7 @@ Item {
     // ---- The apps ----
     Item {
         id: content
-        visible: page.deviceId.length > 0
+        visible: page.deviceId.length > 0 && (page.available || apps.length > 0)
         anchors.fill: parent
         anchors.leftMargin: Theme.contentPadding
         anchors.rightMargin: Theme.contentPadding

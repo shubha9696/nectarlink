@@ -171,6 +171,9 @@ pub enum PowerAction {
     Sleep,
     Restart,
     Unlock,
+    BluetoothOn,
+    BluetoothOff,
+    BluetoothToggle,
 }
 
 impl PowerAction {
@@ -180,6 +183,9 @@ impl PowerAction {
             PowerAction::Sleep => "sleep",
             PowerAction::Restart => "restart",
             PowerAction::Unlock => "unlock",
+            PowerAction::BluetoothOn => "bluetooth_on",
+            PowerAction::BluetoothOff => "bluetooth_off",
+            PowerAction::BluetoothToggle => "bluetooth_toggle",
         }
     }
 
@@ -189,6 +195,9 @@ impl PowerAction {
             "sleep" => Some(PowerAction::Sleep),
             "restart" => Some(PowerAction::Restart),
             "unlock" => Some(PowerAction::Unlock),
+            "bluetooth_on" => Some(PowerAction::BluetoothOn),
+            "bluetooth_off" => Some(PowerAction::BluetoothOff),
+            "bluetooth_toggle" => Some(PowerAction::BluetoothToggle),
             _ => None,
         }
     }

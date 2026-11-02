@@ -3360,8 +3360,11 @@ pub mod toggle_ids {
     pub const HOTSPOT: &str = "hotspot";
     pub const PC_ACTIVE: &str = "pc_active";
     pub const PC_LOCKED: &str = "pc_locked";
+    pub const PC_BLUETOOTH: &str = "pc_bluetooth";
+    pub const AUDIO_MODE: &str = "audio_mode";
+    pub const AUDIO_QUALITY: &str = "audio_quality";
     pub const ALL: &[&str] =
-        &[DND, RINGER, FLASHLIGHT, VOLUME, BRIGHTNESS, WIFI, BLUETOOTH, HOTSPOT, PC_ACTIVE, PC_LOCKED];
+        &[DND, RINGER, FLASHLIGHT, VOLUME, BRIGHTNESS, WIFI, BLUETOOTH, HOTSPOT, PC_ACTIVE, PC_LOCKED, PC_BLUETOOTH, AUDIO_MODE, AUDIO_QUALITY];
 }
 
 /// Ringer modes for [`PhoneToggles::ringer`] and `phone.toggle.set` (`id = "ringer"`).
@@ -3436,12 +3439,19 @@ impl PhoneToggleSet {
                 | toggle_ids::BLUETOOTH
                 | toggle_ids::HOTSPOT
                 | toggle_ids::PC_ACTIVE
-                | toggle_ids::PC_LOCKED,
+                | toggle_ids::PC_LOCKED
+                | toggle_ids::PC_BLUETOOTH,
                 PhoneToggleValue::Bool(_),
             ) => true,
             (toggle_ids::VOLUME | toggle_ids::BRIGHTNESS, PhoneToggleValue::Level(n)) => *n <= 100,
             (toggle_ids::RINGER, PhoneToggleValue::Mode(m)) => {
                 matches!(m.as_str(), ringer_modes::RING | ringer_modes::VIBRATE | ringer_modes::SILENT)
+            }
+            (toggle_ids::AUDIO_MODE, PhoneToggleValue::Mode(m)) => {
+                matches!(m.as_str(), "pc" | "phone" | "both")
+            }
+            (toggle_ids::AUDIO_QUALITY, PhoneToggleValue::Mode(m)) => {
+                matches!(m.as_str(), "exact" | "low_latency")
             }
             _ => false,
         }

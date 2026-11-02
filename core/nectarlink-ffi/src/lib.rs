@@ -3211,6 +3211,7 @@ pub struct NodeOptions {
 pub struct NectarlinkNode {
     runtime: Runtime,
     node: Node,
+    listener: Arc<dyn EventListener>,
 }
 
 impl std::fmt::Debug for NectarlinkNode {
@@ -3312,7 +3313,7 @@ impl NectarlinkNode {
                 }
             }
         });
-        Ok(Arc::new(NectarlinkNode { runtime, node }))
+        Ok(Arc::new(NectarlinkNode { runtime, node, listener: listener.clone() }))
     }
 
     /// This device's ID (z-base-32).
@@ -3858,6 +3859,28 @@ impl NectarlinkNode {
         self.run(async move { Ok(node.pc_power(id, action).await?) }).await
     }
 
+    pub async fn pc_set_bluetooth(&self, id: String, enable: bool) -> Result<()> {
+        let id = parse_id(&id)?;
+        let action = if enable { core::PowerAction::BluetoothOn } else { core::PowerAction::BluetoothOff };
+        let node = self.node.clone();
+        self.run(async move { Ok(node.pc_power(id, action).await?) }).await
+    }
+
+    pub async fn pc_toggle_bluetooth(&self, id: String) -> Result<()> {
+        let id = parse_id(&id)?;
+        let node = self.node.clone();
+        self.run(async move { Ok(node.pc_power(id, core::PowerAction::BluetoothToggle).await?) }).await
+    }
+
+    pub async fn pc_set_audio_quality(&self, id: String, exact: bool) -> Result<()> {
+        let id = parse_id(&id)?;
+        let mode = if exact { "exact" } else { "low_latency" };
+        let node = self.node.clone();
+        self.run(async move {
+            Ok(node.set_phone_toggle(id, "audio_quality".into(), core::PhoneToggleValue::Mode(mode.into())).await?)
+        }).await
+    }
+
     /// Sends Wake-on-LAN magic packets for a paired PC over UDP to its stored
     /// subnet broadcasts and `255.255.255.255` on ports 9 and 7, repeated a
     /// few times over ~2 s.
@@ -4349,6 +4372,7 @@ impl NectarlinkNode {
             return false;
         };
         let node = self.node.clone();
+        let listener = self.listener.clone();
         self.block_on_rt(async move {
             use std::io::Write;
             if let Some(parent) = std::path::Path::new(&local_dest).parent()
@@ -4360,70 +4384,119 @@ impl NectarlinkNode {
                 return false;
             };
             let mut offset = 0u64;
-            let chunk_len = 128 * 1024u64;
+            let chunk_len = 512 * 1024u64;
+            let file_name = std::path::Path::new(&remote_path)
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "file".to_string());
+            let transfer_id = format!("storage-{}", fastrand::u64(..));
+            let mut total_size = 0u64;
+            let mut first = true;
+            let mut last_emit = std::time::Instant::now();
+
             loop {
                 let Ok((meta, chunk)) =
                     node.storage_read(peer_id, remote_path.clone(), offset, Some(chunk_len)).await
                 else {
+                    listener.on_event(Event::Transfer {
+                        transfer: Transfer {
+                            id: transfer_id.clone(),
+                            device_id: peer.clone(),
+                            direction: TransferDirection::Incoming,
+                            names: vec![file_name.clone()],
+                            files: 1,
+                            total: total_size,
+                            done: offset,
+                            status: TransferStatus::Failed { reason: "download failed".into() },
+                            recording: false,
+                            markers: Vec::new(),
+                            open_on_arrival: true,
+                        },
+                    });
                     return false;
                 };
+                if first {
+                    total_size = meta.size;
+                    first = false;
+                    listener.on_event(Event::Transfer {
+                        transfer: Transfer {
+                            id: transfer_id.clone(),
+                            device_id: peer.clone(),
+                            direction: TransferDirection::Incoming,
+                            names: vec![file_name.clone()],
+                            files: 1,
+                            total: total_size,
+                            done: 0,
+                            status: TransferStatus::Running,
+                            recording: false,
+                            markers: Vec::new(),
+                            open_on_arrival: true,
+                        },
+                    });
+                }
                 if chunk.is_empty() {
                     break;
                 }
                 if f.write_all(&chunk).is_err() {
+                    listener.on_event(Event::Transfer {
+                        transfer: Transfer {
+                            id: transfer_id.clone(),
+                            device_id: peer.clone(),
+                            direction: TransferDirection::Incoming,
+                            names: vec![file_name.clone()],
+                            files: 1,
+                            total: total_size,
+                            done: offset,
+                            status: TransferStatus::Failed { reason: "disk write error".into() },
+                            recording: false,
+                            markers: Vec::new(),
+                            open_on_arrival: true,
+                        },
+                    });
                     return false;
                 }
                 offset += chunk.len() as u64;
+                if last_emit.elapsed() >= std::time::Duration::from_millis(200) || offset >= total_size {
+                    listener.on_event(Event::Transfer {
+                        transfer: Transfer {
+                            id: transfer_id.clone(),
+                            device_id: peer.clone(),
+                            direction: TransferDirection::Incoming,
+                            names: vec![file_name.clone()],
+                            files: 1,
+                            total: total_size,
+                            done: offset,
+                            status: TransferStatus::Running,
+                            recording: false,
+                            markers: Vec::new(),
+                            open_on_arrival: true,
+                        },
+                    });
+                    last_emit = std::time::Instant::now();
+                }
                 if offset >= meta.size || (chunk.len() as u64) < chunk_len {
                     break;
                 }
             }
+            let _ = f.flush();
+            listener.on_event(Event::Transfer {
+                transfer: Transfer {
+                    id: transfer_id.clone(),
+                    device_id: peer.clone(),
+                    direction: TransferDirection::Incoming,
+                    names: vec![file_name.clone()],
+                    files: 1,
+                    total: total_size,
+                    done: offset,
+                    status: TransferStatus::Done {
+                        saved: Vec::new(),
+                    },
+                    recording: false,
+                    markers: Vec::new(),
+                    open_on_arrival: true,
+                },
+            });
             true
-        })
-    }
-
-    /// Deletes a remote file or folder on a connected paired device (`storage.delete`).
-    pub fn delete_remote_storage(&self, peer: String, remote_path: String) -> bool {
-        let Ok(peer_id) = parse_id(&peer) else {
-            return false;
-        };
-        let node = self.node.clone();
-        self.block_on_rt(async move {
-            node.storage_delete(peer_id, remote_path, true).await.is_ok()
-        })
-    }
-
-    /// Renames or moves a remote file or folder on a connected paired device (`storage.rename`).
-    pub fn rename_remote_storage(&self, peer: String, from_path: String, to_path: String) -> bool {
-        let Ok(peer_id) = parse_id(&peer) else {
-            return false;
-        };
-        let node = self.node.clone();
-        self.block_on_rt(async move {
-            node.storage_rename(peer_id, from_path, to_path).await.is_ok()
-        })
-    }
-
-    /// Creates a directory on a connected paired device (`storage.mkdir`).
-    pub fn mkdir_remote_storage(&self, peer: String, remote_path: String) -> bool {
-        let Ok(peer_id) = parse_id(&peer) else {
-            return false;
-        };
-        let node = self.node.clone();
-        self.block_on_rt(async move {
-            node.storage_mkdir(peer_id, remote_path).await.is_ok()
-        })
-    }
-
-    /// Uploads a local file to `remote_path` on a connected paired device (`storage.write`).
-    pub fn upload_remote_storage(&self, peer: String, remote_path: String, local_src: String) -> bool {
-        let Ok(peer_id) = parse_id(&peer) else {
-            return false;
-        };
-        let node = self.node.clone();
-        let src = std::path::PathBuf::from(local_src);
-        self.block_on_rt(async move {
-            node.storage_write(peer_id, remote_path, &src).await.is_ok()
         })
     }
 

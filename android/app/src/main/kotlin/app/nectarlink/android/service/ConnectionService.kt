@@ -87,6 +87,16 @@ class ConnectionService : LifecycleService() {
         screenshotObserver = app.nectarlink.android.clipboard.ScreenshotObserver(this, core, lifecycleScope).apply {
             register()
         }
+        val wifiLockMgr = app.nectarlink.core.network.WifiLowLatencyLockManager(this)
+        lifecycleScope.launch {
+            core.busy.collect { isBusy ->
+                if (isBusy) {
+                    wifiLockMgr.acquireForActiveTransfer()
+                } else {
+                    wifiLockMgr.releaseTransfer()
+                }
+            }
+        }
 
         lifecycleScope.launch {
             core.state.map { Status.of(it) to (it.status is app.nectarlink.android.core.CoreStatus.Ready) }
@@ -346,23 +356,21 @@ class ConnectionService : LifecycleService() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
 
-            val remoteViews = android.widget.RemoteViews(packageName, R.layout.notification_connected).apply {
-                setTextViewText(R.id.notif_title, text)
-                setOnClickPendingIntent(R.id.btn_control, controlPcIntent)
-                setOnClickPendingIntent(R.id.btn_restart, restartPcIntent)
-                setOnClickPendingIntent(R.id.btn_files, sendFilesIntent)
-                setOnClickPendingIntent(R.id.btn_quit, quitIntent)
-                if (isLocked) {
-                    setTextViewText(R.id.btn_lock, "Unlock")
-                    setOnClickPendingIntent(R.id.btn_lock, unlockPcIntent)
-                } else {
-                    setTextViewText(R.id.btn_lock, "Lock")
-                    setOnClickPendingIntent(R.id.btn_lock, lockPcIntent)
-                }
-            }
+            val subtitle = if (isLocked) "PC is locked · Tap Unlock to authenticate" else "Connected · Screen mirror, files & lock ready"
+            builder.setContentText(subtitle)
+            builder.setSubText(if (isLocked) "Locked" else "Active")
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(subtitle))
+
             builder.clearActions()
-            builder.setCustomContentView(remoteViews)
-            builder.setCustomBigContentView(remoteViews)
+            builder.addAction(R.drawable.ic_notif_control, "Mirror", controlPcIntent)
+            if (isLocked) {
+                builder.addAction(R.drawable.ic_notif_unlock, "Unlock", unlockPcIntent)
+            } else {
+                builder.addAction(R.drawable.ic_notif_lock, "Lock", lockPcIntent)
+            }
+            builder.addAction(R.drawable.ic_notif_files, "Files", sendFilesIntent)
+            builder.addAction(R.drawable.ic_notif_restart, "Restart", restartPcIntent)
+            builder.addAction(R.drawable.ic_notif_quit, "Quit", quitIntent)
         }
         return builder.build()
     }

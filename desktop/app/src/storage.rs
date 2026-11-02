@@ -838,6 +838,11 @@ mod imp {
         let ticks = unix_ms_to_filetime_ticks(entry.modified);
         let attrs = if entry.is_dir { FILE_ATTRIBUTE_DIRECTORY.0 } else { FILE_ATTRIBUTE_NORMAL.0 };
         let file_size = if entry.is_dir { 0 } else { entry.size as i64 };
+        let placeholder_flags = if entry.is_dir {
+            windows::Win32::Storage::CloudFilters::CF_PLACEHOLDER_CREATE_FLAGS(0)
+        } else {
+            CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC
+        };
         CF_PLACEHOLDER_CREATE_INFO {
             RelativeFileName: PCWSTR(wide_name.as_ptr()),
             FsMetadata: CF_FS_METADATA {
@@ -852,7 +857,7 @@ mod imp {
             },
             FileIdentity: identity.as_ptr().cast(),
             FileIdentityLength: identity.len() as u32,
-            Flags: CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC,
+            Flags: placeholder_flags,
             Result: windows::core::HRESULT(0),
             CreateUsn: 0,
         }

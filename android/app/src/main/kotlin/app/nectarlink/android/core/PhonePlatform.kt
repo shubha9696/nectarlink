@@ -139,14 +139,14 @@ internal class PhonePlatform(
 
     override fun mirrorRequested(pcId: String, options: MirrorOptions): Boolean =
         if (options.app != null) {
-            if (Elevated.running && appWindows.open(pcId, options)) {
-                true
-            } else {
-                // Launch the app on phone directly without wireless debugging!
-                val intent = context.packageManager.getLaunchIntentForPackage(options.app!!)
-                if (intent != null) {
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                    context.startActivity(intent)
+            val opened = appWindows.open(pcId, options)
+            if (!opened) {
+                val pkg = options.app
+                val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)?.apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                }
+                if (launchIntent != null) {
+                    runCatching { context.startActivity(launchIntent) }
                 }
                 val request = MirrorRequest(
                     pcId,
@@ -160,13 +160,15 @@ internal class PhonePlatform(
                 )
                 if (Elevated.running && MirrorService.startElevated(context, request)) {
                     true
-                } else if (MirrorService.tryStartWithCachedConsent(context, request)) {
-                    true
                 } else {
                     onMirror(pcId, request)
                 }
+            } else {
+                true
             }
         } else {
+            // Kept within what the encoder can take: a zero or huge value from
+            // the PC would only make this mirroring fail to start.
             val request = MirrorRequest(
                 pcId,
                 options.maxSize.coerceIn(320u, 4096u).toInt(),
@@ -178,8 +180,6 @@ internal class PhonePlatform(
                 options.soundOnly,
             )
             if (Elevated.running && MirrorService.startElevated(context, request)) {
-                true
-            } else if (MirrorService.tryStartWithCachedConsent(context, request)) {
                 true
             } else {
                 onMirror(pcId, request)
@@ -207,16 +207,9 @@ internal class PhonePlatform(
 
     // Real events when Elevated runs; gestures through the accessibility service otherwise.
     override fun mirrorInput(pcId: String, session: UInt, input: MirrorInputEvent) {
+        if (session != SCREEN) return appWindows.input(pcId, session, input)
         if (input is MirrorInputEvent.Key) {
             when (input.key) {
-                "sound_mode:pc" -> {
-                    app.nectarlink.android.mirror.SoundCapture.dualPlayback = false
-                    return
-                }
-                "sound_mode:both", "sound_mode:phone" -> {
-                    app.nectarlink.android.mirror.SoundCapture.dualPlayback = true
-                    return
-                }
                 "keyboard_on" -> {
                     onKeyboardFromPc(pcId, true)
                     return
@@ -227,7 +220,6 @@ internal class PhonePlatform(
                 }
             }
         }
-        if (session != SCREEN) return appWindows.input(pcId, session, input)
         if (input is MirrorInputEvent.Text && input.text.any { it.code > 127 } && InputService.running) {
             InputService.handle(input)
             return
@@ -251,7 +243,7 @@ internal class PhonePlatform(
 
     override fun micStopRequested(pcId: String) {
         onMicStop(pcId)
-        app.nectarlink.android.mic.MicService.stop(context)
+        app.nectarlink.android.mic.MicService.stop(context, pcId)
     }
 
     override fun webcamStopRequested(pcId: String) {

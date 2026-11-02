@@ -46,6 +46,7 @@ class PhoneToggles(
     @Volatile private var torchOn: Boolean = false
     private var started = false
     private var lastSent: CorePhoneToggles? = null
+    private var localHotspotReservation: WifiManager.LocalOnlyHotspotReservation? = null
 
     private val emitRunnable = Runnable { pushIfChanged() }
     private val followUpRunnable = Runnable { pushIfChanged() }
@@ -117,6 +118,7 @@ class PhoneToggles(
         }
         runCatching { context.contentResolver.unregisterContentObserver(settingsObserver) }
         runCatching { context.unregisterReceiver(receiver) }
+        runCatching { localHotspotReservation?.close(); localHotspotReservation = null }
     }
 
     /** What `toggles.*` capabilities this phone currently offers. */
@@ -209,8 +211,43 @@ class PhoneToggles(
                     val on = (value as? PhoneToggleValue.Bool)?.on ?: return false
                     var handled = false
                     if (Elevated.running) {
-                        handled = Elevated.runCommand(if (on) "svc bluetooth enable" else "svc bluetooth disable") ||
-                                  Elevated.runCommand("cmd bluetooth_manager " + (if (on) "enable" else "disable"))
+                        handled = Elevated.runCommand(if (on) "bluetooth on" else "bluetooth off") ||
+                                  Elevated.runCommand("cmd bluetooth_manager " + (if (on) "enable" else "disable")) ||
+                                  Elevated.runCommand(if (on) "svc bluetooth enable" else "svc bluetooth disable")
+                    }
+                    if (!handled) {
+                        runCatching {
+                            val adapter = bluetooth?.adapter ?: BluetoothAdapter.getDefaultAdapter()
+                            val f = adapter.javaClass.getDeclaredField("mManagerService").apply { isAccessible = true }
+                            val mgr = f.get(adapter)
+                            if (on) {
+                                val m = mgr.javaClass.getMethod("enable", String::class.java)
+                                m.invoke(mgr, context.packageName)
+                            } else {
+                                val m = mgr.javaClass.methods.firstOrNull { it.name == "disable" }
+                                if (m?.parameterCount == 2) {
+                                    m.invoke(mgr, context.packageName, true)
+                                } else if (m?.parameterCount == 1) {
+                                    m.invoke(mgr, true)
+                                }
+                            }
+                            handled = true
+                        }
+                    }
+                    if (!handled) {
+                        runCatching {
+                            val adapter = bluetooth?.adapter ?: BluetoothAdapter.getDefaultAdapter()
+                            val f = adapter.javaClass.getDeclaredField("mService").apply { isAccessible = true }
+                            val svc = f.get(adapter)
+                            if (on) {
+                                val m = svc.javaClass.getMethod("enable")
+                                m.invoke(svc)
+                            } else {
+                                val m = svc.javaClass.getMethod("disable")
+                                m.invoke(svc)
+                            }
+                            handled = true
+                        }
                     }
                     if (!handled) {
                         runCatching {
@@ -219,19 +256,23 @@ class PhoneToggles(
                             handled = true
                         }
                     }
-                    if (!handled) {
+                    if (!handled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                         runCatching {
-                            val btIntent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(btIntent)
+                            val panelIntent = Intent(Settings.Panel.ACTION_BLUETOOTH).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(panelIntent)
                             handled = true
                         }
                     }
                     schedulePush()
                     true
                 }
-                "dual_sound" -> {
-                    val on = (value as? PhoneToggleValue.Bool)?.on ?: return false
-                    app.nectarlink.android.mirror.SoundCapture.dualPlayback = on
+                "audio_mode", "dual_sound" -> {
+                    when (value) {
+                        is PhoneToggleValue.Mode -> app.nectarlink.android.mirror.SoundCapture.setMode(value.mode)
+                        is PhoneToggleValue.Text -> app.nectarlink.android.mirror.SoundCapture.setMode(value.text)
+                        is PhoneToggleValue.Bool -> app.nectarlink.android.mirror.SoundCapture.setMode(if (value.on) "both" else "pc")
+                        else -> return false
+                    }
                     true
                 }
                 "hotspot" -> {
@@ -242,26 +283,91 @@ class PhoneToggles(
                     }
                     if (!executed) {
                         runCatching {
-                            val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-                            val method = wifi?.javaClass?.getMethod("setWifiApEnabled", android.net.wifi.WifiConfiguration::class.java, Boolean::class.javaPrimitiveType)
-                            method?.invoke(wifi, null, on)
-                            executed = true
+                            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                            if (on) {
+                                val method = cm?.javaClass?.methods?.firstOrNull { it.name == "startTethering" }
+                                if (method != null) {
+                                    val callbackClass = Class.forName("android.net.ConnectivityManager$OnStartTetheringCallback")
+                                    val proxy = java.lang.reflect.Proxy.newProxyInstance(
+                                        callbackClass.classLoader,
+                                        arrayOf(callbackClass)
+                                    ) { _, _, _ -> null }
+                                    if (method.parameterCount == 3) {
+                                        method.invoke(cm, 0, false, proxy)
+                                        executed = true
+                                    } else if (method.parameterCount == 4) {
+                                        method.invoke(cm, 0, false, proxy, null)
+                                        executed = true
+                                    }
+                                }
+                            } else {
+                                val method = cm?.javaClass?.methods?.firstOrNull { it.name == "stopTethering" }
+                                if (method != null) {
+                                    method.invoke(cm, 0)
+                                    executed = true
+                                }
+                            }
                         }
                     }
                     if (!executed) {
                         runCatching {
-                            val intent = Intent().apply {
-                                setClassName("com.android.settings", "com.android.settings.TetherSettings")
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            context.startActivity(intent)
-                            executed = true
-                        }.onFailure {
-                            runCatching {
-                                val intent = Intent("android.settings.WIRELESS_SETTINGS").apply {
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            val tm = context.getSystemService("tethering")
+                            if (tm != null) {
+                                if (on) {
+                                    val reqClass = Class.forName("android.net.TetheringManager$TetheringRequest$Builder")
+                                    val reqBuilder = reqClass.getConstructor(Int::class.javaPrimitiveType).newInstance(0)
+                                    val req = reqClass.getMethod("build").invoke(reqBuilder)
+                                    val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+                                    val callbackClass = Class.forName("android.net.TetheringManager$StartTetheringCallback")
+                                    val proxy = java.lang.reflect.Proxy.newProxyInstance(
+                                        callbackClass.classLoader,
+                                        arrayOf(callbackClass)
+                                    ) { _, _, _ -> null }
+                                    val method = tm.javaClass.getMethod("startTethering", req.javaClass, java.util.concurrent.Executor::class.java, callbackClass)
+                                    method.invoke(tm, req, executor, proxy)
+                                    executed = true
+                                } else {
+                                    val method = tm.javaClass.getMethod("stopTethering", Int::class.javaPrimitiveType)
+                                    method.invoke(tm, 0)
+                                    executed = true
                                 }
-                                context.startActivity(intent)
+                            }
+                        }
+                    }
+                    if (!executed) {
+                        runCatching {
+                            val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                            val method = wifi?.javaClass?.getMethod("setWifiApEnabled", android.net.wifi.WifiConfiguration::class.java, Boolean::class.javaPrimitiveType)
+                            if (method != null) {
+                                method.invoke(wifi, null, on)
+                                executed = true
+                            }
+                        }
+                    }
+                    if (!executed) {
+                        runCatching {
+                            val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                            if (on) {
+                                if (localHotspotReservation == null) {
+                                    wifi?.startLocalOnlyHotspot(object : WifiManager.LocalOnlyHotspotCallback() {
+                                        override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation?) {
+                                            localHotspotReservation = reservation
+                                            schedulePush()
+                                        }
+                                        override fun onStopped() {
+                                            localHotspotReservation = null
+                                            schedulePush()
+                                        }
+                                        override fun onFailed(reason: Int) {
+                                            localHotspotReservation = null
+                                            schedulePush()
+                                        }
+                                    }, mainHandler)
+                                    executed = true
+                                }
+                            } else {
+                                localHotspotReservation?.close()
+                                localHotspotReservation = null
                                 executed = true
                             }
                         }
@@ -279,10 +385,20 @@ class PhoneToggles(
                     app.nectarlink.android.core.PcLockManager.setPcLocked(locked)
                     true
                 }
+                "pc_bluetooth" -> {
+                    val on = (value as? PhoneToggleValue.Bool)?.on ?: return false
+                    app.nectarlink.android.core.PcLockManager.setPcBluetooth(on)
+                    true
+                }
+                "audio_quality" -> {
+                    val mode = (value as? PhoneToggleValue.Mode)?.mode ?: return false
+                    app.nectarlink.android.audio.PcSpeakerPlayer.exactQuality = (mode == "exact")
+                    true
+                }
                 else -> false
             }
         }.onFailure { Log.w(TAG, "toggle $id failed", it) }.getOrDefault(false)
-        if (ok && id != "pc_active" && id != "pc_locked") {
+        if (ok && id != "pc_active" && id != "pc_locked" && id != "pc_bluetooth" && id != "audio_quality") {
             pushIfChanged()
             schedulePush()
             mainHandler.removeCallbacks(followUpRunnable)

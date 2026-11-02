@@ -30,8 +30,8 @@ use crate::{
 pub(crate) mod wake;
 
 pub(crate) const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
-const HEARTBEAT_INTERVAL: Duration = Duration::from_millis(2500);
+pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_millis(1000);
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_millis(3000);
 const HEARTBEAT_RETRY_TIMEOUT: Duration = Duration::from_millis(1500);
 const OUTBOX_CAPACITY: usize = 256;
@@ -214,7 +214,18 @@ impl Session {
     }
 
     pub fn rtt_ms(&self) -> u32 {
-        self.rtt_ms.load(Ordering::Relaxed)
+        let stored = self.rtt_ms.load(Ordering::Relaxed);
+        if stored > 0 {
+            return stored;
+        }
+        let quic_rtt = self.conn
+            .paths()
+            .iter()
+            .find(|p| p.is_selected())
+            .or_else(|| self.conn.paths().iter().next())
+            .map(|p| p.rtt().as_millis().min(u128::from(u32::MAX)) as u32)
+            .filter(|&ms| ms > 0);
+        quic_rtt.unwrap_or(1)
     }
 
     pub(crate) fn touch_rx(&self) {
@@ -241,20 +252,43 @@ impl Session {
     /// The path the connection currently uses.
     pub fn path(&self) -> ConnectionPath {
         let paths = self.conn.paths();
-        let selected = paths.iter().find(|p| p.is_selected()).or_else(|| paths.iter().next());
-        match selected {
-            Some(p) if p.is_relay() => ConnectionPath::Relay,
-            Some(p) if matches!(p.remote_addr(), iroh::TransportAddr::Ip(addr) if self.is_usb_addr(addr)) => {
-                ConnectionPath::Usb
+        // 1. If an active selected path exists, check it first:
+        if let Some(selected) = paths.iter().find(|p| p.is_selected()) {
+            if selected.is_relay() {
+                return ConnectionPath::Relay;
             }
-            Some(_) => ConnectionPath::Lan,
-            None => {
-                if self.has_usb_tunnel() {
-                    ConnectionPath::Usb
-                } else {
-                    ConnectionPath::Lan
+            if let iroh::TransportAddr::Ip(addr) = selected.remote_addr() {
+                if !addr.ip().is_loopback() {
+                    return ConnectionPath::Lan;
+                }
+                if self.is_usb_addr(addr) && self.has_usb_tunnel() {
+                    return ConnectionPath::Usb;
                 }
             }
+        }
+
+        // 2. Look for any active direct LAN path across all known paths
+        let has_lan_path = paths.iter().any(|p| match p.remote_addr() {
+            iroh::TransportAddr::Ip(addr) => !addr.ip().is_loopback(),
+            _ => false,
+        }) || !self.remote_ip_addrs().is_empty();
+
+        if has_lan_path {
+            return ConnectionPath::Lan;
+        }
+
+        // 3. Look for an active USB path only if an actual USB tunnel exists and no LAN path is present
+        let has_usb_path = self.has_usb_tunnel() && paths.iter().any(|p| match p.remote_addr() {
+            iroh::TransportAddr::Ip(addr) => self.is_usb_addr(addr),
+            _ => false,
+        });
+
+        if has_usb_path {
+            ConnectionPath::Usb
+        } else if paths.iter().any(|p| p.is_relay()) {
+            ConnectionPath::Relay
+        } else {
+            ConnectionPath::Lan
         }
     }
 
@@ -686,9 +720,17 @@ async fn heartbeat(session: &Arc<Session>, shared: &Weak<Shared>) {
         match session.request(ping, HEARTBEAT_TIMEOUT).await {
             Ok(reply) if reply.t == types::PONG => {
                 if let Some(shared_arc) = shared.upgrade() {
-                    let rtt = sent_at.elapsed().as_millis().max(1).min(u32::MAX as u128) as u32;
+                    let quic_rtt = session
+                        .conn
+                        .paths()
+                        .iter()
+                        .find(|p| p.is_selected())
+                        .map(|p| p.rtt().as_millis() as u32)
+                        .filter(|&ms| ms > 0);
+                    let measured = sent_at.elapsed().as_millis().max(1).min(u32::MAX as u128) as u32;
+                    let rtt = if measured > 0 { measured } else { quic_rtt.unwrap_or(1) };
                     let previous = session.rtt_ms.swap(rtt, Ordering::Relaxed);
-                    if previous == 0 || previous.abs_diff(rtt) >= 1 {
+                    if previous == 0 || previous != rtt {
                         shared_arc.publish_online(session);
                     }
                 }

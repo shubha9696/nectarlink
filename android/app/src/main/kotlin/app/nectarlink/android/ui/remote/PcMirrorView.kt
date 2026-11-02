@@ -24,6 +24,12 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
+import java.util.Locale
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -197,21 +203,34 @@ object PcMirrorMath {
         touchX: Float,
         touchY: Float,
         viewport: VideoViewportRect,
+        zoomScale: Float = 1.0f,
+        zoomOffsetX: Float = 0.0f,
+        zoomOffsetY: Float = 0.0f,
         clampOutside: Boolean = true,
     ): Pair<Float, Float>? {
-        if (!clampOutside && !viewport.contains(touchX, touchY)) {
+        val scale = zoomScale.coerceAtLeast(1.0f)
+        val centerX = viewport.left + viewport.width * 0.5f
+        val centerY = viewport.top + viewport.height * 0.5f
+
+        val localX = (touchX - centerX - zoomOffsetX) / scale + viewport.width * 0.5f
+        val localY = (touchY - centerY - zoomOffsetY) / scale + viewport.height * 0.5f
+
+        val unscaledX = viewport.left + localX
+        val unscaledY = viewport.top + localY
+
+        if (!clampOutside && !viewport.contains(unscaledX, unscaledY)) {
             return null
         }
         val vw = viewport.width.coerceAtLeast(1f)
         val vh = viewport.height.coerceAtLeast(1f)
-        val nx = ((touchX - viewport.left) / vw).coerceIn(0f, 1f)
-        val ny = ((touchY - viewport.top) / vh).coerceIn(0f, 1f)
+        val nx = (localX / vw).coerceIn(0f, 1f)
+        val ny = (localY / vh).coerceIn(0f, 1f)
         return Pair(nx, ny)
     }
 
     /**
      * Convenience overload that computes the fitted viewport for `(containerWidth, containerHeight)`
-     * and maps `(touchX, touchY)` to normalized PC coordinates in `[0f, 1f]`.
+     * and maps `(touchX, touchY)` to normalized PC coordinates in `[0f, 1f]`, accounting for magnification.
      */
     fun mapTouchToNormalized(
         touchX: Float,
@@ -219,10 +238,13 @@ object PcMirrorMath {
         containerWidth: Float,
         containerHeight: Float,
         videoAspect: Float,
+        zoomScale: Float = 1.0f,
+        zoomOffsetX: Float = 0.0f,
+        zoomOffsetY: Float = 0.0f,
         clampOutside: Boolean = true,
     ): Pair<Float, Float>? {
         val viewport = computeVideoViewport(containerWidth, containerHeight, videoAspect)
-        return mapTouchToNormalized(touchX, touchY, viewport, clampOutside)
+        return mapTouchToNormalized(touchX, touchY, viewport, zoomScale, zoomOffsetX, zoomOffsetY, clampOutside)
     }
 
     fun isPhysicalLandscape(degrees: Int): Boolean =
@@ -352,6 +374,9 @@ fun PcMirrorView(
     val currentFps = fpsModes[mirrorFpsIndex.coerceIn(0, 2)]
 
     var showFloatingTouchpad by rememberSaveable { mutableStateOf(false) }
+    var zoomScale by rememberSaveable { mutableFloatStateOf(1.0f) }
+    var zoomOffsetX by rememberSaveable { mutableFloatStateOf(0.0f) }
+    var zoomOffsetY by rememberSaveable { mutableFloatStateOf(0.0f) }
     val isPcLocked by app.nectarlink.android.core.PcLockManager.pcLocked.collectAsStateWithLifecycle()
     var showKeyboardBar by rememberSaveable { mutableStateOf(false) }
     var typedText by remember { mutableStateOf(TextFieldValue("")) }
@@ -773,13 +798,12 @@ fun PcMirrorView(
                 .semantics { contentDescription = viewportDescription }
                 .pointerInput(pcId, watch) {
                     if (watch != null) {
-                        // Touch enabled: tap to toggle bar + forward touch to PC
                         onTap()
                     }
                     val tapSlop = viewConfiguration.touchSlop
                     val scrollStepPx = 16.dp.toPx().coerceAtLeast(1f)
                     val tapTimeoutMs = 280L
-                    val doubleTapWindowMs = 300L
+                    val doubleTapWindowMs = 320L
                     var lastTapUpTimeMs = 0L
                     var lastTapPos = Offset.Zero
 
@@ -795,6 +819,9 @@ fun PcMirrorView(
                             touchX = downPos.x,
                             touchY = downPos.y,
                             viewport = viewport,
+                            zoomScale = zoomScale,
+                            zoomOffsetX = zoomOffsetX,
+                            zoomOffsetY = zoomOffsetY,
                             clampOutside = false,
                         )
                         val touchStartedInVideo = initialMapped != null
@@ -802,6 +829,7 @@ fun PcMirrorView(
                         var lastY = initialMapped?.second ?: 0.5f
                         var twoFingerGesture = false
                         var didTwoFingerScroll = false
+                        var isPinching = false
                         var maxPointers = 1
                         var totalMoved = 0f
                         var scrollAccumX = 0f
@@ -848,22 +876,74 @@ fun PcMirrorView(
                                         )
                                     }
                                 }
-                                val prev = primaryChange.previousPosition
-                                val cur = primaryChange.position
-                                val d = primaryChange.positionChange()
-                                totalMoved += hypot(d.x, d.y)
-                                scrollAccumY += (prev.y - cur.y) / scrollStepPx
-                                scrollAccumX += (cur.x - prev.x) / scrollStepPx
-                                if (abs(scrollAccumX) > 0.05f || abs(scrollAccumY) > 0.05f) {
-                                    didTwoFingerScroll = true
-                                    val sendDx = scrollAccumX.coerceIn(-10f, 10f)
-                                    val sendDy = scrollAccumY.coerceIn(-10f, 10f)
-                                    scrollAccumX = 0f
-                                    scrollAccumY = 0f
-                                    core.sendPcMirrorInput(
-                                        pcId,
-                                        MirrorInputEvent.Scroll(lastX, lastY, sendDx, sendDy),
-                                    )
+                                val pressedList = ArrayList<androidx.compose.ui.input.pointer.PointerInputChange>(2)
+                                for (i in 0 until changes.size) {
+                                    if (changes[i].pressed) pressedList.add(changes[i])
+                                }
+                                if (pressedList.size >= 2) {
+                                    val p1 = pressedList[0]
+                                    val p2 = pressedList[1]
+                                    val cur1 = p1.position
+                                    val cur2 = p2.position
+                                    val prev1 = p1.previousPosition
+                                    val prev2 = p2.previousPosition
+
+                                    val currDist = hypot(cur1.x - cur2.x, cur1.y - cur2.y)
+                                    val prevDist = hypot(prev1.x - prev2.x, prev1.y - prev2.y)
+
+                                    val currCentroid = Offset((cur1.x + cur2.x) * 0.5f, (cur1.y + cur2.y) * 0.5f)
+                                    val prevCentroid = Offset((prev1.x + prev2.x) * 0.5f, (prev1.y + prev2.y) * 0.5f)
+                                    val panDelta = currCentroid - prevCentroid
+
+                                    if (prevDist > 10f && currDist > 10f) {
+                                        val pinchRatio = currDist / prevDist
+                                        if (abs(pinchRatio - 1f) > 0.003f) {
+                                            isPinching = true
+                                            val oldScale = zoomScale
+                                            val newScale = (oldScale * pinchRatio).coerceIn(1.0f, 5.0f)
+                                            zoomScale = newScale
+
+                                            val centerX = viewport.left + viewport.width * 0.5f
+                                            val centerY = viewport.top + viewport.height * 0.5f
+                                            zoomOffsetX += (currCentroid.x - centerX - zoomOffsetX) * (1f - newScale / oldScale) + panDelta.x
+                                            zoomOffsetY += (currCentroid.y - centerY - zoomOffsetY) * (1f - newScale / oldScale) + panDelta.y
+                                        } else if (zoomScale > 1.05f) {
+                                            // Two-finger pan across the magnified PC desktop
+                                            zoomOffsetX += panDelta.x
+                                            zoomOffsetY += panDelta.y
+                                        } else {
+                                            // Two-finger mouse wheel scroll when un-zoomed
+                                            val d = primaryChange.positionChange()
+                                            totalMoved += hypot(d.x, d.y)
+                                            val prev = primaryChange.previousPosition
+                                            val cur = primaryChange.position
+                                            scrollAccumY += (prev.y - cur.y) / scrollStepPx
+                                            scrollAccumX += (cur.x - prev.x) / scrollStepPx
+                                            if (abs(scrollAccumX) > 0.05f || abs(scrollAccumY) > 0.05f) {
+                                                didTwoFingerScroll = true
+                                                val sendDx = scrollAccumX.coerceIn(-10f, 10f)
+                                                val sendDy = scrollAccumY.coerceIn(-10f, 10f)
+                                                scrollAccumX = 0f
+                                                scrollAccumY = 0f
+                                                core.sendPcMirrorInput(
+                                                    pcId,
+                                                    MirrorInputEvent.Scroll(lastX, lastY, sendDx, sendDy),
+                                                )
+                                            }
+                                        }
+
+                                        // Clamp pan offsets so the view stays within the magnified video frame
+                                        val maxOffsetX = ((viewport.width * zoomScale - cw) * 0.5f).coerceAtLeast(0f)
+                                        val maxOffsetY = ((viewport.height * zoomScale - ch) * 0.5f).coerceAtLeast(0f)
+                                        if (zoomScale <= 1.02f) {
+                                            zoomScale = 1.0f
+                                            zoomOffsetX = 0f
+                                            zoomOffsetY = 0f
+                                        } else {
+                                            zoomOffsetX = zoomOffsetX.coerceIn(-maxOffsetX, maxOffsetX)
+                                            zoomOffsetY = zoomOffsetY.coerceIn(-maxOffsetY, maxOffsetY)
+                                        }
+                                    }
                                 }
                                 for (i in 0 until changes.size) {
                                     changes[i].consume()
@@ -876,6 +956,9 @@ fun PcMirrorView(
                                     touchX = cur.x,
                                     touchY = cur.y,
                                     viewport = viewport,
+                                    zoomScale = zoomScale,
+                                    zoomOffsetX = zoomOffsetX,
+                                    zoomOffsetY = zoomOffsetY,
                                     clampOutside = true,
                                 )
                                 if (mapped != null) {
@@ -897,19 +980,38 @@ fun PcMirrorView(
 
                         val upTime = System.currentTimeMillis()
                         val elapsed = upTime - downTime
-                        if (twoFingerGesture && !didTwoFingerScroll && elapsed <= tapTimeoutMs && touchStartedInVideo) {
-                            // Two-finger quick tap performs a right click at the tapped PC location.
+                        if (twoFingerGesture && !didTwoFingerScroll && !isPinching && elapsed <= tapTimeoutMs && touchStartedInVideo) {
+                            // Two-finger quick tap: right click on PC
                             core.remoteButton(pcId, "right", "click")
                             lastTapUpTimeMs = 0L
                         } else if (maxPointers == 1 && elapsed <= tapTimeoutMs && totalMoved <= tapSlop * 1.5f && touchStartedInVideo) {
-                            // Single tap / Double tap: direct click at touch position
-                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.DOWN, lastX, lastY))
-                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.UP, lastX, lastY))
-                            core.remoteButton(pcId, "left", "click")
-                            lastTapUpTimeMs = upTime
-                            lastTapPos = downPos
+                            if (upTime - lastTapUpTimeMs <= doubleTapWindowMs && hypot(downPos.x - lastTapPos.x, downPos.y - lastTapPos.y) <= tapSlop * 2.5f) {
+                                // Double tap: toggle zoom between 1.0x and 2.5x centered at the tapped spot
+                                if (zoomScale > 1.1f) {
+                                    zoomScale = 1.0f
+                                    zoomOffsetX = 0f
+                                    zoomOffsetY = 0f
+                                } else {
+                                    val targetScale = 2.5f
+                                    val centerX = viewport.left + viewport.width * 0.5f
+                                    val centerY = viewport.top + viewport.height * 0.5f
+                                    zoomScale = targetScale
+                                    val maxOffsetX = ((viewport.width * targetScale - cw) * 0.5f).coerceAtLeast(0f)
+                                    val maxOffsetY = ((viewport.height * targetScale - ch) * 0.5f).coerceAtLeast(0f)
+                                    zoomOffsetX = ((centerX - downPos.x) * (targetScale - 1f)).coerceIn(-maxOffsetX, maxOffsetX)
+                                    zoomOffsetY = ((centerY - downPos.y) * (targetScale - 1f)).coerceIn(-maxOffsetY, maxOffsetY)
+                                }
+                                lastTapUpTimeMs = 0L
+                            } else {
+                                // Single tap: direct click on PC
+                                core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.DOWN, lastX, lastY))
+                                core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.UP, lastX, lastY))
+                                core.remoteButton(pcId, "left", "click")
+                                lastTapUpTimeMs = upTime
+                                lastTapPos = downPos
+                            }
                         } else if (maxPointers == 1 && elapsed > 400 && totalMoved <= tapSlop * 2f && touchStartedInVideo) {
-                            // Long press: Right-click at exact touch position with haptic feedback!
+                            // Long press: Right click with haptic feedback
                             view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
                             core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.MOVE, lastX, lastY))
                             core.remoteButton(pcId, "right", "click")
@@ -920,6 +1022,45 @@ fun PcMirrorView(
                     }
                 },
         ) {
+            // Floating zoom indicator and reset pill when magnified
+            AnimatedVisibility(
+                visible = zoomScale > 1.05f,
+                enter = fadeIn() + scaleIn(),
+                exit = fadeOut() + scaleOut(),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(if (isFullScreen) 16.dp else 12.dp),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xDD12141A),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                    onClick = {
+                        zoomScale = 1.0f
+                        zoomOffsetX = 0f
+                        zoomOffsetY = 0f
+                    },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = "${String.format(Locale.US, "%.1f", zoomScale)}x",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = "Reset",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.85f),
+                        )
+                    }
+                }
+            }
+
             // Single persistent TextureView positioned to the exact fitted video rectangle.
             Box(
                 modifier = Modifier
@@ -933,6 +1074,12 @@ fun PcMirrorView(
                         layout(constraints.maxWidth, constraints.maxHeight) {
                             placeable.place(vp.left.roundToInt(), vp.top.roundToInt())
                         }
+                    }
+                    .graphicsLayer {
+                        scaleX = zoomScale
+                        scaleY = zoomScale
+                        translationX = zoomOffsetX
+                        translationY = zoomOffsetY
                     }
                     .clip(innerShape),
             ) {

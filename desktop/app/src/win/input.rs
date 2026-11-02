@@ -9,7 +9,7 @@ use nectarlink_core::{ButtonAction, KeyMod, MouseButton, PowerAction, SlideActio
 use windows::Win32::UI::{
     Input::KeyboardAndMouse::{
         INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY,
-        KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE, MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL,
+        KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL,
         MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
         MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
         SendInput, VIRTUAL_KEY, VK_A, VK_B, VK_BACK, VK_C, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END, VK_ESCAPE,
@@ -43,13 +43,184 @@ static STATE: Mutex<InputState> = Mutex::new(InputState {
     held_middle: false,
 });
 
+/// Attaches the calling thread to the currently active input desktop (Default or Winlogon / Secure Desktop)
+/// so that inputs (mouse, touch, keyboard) and GDI capture reach the screen even while locked.
+pub fn sync_input_desktop() -> bool {
+    thread_local! {
+        static CURRENT_DESK: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
+        static CURRENT_NAME: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+    }
+
+    unsafe extern "system" {
+        fn OpenWindowStationW(lpszWinSta: *const u16, fInherit: i32, dwDesiredAccess: u32) -> isize;
+        fn SetProcessWindowStation(hWinSta: isize) -> i32;
+        fn OpenInputDesktop(dwFlags: u32, fInherit: i32, dwDesiredAccess: u32) -> isize;
+        fn SetThreadDesktop(hDesktop: isize) -> i32;
+        fn CloseDesktop(hDesktop: isize) -> i32;
+        fn GetUserObjectInformationA(
+            hObj: isize,
+            nIndex: i32,
+            pvInfo: *mut u8,
+            nLength: u32,
+            lpnLengthNeeded: *mut u32,
+        ) -> i32;
+    }
+
+    static WINSTA_INIT: std::sync::Once = std::sync::Once::new();
+    WINSTA_INIT.call_once(|| unsafe {
+        let winsta_name: Vec<u16> = "WinSta0\0".encode_utf16().collect();
+        let hwinsta = OpenWindowStationW(winsta_name.as_ptr(), 0, 0x037F);
+        if hwinsta != 0 {
+            SetProcessWindowStation(hwinsta);
+        }
+    });
+
+    let mut hdesk = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
+    if hdesk == 0 {
+        for &access in &[0x0081, 0x0200_0000, 0x0001, 0x0080] {
+            hdesk = unsafe { OpenInputDesktop(0, 0, access) };
+            if hdesk != 0 {
+                break;
+            }
+        }
+    }
+
+    if hdesk == 0 {
+        return false;
+    }
+
+    let mut buf = [0u8; 128];
+    let mut needed = 0u32;
+    let ok = unsafe {
+        GetUserObjectInformationA(hdesk, 2 /* UOI_NAME */, buf.as_mut_ptr(), buf.len() as u32, &mut needed)
+    };
+    let new_name = if ok != 0 {
+        let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+        String::from_utf8_lossy(&buf[..len]).to_string()
+    } else {
+        String::new()
+    };
+
+    let mut changed = false;
+    CURRENT_NAME.with(|cur| {
+        let mut cur_borrow = cur.borrow_mut();
+        if *cur_borrow != new_name {
+            if unsafe { SetThreadDesktop(hdesk) } != 0 {
+                CURRENT_DESK.with(|d| {
+                    let old = d.replace(hdesk);
+                    if old != 0 && old != hdesk {
+                        unsafe { CloseDesktop(old); }
+                    }
+                });
+                *cur_borrow = new_name;
+                changed = true;
+            } else {
+                unsafe { CloseDesktop(hdesk); }
+            }
+        } else {
+            unsafe { CloseDesktop(hdesk); }
+        }
+    });
+
+    changed
+}
+
+/// Returns `true` if the screen is currently locked / on a secure desktop (e.g. Winlogon, UAC, or lock screen),
+/// where standard `SendInput` from standard integrity processes is isolated by UIPI to the inactive background desktop.
+pub fn is_screen_locked() -> bool {
+    unsafe extern "system" {
+        fn OpenInputDesktop(dwFlags: u32, fInherit: i32, dwDesiredAccess: u32) -> isize;
+        fn CloseDesktop(hDesktop: isize) -> i32;
+        fn GetUserObjectInformationA(
+            hObj: isize,
+            nIndex: i32,
+            pvInfo: *mut u8,
+            nLength: u32,
+            lpnLengthNeeded: *mut u32,
+        ) -> i32;
+    }
+
+    let hdesk = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
+    if hdesk == 0 {
+        // Access denied or cannot open input desktop -> secure desktop (Winlogon / UAC) is active!
+        return true;
+    }
+    let mut buf = [0u8; 128];
+    let mut needed = 0u32;
+    let ok = unsafe {
+        GetUserObjectInformationA(hdesk, 2 /* UOI_NAME */, buf.as_mut_ptr(), buf.len() as u32, &mut needed)
+    };
+    let locked = if ok != 0 {
+        let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+        let name = String::from_utf8_lossy(&buf[..len]);
+        name.to_lowercase() != "default"
+    } else {
+        true
+    };
+    unsafe { CloseDesktop(hdesk); }
+    locked
+}
+
 fn send_inputs(inputs: &[INPUT]) {
     if inputs.is_empty() {
         return;
     }
+
+    unsafe extern "system" {
+        fn keybd_event(bVk: u8, bScan: u8, dwFlags: u32, dwExtraInfo: usize);
+        fn mouse_event(dwFlags: u32, dx: u32, dy: u32, dwData: u32, dwExtraInfo: usize);
+    }
+
+    let locked = is_screen_locked();
+    if locked {
+        // When on Windows secure desktop (Winlogon / LogonUI / lock screen), SendInput
+        // is isolated by UIPI to the background 'Default' desktop and ignored.
+        // We inject directly via session-level driver events (keybd_event / mouse_event)
+        // with small hardware timing pauses so LogonUI credentials controls receive every character.
+        for input in inputs {
+            match input.r#type {
+                INPUT_KEYBOARD => unsafe {
+                    let ki = input.Anonymous.ki;
+                    keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
+                    std::thread::sleep(std::time::Duration::from_millis(18));
+                },
+                INPUT_MOUSE => unsafe {
+                    let mi = input.Anonymous.mi;
+                    let move_flags = mi.dwFlags.0 & (MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
+                    if move_flags != 0 {
+                        mouse_event(move_flags, mi.dx as u32, mi.dy as u32, 0, 0);
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    let btn_flags = mi.dwFlags.0 & !(MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
+                    if btn_flags != 0 {
+                        mouse_event(btn_flags, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
+                        std::thread::sleep(std::time::Duration::from_millis(15));
+                    }
+                },
+                _ => {}
+            }
+        }
+        return;
+    }
+
+    sync_input_desktop();
     // SAFETY: `inputs` is a valid slice of `INPUT` structs.
-    unsafe {
-        let _ = SendInput(inputs, std::mem::size_of::<INPUT>() as i32);
+    let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
+    if sent == 0 {
+        // Fallback for secure desktop / lock screen where UIPI blocks SendInput
+        for input in inputs {
+            match input.r#type {
+                INPUT_KEYBOARD => unsafe {
+                    let ki = input.Anonymous.ki;
+                    keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
+                },
+                INPUT_MOUSE => unsafe {
+                    let mi = input.Anonymous.mi;
+                    mouse_event(mi.dwFlags.0, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
+                },
+                _ => {}
+            }
+        }
     }
 }
 
@@ -90,103 +261,6 @@ fn unicode_input(unit: u16, up: bool) -> INPUT {
             ki: KEYBDINPUT { wVk: VIRTUAL_KEY(0), wScan: unit, dwFlags: flags, time: 0, dwExtraInfo: 0 },
         },
     }
-}
-
-pub fn send_scancode_key(vk: VIRTUAL_KEY, extended: bool) {
-    let scan = unsafe {
-        windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW(
-            vk.0 as u32,
-            windows::Win32::UI::Input::KeyboardAndMouse::MAP_VIRTUAL_KEY_TYPE(0),
-        ) as u16
-    };
-    send_raw_scancode(scan, extended);
-}
-
-pub fn send_raw_scancode(scan: u16, extended: bool) {
-    send_raw_scancode_press(scan, extended, 25);
-}
-
-pub fn send_key_full(vk: u16, scan: u16, extended: bool, hold_ms: u64) {
-    let mut down_flags = KEYBD_EVENT_FLAGS(0);
-    let mut up_flags = KEYEVENTF_KEYUP;
-    if extended {
-        down_flags |= KEYEVENTF_EXTENDEDKEY;
-        up_flags |= KEYEVENTF_EXTENDEDKEY;
-    }
-    if scan > 0 {
-        down_flags |= KEYEVENTF_SCANCODE;
-        up_flags |= KEYEVENTF_SCANCODE;
-    }
-    let down = INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(vk),
-                wScan: scan,
-                dwFlags: down_flags,
-                time: 0,
-                dwExtraInfo: 0,
-            },
-        },
-    };
-    send_inputs(&[down]);
-    if hold_ms > 0 {
-        std::thread::sleep(std::time::Duration::from_millis(hold_ms));
-    }
-    let up = INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(vk),
-                wScan: scan,
-                dwFlags: up_flags,
-                time: 0,
-                dwExtraInfo: 0,
-            },
-        },
-    };
-    send_inputs(&[up]);
-}
-
-pub fn send_raw_scancode_press(scan: u16, extended: bool, hold_ms: u64) {
-    if scan == 0 {
-        return;
-    }
-    let mut down_flags = KEYEVENTF_SCANCODE;
-    let mut up_flags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
-    if extended {
-        down_flags |= KEYEVENTF_EXTENDEDKEY;
-        up_flags |= KEYEVENTF_EXTENDEDKEY;
-    }
-    let down = INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(0),
-                wScan: scan,
-                dwFlags: down_flags,
-                time: 0,
-                dwExtraInfo: 0,
-            },
-        },
-    };
-    send_inputs(&[down]);
-    if hold_ms > 0 {
-        std::thread::sleep(std::time::Duration::from_millis(hold_ms));
-    }
-    let up = INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(0),
-                wScan: scan,
-                dwFlags: up_flags,
-                time: 0,
-                dwExtraInfo: 0,
-            },
-        },
-    };
-    send_inputs(&[up]);
 }
 
 /// Moves the mouse cursor relatively by `(dx, dy)` pixels, keeping fractions
@@ -336,10 +410,15 @@ pub fn scroll(dx: f32, dy: f32) {
     send_inputs(&inputs);
 }
 
-/// Types arbitrary Unicode text via `KEYEVENTF_UNICODE` (including surrogate
-/// pairs for non-BMP characters like emoji).
+/// Types arbitrary text via virtual key + scan code for standard characters
+/// (so that secure password/PIN prompts on the Windows lock screen and LogonUI accept them),
+/// falling back to `KEYEVENTF_UNICODE` for non-ASCII or complex Unicode.
 pub fn type_text(text: &str) {
-    let mut inputs = Vec::with_capacity(text.len() * 2);
+    unsafe extern "system" {
+        fn VkKeyScanW(ch: u16) -> i16;
+    }
+
+    let mut inputs = Vec::with_capacity(text.len() * 4);
     for ch in text.chars() {
         if ch == '\r' {
             continue;
@@ -349,13 +428,30 @@ pub fn type_text(text: &str) {
             inputs.push(vk_input(VK_RETURN, false, true));
             continue;
         }
+        if ch == '\t' {
+            inputs.push(vk_input(VK_TAB, false, false));
+            inputs.push(vk_input(VK_TAB, false, true));
+            continue;
+        }
         let mut buf = [0u16; 2];
         let units = ch.encode_utf16(&mut buf);
         for &unit in units.iter() {
-            inputs.push(unicode_input(unit, false));
-        }
-        for &unit in units.iter().rev() {
-            inputs.push(unicode_input(unit, true));
+            let vk_scan = unsafe { VkKeyScanW(unit) };
+            if vk_scan != -1 {
+                let vk = (vk_scan & 0xFF) as u16;
+                let shift = ((vk_scan >> 8) & 1) != 0;
+                if shift {
+                    inputs.push(vk_input(VK_SHIFT, false, false));
+                }
+                inputs.push(vk_input(VIRTUAL_KEY(vk), false, false));
+                inputs.push(vk_input(VIRTUAL_KEY(vk), false, true));
+                if shift {
+                    inputs.push(vk_input(VK_SHIFT, false, true));
+                }
+            } else {
+                inputs.push(unicode_input(unit, false));
+                inputs.push(unicode_input(unit, true));
+            }
         }
     }
     send_inputs(&inputs);
@@ -408,6 +504,9 @@ fn resolve_key(key: &str) -> Option<(VIRTUAL_KEY, bool, &'static [KeyMod])> {
         "play_pause" => (VK_MEDIA_PLAY_PAUSE, true, NONE),
         "next_track" => (VK_MEDIA_NEXT_TRACK, true, NONE),
         "prev_track" => (VK_MEDIA_PREV_TRACK, true, NONE),
+        "zoom_in" | "magnify_in" => (VIRTUAL_KEY(0xBB), false, WIN),
+        "zoom_out" | "magnify_out" => (VIRTUAL_KEY(0xBD), false, WIN),
+        "magnify_exit" => (VK_ESCAPE, false, WIN),
         s if s.len() == 1 => {
             let b = s.as_bytes()[0];
             if b.is_ascii_lowercase() {

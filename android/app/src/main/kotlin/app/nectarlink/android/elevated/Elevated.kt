@@ -235,9 +235,10 @@ object Elevated {
         if (softAp) return true
         val interfaces = java.net.NetworkInterface.getNetworkInterfaces() ?: return false
         for (iface in interfaces.asSequence()) {
-            if (iface.isUp && (iface.name.contains("ap") || iface.name.contains("wlan1") || iface.name.contains("rndis") || iface.name.contains("swlan"))) {
+            val name = iface.name.lowercase()
+            if (iface.isUp && (name.contains("ap") || name.contains("wlan1") || name.contains("rndis") || name.contains("swlan") || name.contains("tether") || name.contains("hotspot"))) {
                 for (addr in iface.inetAddresses.asSequence()) {
-                    if (addr.hostAddress?.startsWith("192.168.43.") == true) {
+                    if (!addr.isLoopbackAddress && addr.hostAddress?.contains(':') == false) {
                         return true
                     }
                 }
@@ -441,6 +442,21 @@ object Elevated {
                 return@withLock true
             }
             if (!paired()) {
+                // Check if system properties have active adbd ports before giving up
+                val sysPorts = LoopbackAdb.systemPropertyPorts()
+                if (sysPorts.isNotEmpty()) {
+                    val adb = connection()
+                    var connectedDirect = false
+                    for (p in sysPorts) {
+                        if (runCatching { adb.connect(LoopbackAdb.HOST, p) }.getOrDefault(false)) {
+                            connectedDirect = true
+                            break
+                        }
+                    }
+                    if (connectedDirect && runCatching { launch(adb) }.isSuccess) {
+                        return@withLock true
+                    }
+                }
                 // No wireless debugging set up: a PC this phone is plugged into can start it.
                 if (startOverUsbLocked()) return@withLock true
                 _state.value = State.NotSetUp

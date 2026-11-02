@@ -171,6 +171,50 @@ internal object TransferNotifications {
         post(context, idOf(transfer), builder.build())
     }
 
+    /** Direct single file received via remote PC file browsing. */
+    fun received(context: Context, uri: android.net.Uri, fileName: String, pcName: String) {
+        if (!allowed(context)) return
+        val open = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, context.contentResolver.getType(uri) ?: "*/*")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        val chooser = Intent.createChooser(open, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val notifId = fileName.hashCode()
+        val tap = PendingIntent.getActivity(
+            context,
+            notifId,
+            chooser,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val from = pcName.ifEmpty { context.getString(R.string.your_pc) }
+        val notification = NotificationCompat.Builder(context, CHANNEL_RECEIVED)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(fileName)
+            .setContentText(context.getString(R.string.transfer_received_from, from))
+            .setContentIntent(tap)
+            .setAutoCancel(true)
+            .build()
+        post(context, notifId, notification)
+    }
+
+    /** Shows an ongoing download progress notification while fetching a file from PC. */
+    fun downloadProgress(context: Context, id: Int, fileName: String, pcName: String) {
+        if (!allowed(context)) return
+        val from = pcName.ifEmpty { context.getString(R.string.your_pc) }
+        val notification = NotificationCompat.Builder(context, CHANNEL_PROGRESS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(fileName)
+            .setContentText(context.getString(R.string.transfer_receiving, from))
+            .setProgress(0, 0, true)
+            .setOngoing(true)
+            .build()
+        post(context, id, notification)
+    }
+
+    /** Clears an ongoing progress notification. */
+    fun cancel(context: Context, id: Int) {
+        NotificationManagerCompat.from(context).cancel(id)
+    }
+
     /** A send from the phone arrived: a quiet confirmation that clears itself. */
     private fun sent(context: Context, transfer: Transfer, pcName: String) {
         val to = pcName.ifEmpty { context.getString(R.string.your_pc) }

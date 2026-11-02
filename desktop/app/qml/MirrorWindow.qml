@@ -401,10 +401,10 @@ Window {
         id: toolbar
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.margins: 6
+        anchors.margins: 12
         width: toolbarRow.implicitWidth + 8
-        height: 28
-        radius: 14
+        height: 40
+        radius: 20
         color: Qt.rgba(0, 0, 0, 0.68)
         visible: win.phase === "showing" && video.frameSize.width > 0
         readonly property bool toolbarHasFocus: copyShotBtn.activeFocus || saveShotBtn.activeFocus
@@ -421,30 +421,7 @@ Window {
             spacing: 2
 
             IconButton {
-                id: backBtn
-                implicitWidth: 26
-                implicitHeight: 26
-                iconSize: 15
-                iconPath: Icons.back
-                iconColor: "white"
-                label: qsTr("Back (Esc / Right-click)")
-                onClicked: Mirror.press(win.mirrorKey, "back")
-            }
-            IconButton {
-                id: homeBtn
-                implicitWidth: 26
-                implicitHeight: 26
-                iconSize: 15
-                iconPath: Icons.home
-                iconColor: "white"
-                label: qsTr("Home (Middle-click)")
-                onClicked: Mirror.press(win.mirrorKey, "home")
-            }
-            IconButton {
                 id: copyShotBtn
-                implicitWidth: 26
-                implicitHeight: 26
-                iconSize: 14
                 iconPath: Icons.copy
                 iconColor: "white"
                 label: qsTr("Copy screenshot (Ctrl+Shift+C)")
@@ -452,9 +429,6 @@ Window {
             }
             IconButton {
                 id: saveShotBtn
-                implicitWidth: 26
-                implicitHeight: 26
-                iconSize: 14
                 iconPath: Icons.camera
                 iconColor: "white"
                 label: qsTr("Save screenshot (Ctrl+S)")
@@ -462,9 +436,6 @@ Window {
             }
             IconButton {
                 id: recordBtn
-                implicitWidth: 26
-                implicitHeight: 26
-                iconSize: 14
                 iconPath: win.info.recording === true ? Icons.stopSquare : Icons.record
                 iconColor: win.info.recording === true ? Theme.error : "white"
                 label: win.info.recording === true ? qsTr("Stop recording (Ctrl+R)") : qsTr("Record video (Ctrl+R)")
@@ -474,17 +445,14 @@ Window {
                 visible: win.info.recording === true
                 anchors.verticalCenter: parent.verticalCenter
                 leftPadding: 2
-                rightPadding: 4
+                rightPadding: 6
                 role: "code"
-                size: 11
+                size: 12
                 color: "white"
                 text: win.formatDuration(win.recordingElapsedSecs)
             }
             IconButton {
                 id: stayAwakeBtn
-                implicitWidth: 26
-                implicitHeight: 26
-                iconSize: 14
                 iconPath: Icons.coffee
                 iconColor: win.info.stayAwake === true ? Theme.primary : "white"
                 label: win.info.stayAwake === true
@@ -495,9 +463,6 @@ Window {
             IconButton {
                 id: screenOffBtn
                 visible: win.info.canScreenOff === true
-                implicitWidth: 26
-                implicitHeight: 26
-                iconSize: 14
                 iconPath: Icons.screenOff
                 iconColor: win.info.screenOff === true ? Theme.primary : "white"
                 label: win.info.screenOff === true
@@ -505,70 +470,96 @@ Window {
                     : qsTr("Turn phone screen off while mirroring")
                 onClicked: Mirror.setScreenOff(win.mirrorKey, !(win.info.screenOff === true))
             }
-            IconButton {
-                id: soundBtn
+            Row {
+                id: audioModeToggle
                 visible: true
-                property int audioMode: 1 // 0: PC only, 1: Both (PC & Phone), 2: Phone only
-                implicitWidth: 26
-                implicitHeight: 26
-                iconSize: 14
-                iconPath: audioMode === 2 ? Icons.phone : (audioMode === 1 ? Icons.speaker : (Mirror.muted ? Icons.soundOff : Icons.speaker))
-                iconColor: audioMode === 1 ? Theme.primary : (audioMode === 2 ? "#ff9800" : (Mirror.muted ? "gray" : "white"))
-                label: audioMode === 0 ? qsTr("Sound: PC only (Click for Both)") :
-                       audioMode === 1 ? qsTr("Sound: Both PC & Phone (Click for Phone only)") :
-                       qsTr("Sound: Phone only (Click for PC only)")
-                onClicked: {
-                    audioMode = (audioMode + 1) % 3;
-                    if (audioMode === 0) {
-                        if (Mirror.muted) Mirror.toggleSound();
-                        Mirror.press(win.mirrorKey, "sound_mode:pc");
-                        win.localNotice = qsTr("Sound output: PC only");
-                    } else if (audioMode === 1) {
-                        if (Mirror.muted) Mirror.toggleSound();
-                        Mirror.press(win.mirrorKey, "sound_mode:both");
-                        win.localNotice = qsTr("Sound output: Both (PC & Phone)");
-                    } else {
-                        if (!Mirror.muted) Mirror.toggleSound();
-                        Mirror.press(win.mirrorKey, "sound_mode:phone");
-                        win.localNotice = qsTr("Sound output: Phone only");
+                height: 28
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 2
+
+                Rectangle {
+                    height: 28
+                    radius: 14
+                    color: Qt.rgba(255, 255, 255, 0.12)
+                    border.width: 1
+                    border.color: Qt.rgba(255, 255, 255, 0.18)
+                    implicitWidth: audioToggleRow.implicitWidth + 4
+
+                    Row {
+                        id: audioToggleRow
+                        anchors.centerIn: parent
+                        spacing: 2
+
+                        readonly property string currentMode: win.info.audioMode || (Mirror.muted ? "phone" : "pc")
+
+                        // Option 1: PC only
+                        Rectangle {
+                            width: pcText.implicitWidth + 14
+                            height: 24
+                            radius: 12
+                            color: audioToggleRow.currentMode === "pc" ? Theme.primary : "transparent"
+                            Text {
+                                id: pcText
+                                anchors.centerIn: parent
+                                text: qsTr("PC")
+                                font.pixelSize: 11
+                                font.bold: audioToggleRow.currentMode === "pc"
+                                color: audioToggleRow.currentMode === "pc" ? "white" : Qt.rgba(1, 1, 1, 0.72)
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Mirror.setAudioMode(win.mirrorKey, "pc")
+                            }
+                        }
+
+                        // Option 2: Phone only
+                        Rectangle {
+                            width: phoneText.implicitWidth + 14
+                            height: 24
+                            radius: 12
+                            color: audioToggleRow.currentMode === "phone" ? Theme.primary : "transparent"
+                            Text {
+                                id: phoneText
+                                anchors.centerIn: parent
+                                text: qsTr("Phone")
+                                font.pixelSize: 11
+                                font.bold: audioToggleRow.currentMode === "phone"
+                                color: audioToggleRow.currentMode === "phone" ? "white" : Qt.rgba(1, 1, 1, 0.72)
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Mirror.setAudioMode(win.mirrorKey, "phone")
+                            }
+                        }
+
+                        // Option 3: Both
+                        Rectangle {
+                            width: bothText.implicitWidth + 14
+                            height: 24
+                            radius: 12
+                            color: audioToggleRow.currentMode === "both" ? Theme.primary : "transparent"
+                            Text {
+                                id: bothText
+                                anchors.centerIn: parent
+                                text: qsTr("Both")
+                                font.pixelSize: 11
+                                font.bold: audioToggleRow.currentMode === "both"
+                                color: audioToggleRow.currentMode === "both" ? "white" : Qt.rgba(1, 1, 1, 0.72)
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Mirror.setAudioMode(win.mirrorKey, "both")
+                            }
+                        }
                     }
-                }
-            }
-            IconButton {
-                id: qualityBtn
-                property int qualityIndex: 0
-                implicitWidth: 26
-                implicitHeight: 26
-                iconSize: 14
-                iconPath: Icons.quality
-                iconColor: Theme.primary
-                label: qualityIndex === 0 ? qsTr("Quality: 2K Ultra HD (28M)") :
-                       qualityIndex === 1 ? qsTr("Quality: 1080p High (16M)") : qsTr("Quality: 720p (6M)")
-                onClicked: {
-                    qualityIndex = (qualityIndex + 1) % 3;
-                }
-            }
-            IconButton {
-                id: fpsBtn
-                property int currentFps: 120
-                implicitWidth: 26
-                implicitHeight: 26
-                iconSize: 14
-                iconPath: Icons.refresh
-                iconColor: currentFps === 120 ? Theme.primary : "white"
-                label: qsTr("FPS: ") + currentFps + qsTr(" (Click to toggle 60/90/120 FPS)")
-                onClicked: {
-                    if (currentFps === 60) currentFps = 90;
-                    else if (currentFps === 90) currentFps = 120;
-                    else currentFps = 60;
                 }
             }
             IconButton {
                 id: windowModeBtn
                 visible: win.info.app === true
-                implicitWidth: 26
-                implicitHeight: 26
-                iconSize: 14
                 iconPath: win.windowSizeMode === 2 ? Icons.desktop : (win.windowSizeMode === 1 ? Icons.island : Icons.phone)
                 iconColor: win.windowSizeMode > 0 ? Theme.primary : "white"
                 label: win.windowSizeMode === 0

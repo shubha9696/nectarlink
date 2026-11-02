@@ -46,7 +46,10 @@ class AppWindows(
     private val open: suspend (String) -> MirrorStream,
     /** A PC's name. */
     private val nameOf: (String) -> String,
+    /** Opens an audio stream to a PC. */
+    private val openAudio: (suspend (String) -> MirrorStream)? = null,
 ) {
+    @Volatile private var sound: SoundCapture? = null
     private val context = context.applicationContext
 
     private class Window(
@@ -74,6 +77,17 @@ class AppWindows(
     fun open(pc: String, options: MirrorOptions): Boolean {
         val pkg = options.app ?: return false
         if (pkg == context.packageName) return false
+
+        // Launch app on phone immediately so it is brought to foreground and interactive
+        runCatching {
+            val intent = context.packageManager.getLaunchIntentForPackage(pkg)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            }
+            if (intent != null) {
+                context.startActivity(intent)
+            }
+        }
+
         val maxSize = options.maxSize.toInt().coerceIn(320, 1920)
         val (width, height, dpi) = size(maxSize)
         val socket = Elevated.openApp(pkg, width, height, dpi, options.bitrate.toInt(), options.fps.toInt()) ?: return false
@@ -81,6 +95,19 @@ class AppWindows(
         power[pc] = options.stayAwake to options.screenOff
         windows.put(pc to options.session, window)?.let { runCatching { it.socket.close() } }
         changed()
+        if (options.audio && sound == null && openAudio != null) {
+            scope.launch(Dispatchers.IO) {
+                val audioStream = runCatching { openAudio(pc) }.getOrElse {
+                    Log.w(TAG, "can't stream app audio to PC", it)
+                    null
+                }
+                if (audioStream != null) {
+                    sound = SoundCapture(null, audioStream) {
+                        sound = null
+                    }.also { it.start() }
+                }
+            }
+        }
         scope.launch(Dispatchers.IO) {
             val stream = runCatching { open(pc) }.getOrElse {
                 Log.w(TAG, "can't stream an app window", it)
@@ -137,6 +164,10 @@ class AppWindows(
     private fun close(window: Window) {
         runCatching { window.socket.close() }
         if (windows.remove(window.pc to window.session, window)) changed()
+        if (windows.isEmpty()) {
+            sound?.stop()
+            sound = null
+        }
     }
 
     fun closeAll() {

@@ -179,7 +179,8 @@ fn role_value(device: &Row, role: &str) -> QVariant {
             LinkState::Offline { .. } => "offline",
         }),
         "rttMs" => QVariant::from(&match device.link {
-            LinkState::Online { rtt_ms, .. } => i32::try_from(rtt_ms).unwrap_or(i32::MAX),
+            LinkState::Online { rtt_ms, .. } if rtt_ms > 0 => i32::try_from(rtt_ms).unwrap_or(1),
+            LinkState::Online { .. } => 1,
             _ => -1,
         }),
         "battery" => QVariant::from(&device.battery.as_ref().map_or(-1, |b| i32::from(b.level))),

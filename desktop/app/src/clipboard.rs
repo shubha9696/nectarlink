@@ -207,8 +207,11 @@ fn receivers() -> Vec<DeviceId> {
             .iter()
             .filter(|d| matches!(d.link, LinkState::Online { .. }))
             .filter(|d| {
-                s.matrices.get(&d.id).and_then(|m| m.state("clipboard.pc_to_phone"))
-                    == Some(FeatureState::Available)
+                if let Some(m) = s.matrices.get(&d.id) {
+                    m.state("clipboard.pc_to_phone") == Some(FeatureState::Available)
+                } else {
+                    true
+                }
             })
             .map(|d| d.id)
             .collect()

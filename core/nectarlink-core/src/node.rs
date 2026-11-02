@@ -871,7 +871,13 @@ impl Shared {
             return;
         }
         if let Ok(key) = crate::public_key(peer) {
-            self.memory.add_endpoint_info(EndpointInfo::new(key).with_ip_addrs(all));
+            let mut info = EndpointInfo::new(key).with_ip_addrs(all);
+            if allow_wan {
+                for relay in self.endpoint.addr().relay_urls() {
+                    info = info.with_relay_url(relay.clone());
+                }
+            }
+            self.memory.add_endpoint_info(info);
         }
     }
 
@@ -1250,6 +1256,11 @@ impl Shared {
         if let Some((_, addrs)) = lock(&self.lan_seen).get(&peer) {
             for &a in addrs {
                 addr = addr.with_ip_addr(a);
+            }
+        }
+        if self.away_mode() {
+            for relay in self.endpoint.addr().relay_urls() {
+                addr = addr.with_relay_url(relay.clone());
             }
         }
         let conn = tokio::time::timeout(DIAL_TIMEOUT, self.endpoint.connect(addr, ALPN_SESSION))
@@ -2316,8 +2327,7 @@ impl Node {
             }
         });
         let rtf = rtf.filter(|s| !s.trim().is_empty()).filter(|s| used.saturating_add(s.len()) <= max);
-        let has_queue = self.shared.store.has_active_queue_for_peer(&peer).unwrap_or(false);
-        if !has_queue && self.shared.session(&peer).is_some() {
+        if self.shared.session(&peer).is_some() {
             let env = Envelope::new(
                 types::CLIP_SET,
                 &ClipSet { text: text.clone(), html: html.clone(), rtf: rtf.clone() },
@@ -2367,8 +2377,7 @@ impl Node {
         if !peer_rec.caps.is_empty() && !peer_rec.caps.iter().any(|c| c == "clip.image") {
             return Err(Error::Unsupported);
         }
-        let has_queue = self.shared.store.has_active_queue_for_peer(&peer).unwrap_or(false);
-        if !has_queue && let Some(session) = self.shared.session(&peer) {
+        if let Some(session) = self.shared.session(&peer) {
             match crate::clipboard::send_image(&self.shared, &session, mime.clone(), bytes.clone()).await {
                 Ok(()) => return Ok(()),
                 Err(e) if !crate::actions::is_transient_send_error(&e) => return Err(e),
@@ -2560,9 +2569,7 @@ impl Node {
             return Ok(());
         }
         let session = self.connected(peer)?;
-        if pcm.len() <= 960
-            && session.conn.max_datagram_size().is_some_and(|max_dgram| 10 + pcm.len() <= max_dgram)
-        {
+        if session.conn.max_datagram_size().is_some_and(|max_dgram| 10 + pcm.len() <= max_dgram) {
             let mut pkt = Vec::with_capacity(10 + pcm.len());
             pkt.extend_from_slice(b"NLPA");
             pkt.extend_from_slice(&sample_rate.to_le_bytes());
@@ -3914,8 +3921,12 @@ async fn bind_endpoint(
         .stream_receive_window(VarInt::from_u32(tuning.stream_window))
         .receive_window(VarInt::from_u32(tuning.connection_window))
         .send_window(u64::from(tuning.connection_window))
-        .datagram_receive_buffer_size(Some(1024 * 1024))
-        .datagram_send_buffer_size(1024 * 1024)
+        .packet_threshold(12)
+        .initial_mtu(1350)
+        .min_mtu(1200)
+        .mtu_discovery_config(None)
+        .datagram_receive_buffer_size(Some(8 * 1024 * 1024))
+        .datagram_send_buffer_size(8 * 1024 * 1024)
         .congestion_controller_factory(controller)
         .build();
     let mut builder = Endpoint::builder(presets::Minimal)
@@ -4053,6 +4064,8 @@ fn run_queue_coordinator(weak: Weak<Shared>, cancel: CancellationToken) {
                                 run_peer_queue(peer_weak, peer, peer_cancel).await;
                             });
                         }
+                    } else {
+                        shared.wake_supervisor(&peer);
                     }
                 }
             }

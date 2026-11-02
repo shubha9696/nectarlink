@@ -370,7 +370,7 @@ pub const DEVICE_TOGGLES: &[(&str, bool)] = &[
     // Running custom Deck commands on this PC is opt-in.
     ("commands", false),
     // Browsing the PC's files from anywhere is opt-in.
-    ("remote_files", false),
+    ("remote_files", true),
 ];
 
 /// The default for a toggle, or `None` if no such toggle exists.
@@ -912,11 +912,19 @@ pub const FEATURES: &[FeatureDef] = &[
         id: "mirroring.app_windows",
         group: FeatureGroup::Mirroring,
         requires: &[
+            phone("mirror.virtual_display", ELEVATED),
+            PowerAtLeast(PowerLevel::Elevated),
             AndroidAtLeast(11),
             desktop("mirror.view", UPDATE),
             DeviceToggle("mirroring"),
         ],
-        partial: None,
+        partial: Some(PartialDef {
+            requires: &[
+                desktop("mirror.view", UPDATE),
+                DeviceToggle("mirroring"),
+            ],
+            limit: "mirroring.limit.app_screen",
+        }),
     },
     FeatureDef {
         id: "mirroring.audio",

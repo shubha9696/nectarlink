@@ -234,7 +234,16 @@ object PhoneClipboard {
             }
             clip.description.extras = extras
         }
-        mgr.setPrimaryClip(clip)
+        val directSuccess = runCatching {
+            mgr.setPrimaryClip(clip)
+            true
+        }.getOrDefault(false)
+
+        if (!directSuccess || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            runCatching {
+                context.startActivity(SendActivity.writeClipboardIntent(context, text, cleanHtml))
+            }
+        }
         true
     }.getOrDefault(false)
 

@@ -4,118 +4,242 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="6dp">
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
 
+    <!-- Header info row -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingBottom="6dp">
+        android:paddingBottom="8dp">
 
         <ImageView
             android:id="@+id/notif_icon"
-            android:layout_width="18dp"
-            android:layout_height="18dp"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
             android:src="@drawable/ic_notification"
-            android:tint="#FFFFFFFF" />
+            android:contentDescription="NectarLink" />
 
-        <TextView
-            android:id="@+id/notif_title"
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="10dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/notif_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textStyle="bold"
+                android:textSize="14sp"
+                android:textColor="#FFFFFFFF"
+                android:singleLine="true"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/notif_subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="11.5sp"
+                android:textColor="#B3FFFFFF"
+                android:layout_marginTop="1dp"
+                android:singleLine="true"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/notif_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_notif_pill"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:textSize="10.5sp"
+            android:textColor="#80FFFFFF"
             android:textStyle="bold"
-            android:textSize="14sp"
-            android:textColor="#FFFFFFFF"
-            android:singleLine="true" />
+            android:visibility="gone" />
     </LinearLayout>
 
+    <!-- Action pills row -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="36dp"
         android:orientation="horizontal"
-        android:gravity="center">
+        android:gravity="center_vertical">
 
-        <TextView
+        <!-- Control pill -->
+        <LinearLayout
             android:id="@+id/btn_control"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:layout_marginHorizontal="2dp"
-            android:background="@drawable/bg_notif_button"
-            android:text="Control"
+            android:layout_marginEnd="3dp"
+            android:background="@drawable/bg_notif_pill"
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
-            android:textColor="#FFFFFFFF"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:singleLine="true" />
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
 
-        <TextView
+            <ImageView
+                android:id="@+id/icon_control"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="4dp"
+                android:src="@drawable/ic_notif_control" />
+
+            <TextView
+                android:id="@+id/text_control"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Control"
+                android:textSize="11sp"
+                android:textColor="#FFFFFFFF"
+                android:textStyle="bold"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <!-- Lock / Unlock pill -->
+        <LinearLayout
             android:id="@+id/btn_lock"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:layout_marginHorizontal="2dp"
-            android:background="@drawable/bg_notif_button"
-            android:text="Lock"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="3dp"
+            android:background="@drawable/bg_notif_pill"
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
-            android:textColor="#FFFFFFFF"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:singleLine="true" />
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
 
-        <TextView
-            android:id="@+id/btn_restart"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginHorizontal="2dp"
-            android:background="@drawable/bg_notif_button"
-            android:text="Restart"
-            android:gravity="center"
-            android:clickable="true"
-            android:focusable="true"
-            android:textColor="#FFFFFFFF"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:singleLine="true" />
+            <ImageView
+                android:id="@+id/icon_lock"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="4dp"
+                android:src="@drawable/ic_notif_lock" />
 
-        <TextView
+            <TextView
+                android:id="@+id/text_lock"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Lock"
+                android:textSize="11sp"
+                android:textColor="#FFFFFFFF"
+                android:textStyle="bold"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <!-- Files pill -->
+        <LinearLayout
             android:id="@+id/btn_files"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:layout_marginHorizontal="2dp"
-            android:background="@drawable/bg_notif_button"
-            android:text="Files"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="3dp"
+            android:background="@drawable/bg_notif_pill"
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
-            android:textColor="#FFFFFFFF"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:singleLine="true" />
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
 
-        <TextView
+            <ImageView
+                android:id="@+id/icon_files"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="4dp"
+                android:src="@drawable/ic_notif_files" />
+
+            <TextView
+                android:id="@+id/text_files"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Files"
+                android:textSize="11sp"
+                android:textColor="#FFFFFFFF"
+                android:textStyle="bold"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <!-- Restart pill -->
+        <LinearLayout
+            android:id="@+id/btn_restart"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="3dp"
+            android:background="@drawable/bg_notif_pill"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
+
+            <ImageView
+                android:id="@+id/icon_restart"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="4dp"
+                android:src="@drawable/ic_notif_restart" />
+
+            <TextView
+                android:id="@+id/text_restart"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Restart"
+                android:textSize="11sp"
+                android:textColor="#FFFFFFFF"
+                android:textStyle="bold"
+                android:singleLine="true" />
+        </LinearLayout>
+
+        <!-- Quit pill -->
+        <LinearLayout
             android:id="@+id/btn_quit"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="0.9"
-            android:layout_marginHorizontal="2dp"
-            android:background="@drawable/bg_notif_button"
-            android:text="Quit"
+            android:layout_marginStart="2dp"
+            android:background="@drawable/bg_notif_pill_danger"
             android:gravity="center"
             android:clickable="true"
             android:focusable="true"
-            android:textColor="#FFEF5350"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:singleLine="true" />
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
+
+            <ImageView
+                android:id="@+id/icon_quit"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_marginEnd="3dp"
+                android:src="@drawable/ic_notif_quit" />
+
+            <TextView
+                android:id="@+id/text_quit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Quit"
+                android:textSize="11sp"
+                android:textColor="#FFFF8A80"
+                android:textStyle="bold"
+                android:singleLine="true" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

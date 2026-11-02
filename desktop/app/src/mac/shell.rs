@@ -124,3 +124,15 @@ mod urlencoding {
         out
     }
 }
+pub fn is_bluetooth_on() -> bool {
+    false
+}
+
+pub fn set_bluetooth(_enable: bool) -> Result<(), String> {
+    Err("unsupported on this OS".into())
+}
+
+pub fn toggle_bluetooth() -> Result<bool, String> {
+    Err("unsupported on this OS".into())
+}
+

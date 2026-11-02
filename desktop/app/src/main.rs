@@ -118,6 +118,28 @@ impl Platform for DesktopPlatform {
     fn power_with_pin(&self, action: PowerAction, pin: Option<&str>) -> Result<(), String> {
         links::power_with_pin(action, pin)
     }
+    fn set_phone_toggle(&self, id: &str, value: &crate::PhoneToggleValue) -> Result<(), String> {
+        match id {
+            "pc_bluetooth" | "bluetooth" => {
+                if let crate::PhoneToggleValue::Bool(on) = value {
+                    links::set_bluetooth(*on)
+                } else {
+                    Err("invalid value for bluetooth toggle".into())
+                }
+            }
+            "audio_quality" => {
+                if let crate::PhoneToggleValue::Mode(m) = value {
+                    let exact = m == "exact";
+                    pc_audio_stream::set_exact_quality(exact);
+                    tracing::info!(exact, "Audio quality mode updated on PC");
+                    Ok(())
+                } else {
+                    Err("invalid value for audio_quality".into())
+                }
+            }
+            _ => Err("unsupported toggle on desktop".into()),
+        }
+    }
     fn open_link(&self, _from: &nectarlink_core::DeviceId, url: &str) -> Result<(), String> {
         links::open_here(url)
     }
@@ -689,6 +711,17 @@ fn main() -> ExitCode {
             requests.into_iter().for_each(send_to::handle);
         });
     }
+
+    #[cfg(windows)]
+    std::thread::spawn(|| {
+        use windows::Win32::System::{ProcessStatus::EmptyWorkingSet, Threading::GetCurrentProcess};
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            unsafe {
+                let _ = EmptyWorkingSet(GetCurrentProcess());
+            }
+        }
+    });
 
     let mut engine = QQmlApplicationEngine::new();
     if let Some(mut engine) = engine.as_mut() {

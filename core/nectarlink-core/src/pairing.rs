@@ -507,6 +507,11 @@ async fn dial(shared: &Arc<Shared>, peer: &DeviceId) -> Result<Connection> {
     if let Some(usb_addr) = shared.usb_peer_addr(peer) {
         addr = addr.with_ip_addr(usb_addr);
     }
+    if shared.away_mode() {
+        for relay in shared.endpoint.addr().relay_urls() {
+            addr = addr.with_relay_url(relay.clone());
+        }
+    }
     let err = match tokio::time::timeout(DIAL_TIMEOUT, shared.endpoint.connect(addr, ALPN_PAIR)).await {
         Ok(Ok(conn)) => return Ok(conn),
         Ok(Err(e)) => crate::error::net(e),

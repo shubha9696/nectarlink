@@ -1131,23 +1131,23 @@ Item {
                                 interactive: true
                                 onClicked: AppController.runDoctor()
                                 iconPath: !home.online ? Icons.unlink
-                                          : home.path === "usb" ? Icons.usb
+                                          : (home.path === "usb" && (home.wifiBars < 0 || !home.online)) ? Icons.usb
                                           : home.path === "relay" ? Icons.globe
                                           : (home.cellType === "Hotspot" || (phoneControls.state && phoneControls.state.hotspot === true) || phoneControls.hotspotActive) ? Icons.globe
                                           : (home.wifiBars < 0 && home.cellBars >= 0 ? Icons.signal : Icons.wifi)
                                 text: home.online
                                       ? (home.path === "relay"
-                                         ? (home.rttMs >= 0 ? qsTr("Away · %1 ms").arg(Math.max(1, home.rttMs)) : qsTr("Away"))
-                                         : (home.path === "usb"
-                                            ? (home.rttMs >= 0 ? qsTr("USB · %1 ms").arg(Math.max(1, home.rttMs)) : qsTr("USB"))
+                                         ? (home.rttMs > 0 ? qsTr("Away · %1 ms").arg(home.rttMs) : qsTr("Away"))
+                                         : (home.path === "usb" && (home.wifiBars < 0 || !home.online)
+                                            ? (home.rttMs > 0 ? qsTr("USB · %1 ms").arg(home.rttMs) : qsTr("USB"))
                                             : ((home.cellType === "Hotspot" || (phoneControls.state && phoneControls.state.hotspot === true) || phoneControls.hotspotActive)
-                                               ? (home.rttMs >= 0 ? qsTr("Hotspot · %1 ms").arg(Math.max(1, home.rttMs)) : qsTr("Hotspot"))
+                                               ? (home.rttMs > 0 ? qsTr("Hotspot · %1 ms").arg(home.rttMs) : qsTr("Hotspot"))
                                                : (home.wifiBars >= 0
-                                                  ? (home.rttMs >= 0 ? qsTr("Wi‑Fi · %1 ms").arg(Math.max(1, home.rttMs)) : qsTr("Wi‑Fi"))
+                                                  ? (home.rttMs > 0 ? qsTr("Wi‑Fi · %1 ms").arg(home.rttMs) : qsTr("Wi‑Fi"))
                                                   : (home.cellBars >= 0
                                                      ? ((home.cellType.length > 0 ? home.cellType : qsTr("Cellular"))
-                                                        + (home.rttMs >= 0 ? qsTr(" · %1 ms").arg(Math.max(1, home.rttMs)) : ""))
-                                                     : (home.rttMs >= 0 ? qsTr("Wi‑Fi · %1 ms").arg(Math.max(1, home.rttMs)) : qsTr("Wi‑Fi")))))))
+                                                        + (home.rttMs > 0 ? qsTr(" · %1 ms").arg(home.rttMs) : ""))
+                                                     : (home.rttMs > 0 ? qsTr("Wi‑Fi · %1 ms").arg(home.rttMs) : qsTr("Wi‑Fi")))))))
                                       : !home.reconnect ? qsTr("Not reconnecting")
                                       : (home.lastSeen > 0 ? qsTr("Offline · %1").arg(page.relativeTime(home.lastSeen))
                                                            : qsTr("Offline"))
@@ -1946,6 +1946,7 @@ Item {
                 property bool expanded: false
                 property bool confirmWifiOff: false
                 property bool hotspotActive: false
+                property bool bluetoothActive: false
                 property var hoveredLockedFeature: null
                 readonly property var state: {
                     if (AppController.phoneTogglesRevision < 0)
@@ -2053,10 +2054,14 @@ Item {
                             iconPath: Icons.bluetooth
                             shortTitle: qsTr("BT")
                             label: qsTr("Bluetooth")
-                            active: phoneControls.state ? Boolean(phoneControls.state.bluetooth) : false
+                            active: (phoneControls.state && phoneControls.state.bluetooth !== undefined) ? Boolean(phoneControls.state.bluetooth) : phoneControls.bluetoothActive
                             feature: phoneControls.bluetoothFeature
                             onLockedClicked: phoneControls.hoveredLockedFeature = (phoneControls.hoveredLockedFeature === feature ? ({}) : feature)
-                            onClicked: AppController.setPhoneToggle(home.deviceId, "bluetooth", String(!active))
+                            onClicked: {
+                                const nextState = !active
+                                phoneControls.bluetoothActive = nextState
+                                AppController.setPhoneToggle(home.deviceId, "bluetooth", String(nextState))
+                            }
                         }
                         QuickToggleButton {
                             width: toggleRow.buttonWidth
@@ -2112,63 +2117,104 @@ Item {
                         onToggled: (on) => MediaList.setPhoneSound(on)
                     }
 
-                    // Dual Audio Output Mode Selection
+                    // Audio Output Mode Selection (PC only, Phone only, Both)
                     Row {
-                        id: dualSoundRow
+                        id: soundModeRow
                         width: parent.width
                         height: 34
-                        spacing: 8
+                        spacing: 6
                         visible: MediaList.phoneSoundState !== "off" || MediaList.phoneSoundName.length > 0
-                        property bool dual: false
+                        property int soundMode: 0 // 0: PC only, 1: Both, 2: Phone only
 
                         Rectangle {
-                            width: (parent.width - parent.spacing) / 2
+                            width: (parent.width - parent.spacing * 2) / 3
                             height: parent.height
                             radius: Theme.radiusSm
-                            color: !dualSoundRow.dual ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
+                            color: soundModeRow.soundMode === 0 ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
                             border.width: 1
-                            border.color: !dualSoundRow.dual ? Theme.primary : Theme.outlineVariant
+                            border.color: soundModeRow.soundMode === 0 ? Theme.primary : Theme.outlineVariant
 
                             Txt {
                                 anchors.centerIn: parent
                                 role: "label"
-                                color: !dualSoundRow.dual ? Theme.primaryContent : Theme.surfaceContent
-                                text: qsTr("Sound on PC only")
+                                color: soundModeRow.soundMode === 0 ? Theme.primaryContent : Theme.surfaceContent
+                                text: qsTr("PC only")
                             }
 
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    dualSoundRow.dual = false
-                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "false")
+                                    soundModeRow.soundMode = 0
+                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "pc")
+                                    Mirror.press(home.deviceId, "sound_mode:pc")
                                 }
                             }
                         }
 
                         Rectangle {
-                            width: (parent.width - parent.spacing) / 2
+                            width: (parent.width - parent.spacing * 2) / 3
                             height: parent.height
                             radius: Theme.radiusSm
-                            color: dualSoundRow.dual ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
+                            color: soundModeRow.soundMode === 2 ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
                             border.width: 1
-                            border.color: dualSoundRow.dual ? Theme.primary : Theme.outlineVariant
+                            border.color: soundModeRow.soundMode === 2 ? Theme.primary : Theme.outlineVariant
 
                             Txt {
                                 anchors.centerIn: parent
                                 role: "label"
-                                color: dualSoundRow.dual ? Theme.primaryContent : Theme.surfaceContent
-                                text: qsTr("Sound on PC & Phone")
+                                color: soundModeRow.soundMode === 2 ? Theme.primaryContent : Theme.surfaceContent
+                                text: qsTr("Phone only")
                             }
 
                             MouseArea {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    dualSoundRow.dual = true
-                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "true")
+                                    soundModeRow.soundMode = 2
+                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "phone")
+                                    Mirror.press(home.deviceId, "sound_mode:phone")
                                 }
                             }
+                        }
+
+                        Rectangle {
+                            width: (parent.width - parent.spacing * 2) / 3
+                            height: parent.height
+                            radius: Theme.radiusSm
+                            color: soundModeRow.soundMode === 1 ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
+                            border.width: 1
+                            border.color: soundModeRow.soundMode === 1 ? Theme.primary : Theme.outlineVariant
+
+                            Txt {
+                                anchors.centerIn: parent
+                                role: "label"
+                                color: soundModeRow.soundMode === 1 ? Theme.primaryContent : Theme.surfaceContent
+                                text: qsTr("Both")
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    soundModeRow.soundMode = 1
+                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "both")
+                                    Mirror.press(home.deviceId, "sound_mode:both")
+                                }
+                            }
+                        }
+                    }
+
+                    SwitchBar {
+                        id: exactAudioBar
+                        width: parent.width
+                        iconPath: Icons.music
+                        title: qsTr("Exact Audio Quality (Dolby / Studio)")
+                        checked: true
+                        caption: checked ? qsTr("Lossless stereo • Full Dolby bass • No suppression") : qsTr("Low latency mode (ultra-fast)")
+                        onToggled: (on) => {
+                            checked = on;
+                            AppController.setPhoneToggle(home.deviceId, "audio_quality", on ? "exact" : "low_latency");
                         }
                     }
 

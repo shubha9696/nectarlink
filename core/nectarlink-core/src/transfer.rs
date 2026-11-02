@@ -44,11 +44,11 @@ const KEEP_PARTIAL: Duration = Duration::from_secs(60 * 60);
 const CHUNK: usize = 1024 * 1024;
 /// The sender reads ahead in blocks of this size, this many at a time, so
 /// the disk is read while the network sends.
-const BLOCK: usize = 256 * 1024;
-const READ_AHEAD: usize = 8;
+const BLOCK: usize = 1024 * 1024;
+const READ_AHEAD: usize = 16;
 /// The receiver writes the disk in pieces this large (QUIC delivers a few
 /// kilobytes at a time).
-const WRITE_BUFFER: usize = 512 * 1024;
+const WRITE_BUFFER: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -690,6 +690,7 @@ async fn enqueue_outgoing(
     };
     shared.emit(NodeEvent::QueueChanged);
     shared.emit(NodeEvent::Transfer(transfer));
+    shared.wake_supervisor(&peer);
     shared.queue_notify.notify_waiters();
     Ok(id)
 }
@@ -948,7 +949,11 @@ pub(crate) async fn deliver_queued_files(
                             "Transfer failed after 5 attempts".into(),
                         ));
                     }
-                    let delay_ms = RETRY_BACKOFF_MS[(attempts as usize - 1).min(RETRY_BACKOFF_MS.len() - 1)];
+                    let delay_ms = if session.is_alive() {
+                        100
+                    } else {
+                        RETRY_BACKOFF_MS[(attempts as usize - 1).min(RETRY_BACKOFF_MS.len() - 1)]
+                    };
                     let next_retry = crate::now_unix_ms() + delay_ms;
                     let _ = shared.store.mark_queue_retry_or_wait(
                         &item.id,

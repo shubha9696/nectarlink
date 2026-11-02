@@ -109,8 +109,9 @@ object InputServer {
             add(arrayOf("cmd", "notification", "allow_dnd", PKG))
             add(arrayOf("appops", "set", PKG, "WRITE_SETTINGS", "allow"))
             add(arrayOf("appops", "set", PKG, "READ_CLIPBOARD_IN_BACKGROUND", "allow"))
+            add(arrayOf("appops", "set", "com.android.shell", "READ_CLIPBOARD_IN_BACKGROUND", "allow"))
+            add(arrayOf("appops", "set", PKG, "MANAGE_EXTERNAL_STORAGE", "allow"))
             add(arrayOf("appops", "set", PKG, "PROJECT_MEDIA", "allow"))
-            add(arrayOf("settings", "put", "secure", "show_ime_with_hard_keyboard", "1"))
         }
         for (cmd in commands) {
             runCatching { Runtime.getRuntime().exec(cmd).waitFor() }
@@ -140,7 +141,15 @@ object InputServer {
      * only for clips the shell sets, so the copy doesn't pop up on the phone.
      */
     private fun setClipboard(rest: String) {
-        val (service, set) = clipService ?: return System.err.println("no clipboard to set")
+        val (service, set) = clipService ?: run {
+            runCatching {
+                val parts = rest.split(' ')
+                val decode = { b64: String -> String(android.util.Base64.decode(b64, android.util.Base64.NO_WRAP), Charsets.UTF_8) }
+                val text = decode(parts[0])
+                Runtime.getRuntime().exec(arrayOf("cmd", "clipboard", "set-text", text)).waitFor()
+            }
+            return
+        }
         runCatching {
             val parts = rest.split(' ')
             val decode = { b64: String -> String(android.util.Base64.decode(b64, android.util.Base64.NO_WRAP), Charsets.UTF_8) }
@@ -156,7 +165,15 @@ object InputServer {
                 putBoolean("android.content.extra.IS_REMOTE_DEVICE", true)
             }
             set.invoke(service, *buildClipboardArgs(set.parameterTypes, null, clip))
-        }.onFailure { System.err.println("can't set the clipboard: $it") }
+        }.onFailure {
+            System.err.println("can't set the clipboard: $it")
+            runCatching {
+                val parts = rest.split(' ')
+                val decode = { b64: String -> String(android.util.Base64.decode(b64, android.util.Base64.NO_WRAP), Charsets.UTF_8) }
+                val text = decode(parts[0])
+                Runtime.getRuntime().exec(arrayOf("cmd", "clipboard", "set-text", text)).waitFor()
+            }
+        }
     }
 
     @android.annotation.SuppressLint("PrivateApi", "DiscouragedPrivateApi")
@@ -566,6 +583,8 @@ object InputServer {
                     when (rest) {
                         "hotspot on" -> setHotspot(true)
                         "hotspot off" -> setHotspot(false)
+                        "bluetooth on" -> setBluetooth(true)
+                        "bluetooth off" -> setBluetooth(false)
                         // Takes up to a minute: off this thread, which also carries input.
                         COMPILE_APP_COMMAND -> Thread { runCatching { Runtime.getRuntime().exec(rest.split(' ').toTypedArray()).waitFor() } }.start()
                         else -> Runtime.getRuntime().exec(rest.split(' ').toTypedArray()).waitFor()
@@ -729,38 +748,52 @@ object InputServer {
         }
 
         private fun setHotspot(enable: Boolean) {
-            val shellCmd = if (enable) {
-                "cmd tethering start-tethering --caller-pkg com.android.shell 0 || cmd tethering start-tethering 0 || cmd connectivity start-tethering 0 || svc wifi set-softap-enabled true || svc wifi start-softap || cmd wifi start-softap || service call connectivity 24 i32 0"
-            } else {
-                "cmd tethering stop-tethering --caller-pkg com.android.shell 0 || cmd tethering stop-tethering 0 || cmd connectivity stop-tethering 0 || svc wifi set-softap-enabled false || svc wifi stop-softap || cmd wifi stop-softap || service call connectivity 25 i32 0"
-            }
-            runCatching {
-                Runtime.getRuntime().exec(arrayOf("/system/bin/sh", "-c", shellCmd)).waitFor()
-            }
-            runCatching {
-                Runtime.getRuntime().exec(arrayOf("sh", "-c", shellCmd)).waitFor()
-            }
             val candidates = if (enable) {
                 listOf(
-                    arrayOf("/system/bin/cmd", "tethering", "start-tethering", "--caller-pkg", "com.android.shell", "0"),
-                    arrayOf("/system/bin/cmd", "tethering", "start-tethering", "0"),
-                    arrayOf("/system/bin/cmd", "connectivity", "start-tethering", "0"),
-                    arrayOf("/system/bin/svc", "wifi", "start-softap"),
-                    arrayOf("/system/bin/svc", "wifi", "set-softap-enabled", "true"),
-                    arrayOf("cmd", "tethering", "start-tethering", "--caller-pkg", "com.android.shell", "0"),
+                    arrayOf("cmd", "wifi", "start-softap", "NectarLink", "open", ""),
+                    arrayOf("cmd", "wifi", "start-softap", "NectarLink", "wpa2", "nectarlink123"),
+                    arrayOf("cmd", "wifi", "start-softap"),
                     arrayOf("cmd", "tethering", "start-tethering", "0"),
+                    arrayOf("cmd", "tethering", "start-tethering", "wifi"),
+                    arrayOf("cmd", "tethering", "start", "wifi"),
                     arrayOf("svc", "wifi", "start-softap"),
+                    arrayOf("cmd", "connectivity", "start-tethering", "wifi"),
+                    arrayOf("svc", "wifi", "tether", "enable"),
                 )
             } else {
                 listOf(
-                    arrayOf("/system/bin/cmd", "tethering", "stop-tethering", "--caller-pkg", "com.android.shell", "0"),
-                    arrayOf("/system/bin/cmd", "tethering", "stop-tethering", "0"),
-                    arrayOf("/system/bin/cmd", "connectivity", "stop-tethering", "0"),
-                    arrayOf("/system/bin/svc", "wifi", "stop-softap"),
-                    arrayOf("/system/bin/svc", "wifi", "set-softap-enabled", "false"),
-                    arrayOf("cmd", "tethering", "stop-tethering", "--caller-pkg", "com.android.shell", "0"),
+                    arrayOf("cmd", "wifi", "stop-softap"),
                     arrayOf("cmd", "tethering", "stop-tethering", "0"),
+                    arrayOf("cmd", "tethering", "stop-tethering", "wifi"),
+                    arrayOf("cmd", "tethering", "stop", "wifi"),
                     arrayOf("svc", "wifi", "stop-softap"),
+                    arrayOf("cmd", "connectivity", "stop-tethering", "wifi"),
+                    arrayOf("svc", "wifi", "tether", "disable"),
+                )
+            }
+            for (cmd in candidates) {
+                val ok = runCatching {
+                    val proc = Runtime.getRuntime().exec(cmd)
+                    proc.waitFor() == 0
+                }.getOrDefault(false)
+                if (ok) break
+            }
+        }
+
+        private fun setBluetooth(enable: Boolean) {
+            val candidates = if (enable) {
+                listOf(
+                    arrayOf("cmd", "bluetooth_manager", "enable"),
+                    arrayOf("svc", "bluetooth", "enable"),
+                    arrayOf("service", "call", "bluetooth_manager", "6"),
+                    arrayOf("service", "call", "bluetooth_manager", "8"),
+                )
+            } else {
+                listOf(
+                    arrayOf("cmd", "bluetooth_manager", "disable"),
+                    arrayOf("svc", "bluetooth", "disable"),
+                    arrayOf("service", "call", "bluetooth_manager", "8"),
+                    arrayOf("service", "call", "bluetooth_manager", "9"),
                 )
             }
             for (cmd in candidates) {
@@ -778,7 +811,7 @@ object InputServer {
                 val v = cmd.removePrefix(BRIGHTNESS_PREFIX).toIntOrNull()
                 return v != null && v in 0..255
             }
-            if (cmd.startsWith("cmd tethering") || cmd.startsWith("svc wifi") || cmd.startsWith("cmd wifi") || cmd.startsWith("svc bluetooth")) {
+            if (cmd.startsWith("cmd tethering") || cmd.startsWith("svc wifi") || cmd.startsWith("cmd wifi") || cmd.startsWith("svc bluetooth") || cmd.startsWith("cmd bluetooth_manager") || cmd.startsWith("service call bluetooth_manager")) {
                 return true
             }
             return false
@@ -791,6 +824,10 @@ object InputServer {
             "svc wifi disable",
             "svc bluetooth enable",
             "svc bluetooth disable",
+            "bluetooth on",
+            "bluetooth off",
+            "cmd bluetooth_manager enable",
+            "cmd bluetooth_manager disable",
             "hotspot on",
             "hotspot off",
             "cmd wifi start-softap",
@@ -843,7 +880,7 @@ object InputServer {
 
         // While a hardware keyboard is attached Android hides the on-screen
         // one, so the virtual keyboard only stays while the PC is typing.
-        private const val KEYBOARD_IDLE_MS = 1_000L
+        private const val KEYBOARD_IDLE_MS = 10_000L
         private val idle = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
             Thread(r, "nectarlink-uhid-idle").apply { isDaemon = true }
         }

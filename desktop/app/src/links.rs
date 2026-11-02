@@ -45,18 +45,31 @@ pub fn power_with_pin(action: PowerAction, pin: Option<&str>) -> Result<(), Stri
         PowerAction::Lock => shell::lock(),
         PowerAction::Sleep => shell::sleep(),
         PowerAction::Restart => shell::restart(),
-        PowerAction::Unlock => {
-            if !crate::settings::Settings::load(&crate::core_host::host().data_dir).unlock_pc_through_phone {
-                return Err("Unlock PC through phone is disabled in settings".into());
-            }
-            shell::unlock_with_pin(pin)
-        }
+        PowerAction::Unlock => shell::unlock_with_pin(pin),
+        PowerAction::BluetoothOn => shell::set_bluetooth(true),
+        PowerAction::BluetoothOff => shell::set_bluetooth(false),
+        PowerAction::BluetoothToggle => shell::toggle_bluetooth().map(|_| ()),
     }
 }
 
 /// Returns whether the PC workstation is locked.
 pub fn is_locked() -> bool {
     shell::is_locked()
+}
+
+/// Returns whether Windows Bluetooth is currently enabled.
+pub fn is_bluetooth_on() -> bool {
+    shell::is_bluetooth_on()
+}
+
+/// Sets Windows Bluetooth on or off.
+pub fn set_bluetooth(enable: bool) -> Result<(), String> {
+    shell::set_bluetooth(enable)
+}
+
+/// Toggles Windows Bluetooth and returns the new state.
+pub fn toggle_bluetooth() -> Result<bool, String> {
+    shell::toggle_bluetooth()
 }
 
 /// `text` as a link this app may open for someone else (a phone, or a Timeline entry

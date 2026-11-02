@@ -111,7 +111,7 @@
     <string name="elevated_pair_title">Pair NectarLink with Wireless debugging</string>
     <string name="elevated_pair_text">In Wireless debugging, tap Pair device with pairing code, then type the code here.</string>
     <string name="elevated_pair_action">Enter code</string>
-    <string name="elevated_pair_hint">6-digit code or port &amp; code (e.g. 37895 123456)</string>
+    <string name="elevated_pair_hint">6-digit pairing code</string>
     <string name="elevated_pairing">Pairing…</string>
     <string name="elevated_no_dialog">The pairing code isn\'t showing. In Wireless debugging, tap Pair device with pairing code, then type it here.</string>
     <string name="elevated_wrong_code">That code didn\'t work. Check it and type it again.</string>
@@ -451,6 +451,9 @@
     <string name="pc_audio_use_phone_mic">Use phone as microphone</string>
     <string name="pc_audio_use_phone_mic_sub">Send this phone\'s microphone to the PC</string>
     <string name="pc_audio_use_phone_mic_on">The PC hears this phone\'s microphone</string>
+    <string name="pc_audio_play_on_pc">Play phone audio on PC</string>
+    <string name="pc_audio_play_on_pc_sub">Stream phone audio to PC in high quality</string>
+    <string name="pc_audio_play_on_pc_on">Streaming 48 kHz HD audio to PC</string>
 
     <!-- Phone storage in File Explorer -->
     <string name="storage_all_files_title">All files access</string>

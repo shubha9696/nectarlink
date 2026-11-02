@@ -235,6 +235,40 @@ pub fn muted() -> bool {
     MUTED.load(Ordering::Relaxed)
 }
 
+static AUDIO_MODES: std::sync::Mutex<Option<std::collections::HashMap<DeviceId, String>>> = std::sync::Mutex::new(None);
+
+pub fn audio_mode(device: &DeviceId) -> String {
+    let map = AUDIO_MODES.lock().unwrap_or_else(|e| e.into_inner());
+    map.as_ref().and_then(|m| m.get(device).cloned()).unwrap_or_else(|| {
+        if muted() { "phone".into() } else { "pc".into() }
+    })
+}
+
+pub fn set_audio_mode(device: DeviceId, mode: String) {
+    {
+        let mut map = AUDIO_MODES.lock().unwrap_or_else(|e| e.into_inner());
+        map.get_or_insert_with(std::collections::HashMap::new).insert(device, mode.clone());
+    }
+    match mode.as_str() {
+        "phone" => set_muted(true),
+        "pc" | "both" => set_muted(false),
+        _ => {}
+    }
+    let mode_clone = mode.clone();
+    core_host::spawn(async move {
+        if let Some(node) = core_host::node() {
+            let _ = node
+                .phone_toggle_set(
+                    device,
+                    nectarlink_protocol::toggle_ids::AUDIO_MODE.into(),
+                    nectarlink_protocol::PhoneToggleValue::Mode(mode_clone),
+                )
+                .await;
+        }
+    });
+    core_host::host().hub.changed(Changes::MIRROR);
+}
+
 pub fn set_muted(muted: bool) {
     MUTED.store(muted, Ordering::Relaxed);
     core_host::host().hub.changed(Changes::MIRROR);
@@ -888,7 +922,7 @@ pub fn start_app(device: DeviceId, pkg: String, label: String) {
     request(
         window,
         MirrorStart {
-            audio: false,
+            audio: true,
             session: window.session,
             app: Some(pkg),
             stay_awake,
@@ -919,7 +953,7 @@ pub fn reopen(window: Window) {
     request(
         window,
         MirrorStart {
-            audio: false,
+            audio: true,
             session: window.session,
             app: Some(pkg),
             stay_awake,
@@ -964,7 +998,7 @@ fn request(window: Window, options: MirrorStart) {
                 Error::Denied => tr!("Mirror", "Mirroring is turned off for this phone."),
                 Error::Unsupported if app => tr!(
                     "Mirror",
-                    "Could not open apps. Update NectarLink on the phone."
+                    "Set up Wireless debugging in NectarLink on the phone to open its apps here."
                 ),
                 Error::Unsupported => {
                     tr!(
@@ -1152,7 +1186,7 @@ pub fn load_apps(device: DeviceId) {
             }
             Err(Error::Unsupported) => Apps::Failed(tr!(
                 "Mirror",
-                "Could not open apps. Update NectarLink on the phone."
+                "Set up Wireless debugging in NectarLink on the phone to open its apps here."
             )),
             Err(e) => Apps::Failed(describe(&e)),
         };
@@ -1771,6 +1805,22 @@ fn ensure_gamepad_loop() {
 /// stream of its own): only for mirrorings this PC asked for.
 pub fn sink(device: &DeviceId, session: u32) -> Option<Arc<dyn MirrorSink>> {
     let window = Window { device: *device, session };
+    if session == MIRROR_SCREEN {
+        let needs_show = phase(&window).map_or(true, |p| p == Phase::Asking);
+        if needs_show {
+            ffi::video_clear(&window.key());
+            state(|s| {
+                for (w, shown) in s.windows.iter_mut() {
+                    if w.device == *device && w.session != MIRROR_SCREEN && shown.phase == Phase::Asking {
+                        shown.phase = Phase::Ended(None);
+                    }
+                }
+                s.windows.insert(window, Shown { phase: Phase::Showing, app: None, pkg: None });
+            });
+            core_host::host().hub.changed(Changes::MIRROR);
+            return Some(Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>);
+        }
+    }
     matches!(phase(&window), Some(Phase::Asking | Phase::Showing))
         .then(|| Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>)
         // No window: the phone's sound on its own, if it was asked for.
@@ -1989,7 +2039,7 @@ fn decode(window: Window, items: &Receiver<Item>, waiting: &AtomicUsize) {
                 need_keyframe = true;
             }
             Item::Packet { keyframe, time_us, data } => {
-                let behind = waiting.fetch_sub(1, Ordering::AcqRel) > 8;
+                let behind = waiting.fetch_sub(1, Ordering::AcqRel) > 1;
                 if need_keyframe && !keyframe {
                     continue;
                 }

@@ -59,6 +59,7 @@ class SoundCapture(
                     .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
                     .addMatchingUsage(AudioAttributes.USAGE_GAME)
                     .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                    .excludeUid(android.os.Process.myUid())
                     .build()
                 val format = AudioFormat.Builder()
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
@@ -105,7 +106,10 @@ class SoundCapture(
                 }
                 if (!running) return
                 val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
-                if (dualPlayback) {
+                if (soundMode != 2) {
+                    if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) return
+                }
+                if (soundMode == 1 || soundMode == 2) {
                     if (localPlayerTrack == null) {
                         runCatching {
                             val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
@@ -122,7 +126,6 @@ class SoundCapture(
                     runCatching { localPlayerTrack?.stop(); localPlayerTrack?.release() }
                     localPlayerTrack = null
                 }
-                if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) return
             }
         } catch (e: Exception) {
             Log.w(TAG, "sound capture stopped", e)
@@ -164,7 +167,10 @@ class SoundCapture(
                     if (stream.send(VideoPacketKind.CONFIG, 0u, mirrorAudioConfig(RATE.toUInt(), CHANNELS.toUByte())) == MirrorSendResult.CLOSED) return
                 }
                 val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
-                if (dualPlayback) {
+                if (soundMode != 2) {
+                    if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) return
+                }
+                if (soundMode == 1 || soundMode == 2) {
                     if (localPlayerTrack == null) {
                         runCatching {
                             val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
@@ -177,8 +183,10 @@ class SoundCapture(
                         }
                     }
                     localPlayerTrack?.write(packet, 0, packet.size, AudioTrack.WRITE_NON_BLOCKING)
+                } else if (localPlayerTrack != null) {
+                    runCatching { localPlayerTrack?.stop(); localPlayerTrack?.release() }
+                    localPlayerTrack = null
                 }
-                if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) return
             }
         } catch (e: Exception) {
             if (running) Log.w(TAG, "elevated sound capture stopped", e)
@@ -205,7 +213,20 @@ class SoundCapture(
         private const val CHANNELS = 2
         /** 10 ms of 16-bit stereo. */
         private const val PACKET_BYTES = RATE / 100 * CHANNELS * 2
-        @Volatile var dualPlayback: Boolean = true
+        // 0: PC only, 1: Both (PC & Phone), 2: Phone only
+        @Volatile var soundMode: Int = 0
+
+        @Volatile var dualPlayback: Boolean
+            get() = soundMode == 1
+            set(v) { soundMode = if (v) 1 else 0 }
+
+        fun setMode(mode: String) {
+            soundMode = when (mode.lowercase()) {
+                "sound_mode:pc", "pc" -> 0
+                "sound_mode:phone", "phone" -> 2
+                else -> 1 // both
+            }
+        }
 
         /** Whether this phone can share its sound (Elevated helper or Android 10+ with RECORD_AUDIO). */
         fun canCapture(context: Context): Boolean =

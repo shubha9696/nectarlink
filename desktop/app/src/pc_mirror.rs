@@ -1534,6 +1534,7 @@ mod imp {
     ) -> Option<(u32, u32)> {
         // SAFETY: Win32 GDI device context and bitmap calls with balanced cleanup.
         unsafe {
+            crate::win::input::sync_input_desktop();
             let hdc_screen = GetDC(None);
             if hdc_screen.is_invalid() {
                 return None;
@@ -2457,6 +2458,17 @@ mod imp {
                             |e| tracing::info!(error = %e, "can't capture the window; capturing the screen"),
                         )
                         .ok();
+                }
+            }
+
+            #[cfg(windows)]
+            if crate::win::input::sync_input_desktop() {
+                force_keyframe.store(true, Ordering::SeqCst);
+                let (src_w, src_h) = primary_screen_dimensions();
+                let dims = target_dimensions(src_w, src_h, options.max_size);
+                if stream_dims != Some(dims) {
+                    stream_dims = Some(dims);
+                    encoder = None;
                 }
             }
 

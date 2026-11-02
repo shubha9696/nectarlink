@@ -1,21 +1,27 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 package app.nectarlink.android.clipboard
 
-import android.content.Intent
+import android.os.Build
+import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import app.nectarlink.android.NectarlinkApplication
-import app.nectarlink.android.ui.MainActivity
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
+/** The "Lock PC" Quick Settings tile. */
 class LockPcTileService : TileService() {
-    private val scope = CoroutineScope(Dispatchers.IO)
+    override fun onStartListening() {
+        super.onStartListening()
+        val app = application as? NectarlinkApplication ?: return
+        val online = app.core.state.value.devices.any { it.online }
+        qsTile?.state = if (online) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        qsTile?.updateTile()
+    }
 
     override fun onClick() {
         super.onClick()
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        startActivityAndCollapse(intent)
+        val app = application as? NectarlinkApplication ?: return
+        val core = app.core
+        val pc = core.state.value.devices.firstOrNull { it.online } ?: core.state.value.devices.firstOrNull() ?: return
+        core.pcPower(pc.id, sleep = false)
     }
 }
+

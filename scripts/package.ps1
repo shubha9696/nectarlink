@@ -133,6 +133,19 @@ New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item $exe $stage
 Copy-Item $vcamDll $stage
 
+# Build / stage unlock_helper.exe if unlock_helper.cs exists
+$unlockHelperCs = Join-Path $root 'unlock_helper.cs'
+$unlockHelperExe = Join-Path $root 'unlock_helper.exe'
+if (Test-Path $unlockHelperCs) {
+    $csc = 'C:\Windows\Microsoft.NET\Framework644.0.30319\csc.exe'
+    if (Test-Path $csc) {
+        & $csc /optimize+ /target:winexe /out:$unlockHelperExe $unlockHelperCs 2>$null | Out-Null
+    }
+}
+if (Test-Path $unlockHelperExe) {
+    Copy-Item $unlockHelperExe $stage
+}
+
 Invoke-Native "windeployqt" {
     $deployArgs = @(
         '--verbose', '0',

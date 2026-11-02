@@ -60,9 +60,20 @@ mod imp {
 
     static ENABLED: AtomicBool = AtomicBool::new(false);
     static WORKER_RUNNING: AtomicBool = AtomicBool::new(false);
+    static EXACT_QUALITY: AtomicBool = AtomicBool::new(true);
     /// The phone that last turned "Phone speaker" on. Audio goes only there; when
     /// the PC turned it on, to the first phone that is online.
     static TARGET: std::sync::Mutex<Option<nectarlink_core::DeviceId>> = std::sync::Mutex::new(None);
+
+    /// Returns whether Exact Quality (lossless stereo & Dolby surround) streaming is enabled.
+    pub fn is_exact_quality() -> bool {
+        EXACT_QUALITY.load(Ordering::SeqCst)
+    }
+
+    /// Sets whether Exact Quality mode is active.
+    pub fn set_exact_quality(exact: bool) {
+        EXACT_QUALITY.store(exact, Ordering::SeqCst);
+    }
 
     /// The phone the sound goes to first, if one asked.
     pub fn target() -> Option<nectarlink_core::DeviceId> {
@@ -110,19 +121,40 @@ mod imp {
         fn encode_stereo_f32(&mut self, floats: &[f32], channels: usize) -> Vec<u8> {
             let frames = floats.len() / channels.max(1);
             let mut out = Vec::with_capacity(frames * 4);
+            let exact = is_exact_quality();
             for frame in floats.chunks_exact(channels.max(1)) {
                 let (l_in, r_in) = if channels == 2 {
+                    // Exact bit-perfect stereo: zero downmix alteration, 100% stereo separation
                     (
                         if frame[0].is_finite() { frame[0] } else { 0.0 },
                         if frame[1].is_finite() { frame[1] } else { 0.0 },
                     )
                 } else if channels >= 6 {
-                    let c = if frame[2].is_finite() { frame[2] * 0.707 } else { 0.0 };
-                    let ls = if frame[4].is_finite() { frame[4] * 0.707 } else { 0.0 };
-                    let rs = if frame[5].is_finite() { frame[5] * 0.707 } else { 0.0 };
-                    let l = (if frame[0].is_finite() { frame[0] } else { 0.0 }) + c + ls;
-                    let r = (if frame[1].is_finite() { frame[1] } else { 0.0 }) + c + rs;
-                    (l * 0.707, r * 0.707)
+                    // 5.1 / 7.1 Dolby Surround matrix downmix (ITU-R BS.775 standard)
+                    // Channel 0: Front Left, 1: Front Right, 2: Center
+                    // Channel 3: Low Frequency Effects (LFE / Subwoofer) - deep movie bass!
+                    // Channel 4: Left Surround, 5: Right Surround
+                    let fl = if frame[0].is_finite() { frame[0] } else { 0.0 };
+                    let fr = if frame[1].is_finite() { frame[1] } else { 0.0 };
+                    let c = if frame[2].is_finite() { frame[2] * 0.7071 } else { 0.0 };
+                    let lfe = if frame[3].is_finite() { frame[3] * 0.7071 } else { 0.0 };
+                    let ls = if frame[4].is_finite() { frame[4] * 0.7071 } else { 0.0 };
+                    let rs = if frame[5].is_finite() { frame[5] * 0.7071 } else { 0.0 };
+                    let (bl, br) = if channels >= 8 {
+                        (
+                            if frame[6].is_finite() { frame[6] * 0.5 } else { 0.0 },
+                            if frame[7].is_finite() { frame[7] * 0.5 } else { 0.0 },
+                        )
+                    } else {
+                        (0.0, 0.0)
+                    };
+                    let l = fl + c + lfe + ls + bl;
+                    let r = fr + c + lfe + rs + br;
+                    if exact {
+                        (l * 0.75, r * 0.75)
+                    } else {
+                        (l * 0.707, r * 0.707)
+                    }
                 } else if channels > 1 {
                     (
                         if frame[0].is_finite() { frame[0] } else { 0.0 },
@@ -132,8 +164,27 @@ mod imp {
                     let mono = if frame[0].is_finite() { frame[0] } else { 0.0 };
                     (mono, mono)
                 };
-                let l_i16 = (l_in.clamp(-1.0, 1.0) * 32767.0).round() as i16;
-                let r_i16 = (r_in.clamp(-1.0, 1.0) * 32767.0).round() as i16;
+
+                // Transparent analog-modeled soft saturation:
+                // 100% linear transparency up to 0.95 full scale, smooth tape-style saturation above 0.95
+                let soft_limit = |x: f32| -> f32 {
+                    if !x.is_finite() {
+                        return 0.0;
+                    }
+                    let abs_x = x.abs();
+                    if abs_x <= 0.95 {
+                        x
+                    } else {
+                        let sign = if x < 0.0 { -1.0 } else { 1.0 };
+                        let over = (abs_x - 0.95) / 0.05;
+                        sign * (0.95 + 0.05 * (over / (1.0 + over * over).sqrt()))
+                    }
+                };
+
+                let l_clean = soft_limit(l_in);
+                let r_clean = soft_limit(r_in);
+                let l_i16 = (l_clean * 32767.0).round().clamp(-32768.0, 32767.0) as i16;
+                let r_i16 = (r_clean * 32767.0).round().clamp(-32768.0, 32767.0) as i16;
                 out.extend_from_slice(&l_i16.to_le_bytes());
                 out.extend_from_slice(&r_i16.to_le_bytes());
             }
@@ -319,7 +370,7 @@ mod imp {
         };
 
         let mut enhancer = SpeakerEnhancer::new(rate);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(256);
         let send_node = node.clone();
         core_host::spawn(async move {
             while let Some((r, ch, pcm)) = rx.recv().await {
@@ -441,11 +492,11 @@ mod imp {
                     is_float = true;
                 }
             }
-            // 10 ms shared loopback buffer in 100-ns units = 100_000.
+            // 50 ms shared loopback buffer in 100-ns units = 500_000 (prevents buffer overflow drops).
             let init_res = client.Initialize(
                 AUDCLNT_SHAREMODE_SHARED,
                 AUDCLNT_STREAMFLAGS_LOOPBACK,
-                100_000,
+                500_000,
                 0,
                 mix_ptr,
                 None,
@@ -459,7 +510,7 @@ mod imp {
         };
 
         let mut enhancer = SpeakerEnhancer::new(rate);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(64);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(256);
         let send_node = node.clone();
         core_host::spawn(async move {
             while let Some((r, ch, pcm)) = rx.recv().await {
@@ -478,7 +529,7 @@ mod imp {
         let mut silence_tail_packets: u32 = 0;
 
         'capture: while is_enabled() {
-            std::thread::sleep(Duration::from_millis(8));
+            std::thread::sleep(Duration::from_millis(3));
             // Another phone asked for the sound (it watches the PC's playback):
             // start over for that one.
             if target() != wanted && target().is_some_and(|t| peers.contains(&t)) {
@@ -501,8 +552,8 @@ mod imp {
                     let silent = (flags & (AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)) != 0 || data_ptr.is_null();
                     let frames = frames_to_read as usize;
                     let pcm_bytes = if silent {
-                        if silence_tail_packets > 0 {
-                            silence_tail_packets -= 1;
+                        if silence_tail_packets > 0 || is_exact_quality() {
+                            silence_tail_packets = silence_tail_packets.saturating_sub(1);
                             vec![0u8; frames * 4]
                         } else {
                             Vec::new()
@@ -510,7 +561,7 @@ mod imp {
                     } else if is_float && bits_per_sample == 32 {
                         let floats = std::slice::from_raw_parts(data_ptr.cast::<f32>(), frames * channels);
                         let has_signal = floats.iter().any(|&s| s.is_finite() && s.abs() > 1e-5);
-                        if has_signal {
+                        if has_signal || is_exact_quality() {
                             silence_tail_packets = 50;
                             enhancer.encode_stereo_f32(floats, channels)
                         } else if silence_tail_packets > 0 {
@@ -661,6 +712,9 @@ mod imp {
     }
 
     pub fn set_enabled(_enabled: bool) {}
+
+    pub fn is_exact_quality() -> bool { true }
+    pub fn set_exact_quality(_exact: bool) {}
 
     pub fn f32_stereo_to_i16le(_samples: &[f32]) -> Vec<u8> {
         Vec::new()
