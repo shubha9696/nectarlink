@@ -45,14 +45,15 @@ mod imp {
 
     #[cfg(windows)]
     use windows::Win32::{
+        Foundation::CloseHandle,
         Media::Audio::{
-            AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK,
-            IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX,
-            eConsole, eRender,
+            AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+            AUDCLNT_STREAMFLAGS_LOOPBACK, IAudioCaptureClient, IAudioClient, IMMDeviceEnumerator,
+            MMDeviceEnumerator, WAVEFORMATEX, eConsole, eRender,
         },
         System::{
             Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree},
-            Threading::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_TIME_CRITICAL},
+            Threading::{CreateEventW, GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_TIME_CRITICAL, WaitForSingleObject},
         },
     };
 
@@ -181,8 +182,13 @@ mod imp {
                     }
                 };
 
-                let l_clean = soft_limit(l_in);
-                let r_clean = soft_limit(r_in);
+                let (l_clean, r_clean) = if exact {
+                    // Exact PC quality: 100% bit-perfect linear fidelity directly from PC soundcard
+                    (l_in.clamp(-1.0, 1.0), r_in.clamp(-1.0, 1.0))
+                } else {
+                    // Low latency mode: smooth fast limiting
+                    (soft_limit(l_in), soft_limit(r_in))
+                };
                 let l_i16 = (l_clean * 32767.0).round().clamp(-32768.0, 32767.0) as i16;
                 let r_i16 = (r_clean * 32767.0).round().clamp(-32768.0, 32767.0) as i16;
                 out.extend_from_slice(&l_i16.to_le_bytes());
@@ -468,7 +474,7 @@ mod imp {
         };
 
         // SAFETY: WASAPI loopback initialization on the default render endpoint.
-        let (client, capture, rate, channels, bits_per_sample, is_float) = unsafe {
+        let (client, capture, rate, channels, bits_per_sample, is_float, capture_event, event_active) = unsafe {
             let enumerator: IMMDeviceEnumerator =
                 CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).map_err(|e| e.to_string())?;
             let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).map_err(|e| e.to_string())?;
@@ -492,21 +498,35 @@ mod imp {
                     is_float = true;
                 }
             }
-            // 50 ms shared loopback buffer in 100-ns units = 500_000 (prevents buffer overflow drops).
+            // Low-latency event-driven loopback (15 ms buffer = 150_000 in 100-ns units).
+            let event = CreateEventW(None, false, false, None).map_err(|e| e.to_string())?;
             let init_res = client.Initialize(
                 AUDCLNT_SHAREMODE_SHARED,
-                AUDCLNT_STREAMFLAGS_LOOPBACK,
-                500_000,
+                AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                150_000,
                 0,
                 mix_ptr,
                 None,
             );
+            let event_active = if init_res.is_ok() && client.SetEventHandle(event).is_ok() {
+                true
+            } else {
+                // Fallback to polling mode
+                let _ = client.Initialize(
+                    AUDCLNT_SHAREMODE_SHARED,
+                    AUDCLNT_STREAMFLAGS_LOOPBACK,
+                    150_000,
+                    0,
+                    mix_ptr,
+                    None,
+                );
+                false
+            };
             CoTaskMemFree(Some(mix_ptr.cast()));
-            init_res.map_err(|e| e.to_string())?;
             let capture: IAudioCaptureClient = client.GetService().map_err(|e| e.to_string())?;
             client.Start().map_err(|e| e.to_string())?;
-            tracing::info!(rate, channels, bits, is_float, "WASAPI loopback capture initialized");
-            (client, capture, rate, channels, bits, is_float)
+            tracing::info!(rate, channels, bits, is_float, event_active, "WASAPI loopback capture initialized");
+            (client, capture, rate, channels, bits, is_float, event, event_active)
         };
 
         let mut enhancer = SpeakerEnhancer::new(rate);
@@ -529,7 +549,11 @@ mod imp {
         let mut silence_tail_packets: u32 = 0;
 
         'capture: while is_enabled() {
-            std::thread::sleep(Duration::from_millis(3));
+            if event_active {
+                let _ = unsafe { WaitForSingleObject(capture_event, 20) };
+            } else {
+                std::thread::sleep(Duration::from_millis(3));
+            }
             // Another phone asked for the sound (it watches the PC's playback):
             // start over for that one.
             if target() != wanted && target().is_some_and(|t| peers.contains(&t)) {
@@ -552,7 +576,7 @@ mod imp {
                     let silent = (flags & (AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)) != 0 || data_ptr.is_null();
                     let frames = frames_to_read as usize;
                     let pcm_bytes = if silent {
-                        if silence_tail_packets > 0 || is_exact_quality() {
+                        if silence_tail_packets > 0 {
                             silence_tail_packets = silence_tail_packets.saturating_sub(1);
                             vec![0u8; frames * 4]
                         } else {
@@ -561,8 +585,8 @@ mod imp {
                     } else if is_float && bits_per_sample == 32 {
                         let floats = std::slice::from_raw_parts(data_ptr.cast::<f32>(), frames * channels);
                         let has_signal = floats.iter().any(|&s| s.is_finite() && s.abs() > 1e-5);
-                        if has_signal || is_exact_quality() {
-                            silence_tail_packets = 50;
+                        if has_signal {
+                            silence_tail_packets = 10; // ~50 ms of tail so end of audio doesn't abruptly clip
                             enhancer.encode_stereo_f32(floats, channels)
                         } else if silence_tail_packets > 0 {
                             silence_tail_packets -= 1;

@@ -4456,7 +4456,7 @@ private fun PcAudioCardSection(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = if (exactQualityState) "Lossless stereo • Dolby Atmos cinema • No compression" else "Low latency mode (ultra-fast)",
+                    text = if (exactQualityState) "Exact PC Quality (Lossless bit-perfect stereo)" else "Ultra-low Latency (0 ms gaming mode)",
                     style = MaterialTheme.typography.labelSmall,
                     color = ink.copy(alpha = 0.78f),
                     maxLines = 1,

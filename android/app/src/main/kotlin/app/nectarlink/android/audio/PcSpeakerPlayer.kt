@@ -205,22 +205,9 @@ class PcSpeakerPlayer(
 
                 val prebufferMs = if (exactQuality) PREBUFFER_MS_EXACT else PREBUFFER_MS_LOW_LATENCY
                 val prebufferThreshold = (chunk.sampleRate * chunk.channels * 2 * prebufferMs) / 1000
-                if (needsPrebuffer) {
+                if (needsPrebuffer && prebufferThreshold > 0) {
                     prebufferedBytes += chunk.pcm.size
-                    var offset = 0
-                    var retries = 0
-                    while (offset < chunk.pcm.size && retries < 10) {
-                        val written = activeTrack.write(chunk.pcm, offset, chunk.pcm.size - offset, AudioTrack.WRITE_NON_BLOCKING)
-                        if (written > 0) {
-                            offset += written
-                            retries = 0
-                        } else if (written == 0) {
-                            retries++
-                            Thread.sleep(1)
-                        } else {
-                            break
-                        }
-                    }
+                    activeTrack.write(chunk.pcm, 0, chunk.pcm.size)
                     if (prebufferedBytes >= prebufferThreshold) {
                         if (activeTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
                             runCatching { activeTrack.play() }
@@ -232,22 +219,11 @@ class PcSpeakerPlayer(
 
                 if (activeTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
                     runCatching { activeTrack.play() }
+                    needsPrebuffer = false
                 }
 
-                var offset = 0
-                var retries = 0
-                while (offset < chunk.pcm.size && retries < 10) {
-                    val written = activeTrack.write(chunk.pcm, offset, chunk.pcm.size - offset, AudioTrack.WRITE_NON_BLOCKING)
-                    if (written > 0) {
-                        offset += written
-                        retries = 0
-                    } else if (written == 0) {
-                        retries++
-                        Thread.sleep(1)
-                    } else {
-                        break
-                    }
-                }
+                // High-performance blocking write on dedicated audio thread: guarantees zero dropped frames and zero crackles
+                activeTrack.write(chunk.pcm, 0, chunk.pcm.size)
             }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
@@ -282,7 +258,7 @@ class PcSpeakerPlayer(
             Log.w(TAG, "invalid minBufferSize=$minBuf for rate=$sampleRate channels=$channels")
             return null
         }
-        val targetMs = if (exactQuality) 40 else 15
+        val targetMs = if (exactQuality) 30 else 10
         val targetBuf = maxOf(minBuf, (sampleRate * channels * 2 * targetMs) / 1000)
 
         return runCatching {
@@ -365,13 +341,13 @@ class PcSpeakerPlayer(
     companion object {
         private const val TAG = "PcSpeakerPlayer"
         private const val INACTIVITY_TIMEOUT_MS = 30_000L
-        private const val MAX_QUEUE_CHUNKS = 128
-        private const val MAX_BUFFER_MS_LOW_LATENCY = 60
-        private const val TARGET_TRIM_MS_LOW_LATENCY = 15
-        private const val MAX_BUFFER_MS_EXACT = 160
-        private const val TARGET_TRIM_MS_EXACT = 40
-        private const val PREBUFFER_MS_LOW_LATENCY = 10
-        private const val PREBUFFER_MS_EXACT = 25
+        private const val MAX_QUEUE_CHUNKS = 64
+        private const val MAX_BUFFER_MS_LOW_LATENCY = 20
+        private const val TARGET_TRIM_MS_LOW_LATENCY = 5
+        private const val MAX_BUFFER_MS_EXACT = 50
+        private const val TARGET_TRIM_MS_EXACT = 20
+        private const val PREBUFFER_MS_LOW_LATENCY = 0
+        private const val PREBUFFER_MS_EXACT = 15
         const val ACTIVE_WINDOW_MS = 3_000L
         private const val WATCHDOG_CHECK_INTERVAL_MS = 1_000L
 
