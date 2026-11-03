@@ -419,8 +419,24 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                 NectarlinkNode.start(options, platform, KeystoreKeyProtector(), this@Core)
             } catch (e: NectarlinkException) {
                 Log.e(TAG, "core failed to start", e)
-                _state.update { it.copy(status = CoreStatus.Failed(e.message ?: e.javaClass.simpleName)) }
-                return@launch
+                if (e.message?.contains("device key") == true || e.message?.contains("keystore") == true) {
+                    Log.w(TAG, "recovering from keystore / device key invalidation; resetting stale key file")
+                    runCatching {
+                        java.io.File(options.dataDir, "device.key").delete()
+                        val store = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                        store.deleteEntry("nectarlink.identity.v1")
+                    }
+                    try {
+                        NectarlinkNode.start(options, platform, KeystoreKeyProtector(), this@Core)
+                    } catch (e2: Exception) {
+                        Log.e(TAG, "core retry failed after key reset", e2)
+                        _state.update { it.copy(status = CoreStatus.Failed(e2.message ?: e2.javaClass.simpleName)) }
+                        return@launch
+                    }
+                } else {
+                    _state.update { it.copy(status = CoreStatus.Failed(e.message ?: e.javaClass.simpleName)) }
+                    return@launch
+                }
             }
             if (!currentRun.isActive || startGuard.isCancelled(token)) {
                 shutdownAndCloseNode(started)

@@ -58,7 +58,19 @@ pub fn default_protector() -> Arc<dyn KeyProtector> {
 pub(crate) fn load_or_create(dir: &Path, protector: &dyn KeyProtector) -> Result<SecretKey> {
     let path = dir.join(FILE_NAME);
     match fs::read(&path) {
-        Ok(bytes) => decode(&bytes, protector),
+        Ok(bytes) => match decode(&bytes, protector) {
+            Ok(key) => Ok(key),
+            Err(e) => {
+                tracing::warn!(error = %e, "existing device key could not be unlocked or is corrupt; regenerating fresh identity");
+                let key = SecretKey::generate();
+                if protector.id() == 0 {
+                    tracing::warn!("device key is stored without platform protection");
+                }
+                write_atomically(&path, &encode(&key, protector)?)?;
+                tracing::info!(device = %crate::device_id(&key.public()).short(), "recreated device identity");
+                Ok(key)
+            }
+        },
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             let key = SecretKey::generate();
             if protector.id() == 0 {

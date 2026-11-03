@@ -19,9 +19,15 @@ import javax.crypto.spec.GCMParameterSpec
 class KeystoreKeyProtector : KeyProtector {
 
     override fun protect(plaintext: ByteArray): ByteArray = guard {
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, key())
-        cipher.iv + cipher.doFinal(plaintext)
+        try {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, key())
+            cipher.iv + cipher.doFinal(plaintext)
+        } catch (_: java.security.InvalidKeyException) {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, resetKey())
+            cipher.iv + cipher.doFinal(plaintext)
+        }
     }
 
     override fun unprotect(ciphertext: ByteArray): ByteArray = guard {
@@ -34,6 +40,14 @@ class KeystoreKeyProtector : KeyProtector {
     private fun key(): SecretKey {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+        return resetKey()
+    }
+
+    private fun resetKey(): SecretKey {
+        runCatching {
+            val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
+            store.deleteEntry(ALIAS)
+        }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
         generator.init(
             KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
