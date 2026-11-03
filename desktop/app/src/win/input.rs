@@ -504,7 +504,8 @@ pub fn type_text(text: &str) {
         let units = ch.encode_utf16(&mut buf);
         for &unit in units.iter() {
             let vk_scan = unsafe { VkKeyScanW(unit) };
-            if vk_scan != -1 {
+            let ctrl_or_alt = (vk_scan != -1) && (((vk_scan >> 8) & 6) != 0);
+            if vk_scan != -1 && !ctrl_or_alt {
                 let vk = (vk_scan & 0xFF) as u16;
                 let shift = ((vk_scan >> 8) & 1) != 0;
                 if shift {

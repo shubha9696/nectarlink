@@ -129,6 +129,9 @@
         <intent>
             <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
         </intent>
+        <package android:name="com.google.android.googlequicksearchbox" />
+        <package android:name="com.google.android.tts" />
+        <package android:name="com.google.android.as" />
     </queries>
 
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />

@@ -15,6 +15,10 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.ComponentName
+import java.util.Locale
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -1025,14 +1029,18 @@ private fun VoiceTypingBar(
     val context = LocalContext.current
     var state by remember(pcId) { mutableStateOf<DictateState>(DictateState.Idle()) }
     var recognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
-    var preferOnDevice by remember { mutableStateOf(true) }
+    var currentPartial by remember { mutableStateOf("") }
 
     fun destroyRecognizer() {
-        runCatching {
-            recognizer?.cancel()
-            recognizer?.destroy()
-        }
+        val sr = recognizer
         recognizer = null
+        if (sr != null) {
+            runCatching {
+                sr.stopListening()
+                sr.cancel()
+                sr.destroy()
+            }
+        }
     }
 
     DisposableEffect(pcId) {
@@ -1041,7 +1049,7 @@ private fun VoiceTypingBar(
         }
     }
 
-    fun startRecognition(allowOnDevice: Boolean = preferOnDevice) {
+    fun startRecognition() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
             PackageManager.PERMISSION_GRANTED
         ) {
@@ -1050,23 +1058,34 @@ private fun VoiceTypingBar(
         }
 
         destroyRecognizer()
-
-        val useOnDevice = allowOnDevice &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(context) }.getOrDefault(false)
-
-        val defaultAvailable = runCatching { SpeechRecognizer.isRecognitionAvailable(context) }.getOrDefault(false)
-        if (!useOnDevice && !defaultAvailable) {
-            state = DictateState.Error(DictateError.NoRecognizer)
-            return
-        }
+        currentPartial = ""
 
         val sr = runCatching {
-            if (useOnDevice && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // 1. Standard speech recognizer (uses Google voice engine / system default)
+            if (SpeechRecognizer.isRecognitionAvailable(context)) {
+                SpeechRecognizer.createSpeechRecognizer(context)
+            } else {
+                null
+            }
+        }.getOrNull() ?: runCatching {
+            // 2. Explicit Google recognition service component
+            val comp = ComponentName(
+                "com.google.android.googlequicksearchbox",
+                "com.google.android.voicesearch.serviceapi.GoogleRecognitionService",
+            )
+            SpeechRecognizer.createSpeechRecognizer(context, comp)
+        }.getOrNull() ?: runCatching {
+            // 3. Fallback on-device recognizer on API 33+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+            ) {
                 SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
             } else {
-                SpeechRecognizer.createSpeechRecognizer(context)
+                null
             }
+        }.getOrNull() ?: runCatching {
+            // 4. Fallback direct createSpeechRecognizer
+            SpeechRecognizer.createSpeechRecognizer(context)
         }.getOrNull()
 
         if (sr == null) {
@@ -1074,13 +1093,9 @@ private fun VoiceTypingBar(
             return
         }
 
-        var readyForSpeech = false
-        var latestPartial = ""
-
         sr.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                readyForSpeech = true
-                state = DictateState.Listening(partial = latestPartial)
+                state = DictateState.Listening(partial = currentPartial)
             }
 
             override fun onBeginningOfSpeech() {}
@@ -1095,7 +1110,7 @@ private fun VoiceTypingBar(
                     ?.let { UtteranceJoiner.sanitizeUtterance(it) }
                     .orEmpty()
                 if (partial.isNotEmpty()) {
-                    latestPartial = partial
+                    currentPartial = partial
                     state = DictateState.Listening(partial = partial)
                 }
             }
@@ -1105,7 +1120,13 @@ private fun VoiceTypingBar(
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
                     ?.takeIf { it.isNotBlank() }
-                    ?: latestPartial
+                    ?: currentPartial
+                destroyRecognizer()
+                currentPartial = ""
+                if (raw.isBlank()) {
+                    state = DictateState.Error(DictateError.NoSpeech)
+                    return
+                }
                 val joined = utteranceJoiner.next(raw)
                 if (joined.isEmpty()) {
                     state = DictateState.Error(DictateError.NoSpeech)
@@ -1113,6 +1134,10 @@ private fun VoiceTypingBar(
                 }
                 val preview = joined.trimStart()
                 state = DictateState.Typing(preview)
+                runCatching {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    cm?.setPrimaryClip(ClipData.newPlainText("voice_typing", preview))
+                }
                 core.remoteText(pcId, joined) { access ->
                     onStatus(access)
                     state = DictateState.Idle(lastTyped = preview)
@@ -1120,22 +1145,18 @@ private fun VoiceTypingBar(
             }
 
             override fun onError(error: Int) {
-                // If the on-device recognizer fails before speech begins (e.g. its
-                // offline model isn't downloaded), fall back to the default service.
-                if (useOnDevice && !readyForSpeech) {
-                    preferOnDevice = false
-                    if (defaultAvailable) {
-                        startRecognition(allowOnDevice = false)
-                        return
-                    }
-                }
-                if (latestPartial.isNotBlank() &&
-                    (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
-                ) {
-                    val joined = utteranceJoiner.next(latestPartial)
+                val captured = currentPartial
+                destroyRecognizer()
+                currentPartial = ""
+                if (captured.isNotBlank()) {
+                    val joined = utteranceJoiner.next(captured)
                     if (joined.isNotEmpty()) {
                         val preview = joined.trimStart()
                         state = DictateState.Typing(preview)
+                        runCatching {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            cm?.setPrimaryClip(ClipData.newPlainText("voice_typing", preview))
+                        }
                         core.remoteText(pcId, joined) { access ->
                             onStatus(access)
                             state = DictateState.Idle(lastTyped = preview)
@@ -1154,11 +1175,7 @@ private fun VoiceTypingBar(
                     SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT ->
                         DictateState.Error(DictateError.NoRecognizer)
                     else ->
-                        if (!readyForSpeech && error != SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
-                            DictateState.Error(DictateError.NoRecognizer)
-                        } else {
-                            DictateState.Error(DictateError.Failed)
-                        }
+                        DictateState.Error(DictateError.Failed)
                 }
             }
 
@@ -1167,7 +1184,13 @@ private fun VoiceTypingBar(
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            val localeTag = Locale.getDefault().toLanguageTag()
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
+            putExtra("android.speech.extra.DICTATION_MODE", true)
         }
 
         recognizer = sr
@@ -1181,12 +1204,28 @@ private fun VoiceTypingBar(
     }
 
     fun stopRecognition() {
-        val sr = recognizer
-        if (sr != null) {
-            runCatching { sr.stopListening() }
-        } else if (state is DictateState.Listening) {
-            state = DictateState.Idle()
+        val captured = currentPartial.trim().ifEmpty {
+            (state as? DictateState.Listening)?.partial?.trim().orEmpty()
         }
+        destroyRecognizer()
+        currentPartial = ""
+        if (captured.isNotEmpty()) {
+            val joined = utteranceJoiner.next(captured)
+            if (joined.isNotEmpty()) {
+                val preview = joined.trimStart()
+                state = DictateState.Typing(preview)
+                runCatching {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    cm?.setPrimaryClip(ClipData.newPlainText("voice_typing", preview))
+                }
+                core.remoteText(pcId, joined) { access ->
+                    onStatus(access)
+                    state = DictateState.Idle(lastTyped = preview)
+                }
+                return
+            }
+        }
+        state = DictateState.Idle()
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -1263,9 +1302,24 @@ private fun VoiceTypingBar(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+
+                if (state is DictateState.Idle && (state as DictateState.Idle).lastTyped != null) {
+                    Spacer(Modifier.height(4.dp))
+                    FilledTonalButton(
+                        onClick = {
+                            core.remoteKey(pcId, "paste", emptyList(), onStatus)
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.remote_key_paste),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
             }
 
-            // Dictate button: supports both tap to start/stop and hold to talk.
             val currentIsListening by rememberUpdatedState(isListening)
             val buttonBg = if (isListening) {
                 MaterialTheme.colorScheme.primary
@@ -1287,62 +1341,21 @@ private fun VoiceTypingBar(
                 contentColor = buttonFg,
                 modifier = Modifier
                     .height(40.dp)
-                    .semantics(mergeDescendants = true) {
-                        role = Role.Button
-                        contentDescription = dictateLabel
-                        onClick(label = dictateLabel) {
-                            if (currentIsListening) {
-                                stopRecognition()
-                            } else if (
-                                ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.RECORD_AUDIO,
-                                ) == PackageManager.PERMISSION_GRANTED
-                            ) {
-                                startRecognition()
-                            } else {
-                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            }
-                            true
-                        }
-                    }
-                    .pointerInput(pcId) {
-                        val holdThresholdMs = 350L
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            val downTime = System.currentTimeMillis()
-                            val wasListening = currentIsListening
-
-                            if (wasListening) {
-                                while (true) {
-                                    val ev = awaitPointerEvent()
-                                    if (ev.changes.none { it.pressed }) break
-                                }
-                                stopRecognition()
-                            } else {
-                                val hasPerm = ContextCompat.checkSelfPermission(
-                                    context,
-                                    Manifest.permission.RECORD_AUDIO,
-                                ) == PackageManager.PERMISSION_GRANTED
-
-                                if (!hasPerm) {
-                                    while (true) {
-                                        val ev = awaitPointerEvent()
-                                        if (ev.changes.none { it.pressed }) break
-                                    }
-                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                } else {
-                                    startRecognition()
-                                    while (true) {
-                                        val ev = awaitPointerEvent()
-                                        if (ev.changes.none { it.pressed }) break
-                                    }
-                                    val heldMs = System.currentTimeMillis() - downTime
-                                    if (heldMs >= holdThresholdMs) {
-                                        stopRecognition()
-                                    }
-                                }
-                            }
+                    .clickable(
+                        role = Role.Button,
+                        onClickLabel = dictateLabel,
+                    ) {
+                        if (currentIsListening) {
+                            stopRecognition()
+                        } else if (
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO,
+                            ) == PackageManager.PERMISSION_GRANTED
+                        ) {
+                            startRecognition()
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     },
             ) {
