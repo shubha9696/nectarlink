@@ -416,18 +416,19 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                 usbPort = 53319u.toUShort(),
             )
             val started = try {
-                NectarlinkNode.start(options, platform, KeystoreKeyProtector(), this@Core)
+                NectarlinkNode.start(options, platform, KeystoreKeyProtector(context), this@Core)
             } catch (e: NectarlinkException) {
                 Log.e(TAG, "core failed to start", e)
                 if (e.message?.contains("device key") == true || e.message?.contains("keystore") == true) {
                     Log.w(TAG, "recovering from keystore / device key invalidation; resetting stale key file")
                     runCatching {
                         java.io.File(options.dataDir, "device.key").delete()
+                        java.io.File(options.dataDir, ".identity_protector.key").delete()
                         val store = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
                         store.deleteEntry("nectarlink.identity.v1")
                     }
                     try {
-                        NectarlinkNode.start(options, platform, KeystoreKeyProtector(), this@Core)
+                        NectarlinkNode.start(options, platform, KeystoreKeyProtector(context), this@Core)
                     } catch (e2: Exception) {
                         Log.e(TAG, "core retry failed after key reset", e2)
                         _state.update { it.copy(status = CoreStatus.Failed(e2.message ?: e2.javaClass.simpleName)) }

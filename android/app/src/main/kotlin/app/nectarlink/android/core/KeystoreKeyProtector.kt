@@ -1,49 +1,85 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package app.nectarlink.android.core
 
+import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Log
 import app.nectarlink.core.KeyProtector
 import app.nectarlink.core.NectarlinkException
+import java.io.File
 import java.security.KeyStore
+import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 /**
  * Encrypts the device's identity key with an AES-GCM key that lives in the
- * Android Keystore and can't be exported. Format: 12-byte IV, then the
- * ciphertext with its tag.
+ * Android Keystore and can't be exported. If Android Keystore hardware key
+ * generation fails (e.g. Keymaster/KeyMint internal failure on certain ROMs),
+ * it seamlessly falls back to a 256-bit software AES-GCM key stored in the
+ * app's private sandbox directory.
  */
-class KeystoreKeyProtector : KeyProtector {
+class KeystoreKeyProtector(private val context: Context? = null) : KeyProtector {
 
     override fun protect(plaintext: ByteArray): ByteArray = guard {
-        try {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, key())
-            cipher.iv + cipher.doFinal(plaintext)
-        } catch (_: java.security.InvalidKeyException) {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
-            cipher.init(Cipher.ENCRYPT_MODE, resetKey())
-            cipher.iv + cipher.doFinal(plaintext)
-        }
+        val k = getKeyForEncryption()
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, k)
+        cipher.iv + cipher.doFinal(plaintext)
     }
 
     override fun unprotect(ciphertext: ByteArray): ByteArray = guard {
         require(ciphertext.size > IV_LENGTH) { "protected key is too short" }
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(TAG_BITS, ciphertext, 0, IV_LENGTH))
-        cipher.doFinal(ciphertext, IV_LENGTH, ciphertext.size - IV_LENGTH)
+        // Try Keystore key first if available
+        val keystoreKey = runCatching { getKeystoreKey(allowGenerate = false) }.getOrNull()
+        if (keystoreKey != null) {
+            val result = runCatching {
+                val cipher = Cipher.getInstance(TRANSFORMATION)
+                cipher.init(Cipher.DECRYPT_MODE, keystoreKey, GCMParameterSpec(TAG_BITS, ciphertext, 0, IV_LENGTH))
+                cipher.doFinal(ciphertext, IV_LENGTH, ciphertext.size - IV_LENGTH)
+            }.getOrNull()
+            if (result != null) return@guard result
+        }
+
+        // Try software fallback key
+        val fallbackKey = runCatching { getSoftwareFallbackKey(allowGenerate = false) }.getOrNull()
+        if (fallbackKey != null) {
+            val result = runCatching {
+                val cipher = Cipher.getInstance(TRANSFORMATION)
+                cipher.init(Cipher.DECRYPT_MODE, fallbackKey, GCMParameterSpec(TAG_BITS, ciphertext, 0, IV_LENGTH))
+                cipher.doFinal(ciphertext, IV_LENGTH, ciphertext.size - IV_LENGTH)
+            }.getOrNull()
+            if (result != null) return@guard result
+        }
+
+        throw java.security.GeneralSecurityException("Failed to decrypt identity key with either Keystore or fallback key")
     }
 
-    private fun key(): SecretKey {
+    private fun getKeyForEncryption(): SecretKey {
+        // Try hardware/system Keystore first
+        runCatching {
+            getKeystoreKey(allowGenerate = true)
+        }.onSuccess { return it }
+        .onFailure {
+            Log.w(TAG, "AndroidKeyStore key retrieval/generation failed; falling back to software key", it)
+        }
+
+        // Fallback to software-backed AES key in app-private storage
+        return getSoftwareFallbackKey(allowGenerate = true)
+    }
+
+    private fun getKeystoreKey(allowGenerate: Boolean): SecretKey {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
-        return resetKey()
+        if (!allowGenerate) throw java.security.KeyStoreException("Keystore key not found")
+        return resetKeystoreKey()
     }
 
-    private fun resetKey(): SecretKey {
+    private fun resetKeystoreKey(): SecretKey {
         runCatching {
             val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
             store.deleteEntry(ALIAS)
@@ -59,7 +95,32 @@ class KeystoreKeyProtector : KeyProtector {
         return generator.generateKey()
     }
 
-    /** Reports Keystore failures to the core as errors instead of crashing. */
+    private fun getSoftwareFallbackKey(allowGenerate: Boolean): SecretKey {
+        val file = getFallbackKeyFile()
+        if (file != null && file.exists() && file.length() == 32L) {
+            val raw = file.readBytes()
+            return SecretKeySpec(raw, "AES")
+        }
+        if (!allowGenerate) throw java.security.KeyStoreException("Software fallback key not found")
+
+        val randomBytes = ByteArray(32)
+        SecureRandom().nextBytes(randomBytes)
+        if (file != null) {
+            runCatching {
+                file.parentFile?.mkdirs()
+                file.writeBytes(randomBytes)
+            }
+        }
+        return SecretKeySpec(randomBytes, "AES")
+    }
+
+    private fun getFallbackKeyFile(): File? {
+        val ctx = context ?: return null
+        val dir = ctx.noBackupFilesDir ?: ctx.filesDir
+        return File(dir, "core/.identity_protector.key")
+    }
+
+    /** Reports failures to the core as errors instead of crashing unhandled. */
     private inline fun guard(block: () -> ByteArray): ByteArray = try {
         block()
     } catch (e: Exception) {
@@ -67,6 +128,7 @@ class KeystoreKeyProtector : KeyProtector {
     }
 
     private companion object {
+        const val TAG = "KeystoreKeyProtector"
         const val KEYSTORE = "AndroidKeyStore"
         const val ALIAS = "nectarlink.identity.v1"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
