@@ -867,7 +867,7 @@ impl Shared {
         {
             all.push(usb_addr);
         }
-        if all.is_empty() && allow_wan {
+        if all.is_empty() && !allow_wan {
             return;
         }
         if let Ok(key) = crate::public_key(peer) {
@@ -3949,20 +3949,13 @@ async fn bind_endpoint(
         // LAN only: no relays, nothing published outside the network.
         builder.relay_mode(RelayMode::Disabled)
     };
-    if !config.away_mode {
-        let v4_port = ports.map_or(0, |p| p.v4);
-        builder = builder
-            .clear_ip_transports()
-            .bind_addr(SocketAddr::from(([0, 0, 0, 0], v4_port)))
-            .map_err(crate::error::net)?;
-    } else if let Some(ports) = ports {
-        builder = builder
-            .clear_ip_transports()
-            .bind_addr(SocketAddr::from(([0, 0, 0, 0], ports.v4)))
-            .map_err(crate::error::net)?;
-        if let Some(v6) = ports.v6 {
-            builder = builder.bind_addr(SocketAddr::from(([0u16; 8], v6))).map_err(crate::error::net)?;
-        }
+    let v4_port = ports.map_or(0, |p| p.v4);
+    builder = builder
+        .clear_ip_transports()
+        .bind_addr(SocketAddr::from(([0, 0, 0, 0], v4_port)))
+        .map_err(crate::error::net)?;
+    if let Some(v6) = ports.and_then(|p| p.v6) {
+        builder = builder.bind_addr(SocketAddr::from(([0u16; 8], v6))).map_err(crate::error::net)?;
     }
     builder.bind().await.map_err(crate::error::net)
 }

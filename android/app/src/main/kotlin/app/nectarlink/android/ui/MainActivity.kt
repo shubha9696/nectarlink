@@ -488,6 +488,15 @@ private fun App(
         onActiveRemoteChanged(remoteDevice?.id)
     }
 
+    val currentMirrorReq by app.nectarlink.android.mirror.MirrorRequests.currentRequest.collectAsStateWithLifecycle()
+    val mainActContext = LocalContext.current
+    LaunchedEffect(currentMirrorReq) {
+        val req = currentMirrorReq ?: return@LaunchedEffect
+        val intent = req.first.toIntent(Intent(mainActContext, app.nectarlink.android.mirror.MirrorConsentActivity::class.java))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        runCatching { mainActContext.startActivity(intent) }
+    }
+
     val actions = remember(core) {
         object : PairingActions {
             override fun visible(open: Boolean) = core.setPairingScreenOpen(open)

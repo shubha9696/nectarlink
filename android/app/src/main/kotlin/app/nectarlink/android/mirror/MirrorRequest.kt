@@ -66,6 +66,9 @@ object MirrorRequests {
     private const val CHANNEL = "mirror_requests"
     private const val TAG = "mirror"
 
+    private val _currentRequest = kotlinx.coroutines.flow.MutableStateFlow<Pair<MirrorRequest, String>?>(null)
+    val currentRequest: kotlinx.coroutines.flow.StateFlow<Pair<MirrorRequest, String>?> = _currentRequest
+
     fun createChannel(context: Context) {
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, context.getString(R.string.channel_mirror_requests), NotificationManager.IMPORTANCE_HIGH),
@@ -74,18 +77,29 @@ object MirrorRequests {
 
     /** Shows the request; attempts direct display and posts high-priority notification. */
     fun show(context: Context, request: MirrorRequest, pcName: String): Boolean {
+        _currentRequest.value = request to pcName
         createChannel(context)
         val activityIntent = request.toIntent(Intent(context, MirrorConsentActivity::class.java))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+
+        val options = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            android.app.ActivityOptions.makeBasic().apply {
+                setPendingIntentBackgroundActivityStartMode(android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+            }.toBundle()
+        } else {
+            null
+        }
+
         val open = PendingIntent.getActivity(
             context,
             request.pcId.hashCode(),
             activityIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            options,
         )
 
         // Try direct launch so the system consent dialog appears immediately:
-        runCatching { context.startActivity(activityIntent) }
+        runCatching { context.startActivity(activityIntent, options) }
 
         val hasNotifPermission = ContextCompat.checkSelfPermission(
             context,
@@ -117,6 +131,9 @@ object MirrorRequests {
     }
 
     fun dismiss(context: Context, pcId: String) {
+        if (_currentRequest.value?.first?.pcId == pcId) {
+            _currentRequest.value = null
+        }
         NotificationManagerCompat.from(context).cancel(TAG, pcId.hashCode())
     }
 

@@ -732,8 +732,16 @@ fn set_phase(window: Window, phase: Phase) {
                 .find(|(w, shown)| **w != window && matches!(shown.phase, Phase::Showing))
                 .map(|(w, _)| *w);
         }
-        if let Some(shown) = s.windows.get_mut(&window) {
-            shown.phase = phase;
+        match s.windows.get_mut(&window) {
+            Some(shown) => shown.phase = phase,
+            None if showing => {
+                s.windows.insert(window, Shown {
+                    phase,
+                    app: None,
+                    pkg: None,
+                });
+            }
+            None => {}
         }
     });
     if showing {
@@ -1092,6 +1100,13 @@ pub fn on_event(event: &NodeEvent) {
                 crate::pc_audio_stream::set_enabled(false);
             }
             let window = Window { device: *device, session: *session };
+            state(|s| {
+                s.windows.entry(window).and_modify(|shown| shown.phase = Phase::Showing).or_insert(Shown {
+                    phase: Phase::Showing,
+                    app: None,
+                    pkg: None,
+                });
+            });
             set_phase(window, Phase::Showing);
             if *session != MIRROR_SCREEN {
                 let saved = state(|s| {
@@ -1858,12 +1873,25 @@ pub fn sink(device: &DeviceId, session: u32) -> Option<Arc<dyn MirrorSink>> {
     if session == MIRROR_SCREEN && crate::phone_sound::active().is_some_and(|(d, ph)| d == *device && ph == crate::phone_sound::Phase::Asking) {
         return crate::phone_sound::sink(device);
     }
+    if session == MIRROR_SCREEN {
+        crate::phone_sound::stop_for_window(*device);
+        crate::pc_audio_stream::set_enabled(false);
+        ffi::video_clear(&window.key());
+        state(|s| {
+            s.windows.entry(window).and_modify(|shown| shown.phase = Phase::Showing).or_insert(Shown {
+                phase: Phase::Showing,
+                app: None,
+                pkg: None,
+            });
+            if s.active_window.is_none() {
+                s.active_window = Some(window);
+            }
+        });
+        core_host::host().hub.changed(Changes::MIRROR);
+        return Some(Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>);
+    }
     let p = phase(&window);
     if p == Some(Phase::Asking) || p == Some(Phase::Showing) {
-        if session == MIRROR_SCREEN {
-            crate::phone_sound::stop_for_window(*device);
-            crate::pc_audio_stream::set_enabled(false);
-        }
         ffi::video_clear(&window.key());
         state(|s| {
             if let Some(shown) = s.windows.get_mut(&window) {
@@ -1873,20 +1901,8 @@ pub fn sink(device: &DeviceId, session: u32) -> Option<Arc<dyn MirrorSink>> {
         core_host::host().hub.changed(Changes::MIRROR);
         return Some(Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>);
     }
-    if p.is_none() && session == MIRROR_SCREEN {
-        crate::phone_sound::stop_for_window(*device);
-        crate::pc_audio_stream::set_enabled(false);
-        ffi::video_clear(&window.key());
-        state(|s| {
-            s.windows.insert(window, Shown { phase: Phase::Showing, app: None, pkg: None });
-        });
-        core_host::host().hub.changed(Changes::MIRROR);
-        return Some(Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>);
-    }
     matches!(p, Some(Phase::Showing))
         .then(|| Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>)
-        // No window: the phone's sound on its own, if it was asked for or offered.
-        .or_else(|| if session == MIRROR_SCREEN { crate::phone_sound::sink(device) } else { None })
 }
 
 enum Item {
@@ -2068,7 +2084,7 @@ fn decode(window: Window, items: &Receiver<Item>, waiting: &AtomicUsize) {
     let mut size = (0, 0);
     // After a gap, pictures are garbage until the next keyframe.
     let mut need_keyframe = true;
-    let mut last_kf_req = Instant::now();
+    let mut last_kf_req = Instant::now() - Duration::from_secs(10);
     let mut stats = Stats::new();
     while let Ok(item) = items.recv() {
         match item {
@@ -2100,11 +2116,13 @@ fn decode(window: Window, items: &Receiver<Item>, waiting: &AtomicUsize) {
                 }
                 size = (config.width, config.height);
                 need_keyframe = true;
+                last_kf_req = Instant::now();
+                keyframe_please();
             }
             Item::Packet { keyframe, time_us, data } => {
                 let behind = waiting.fetch_sub(1, Ordering::AcqRel) > 1;
                 if need_keyframe && !keyframe {
-                    if last_kf_req.elapsed() >= Duration::from_millis(1500) {
+                    if last_kf_req.elapsed() >= Duration::from_millis(500) {
                         last_kf_req = Instant::now();
                         keyframe_please();
                     }

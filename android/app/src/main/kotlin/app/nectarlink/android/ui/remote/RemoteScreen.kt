@@ -1033,6 +1033,32 @@ internal fun VoiceTypingBar(
     var recognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
     var currentPartial by remember { mutableStateOf("") }
 
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val spoken = matches?.firstOrNull()?.trim().orEmpty()
+            if (spoken.isNotEmpty()) {
+                val joined = utteranceJoiner.next(spoken)
+                if (joined.isNotEmpty()) {
+                    val preview = joined.trimStart()
+                    state = DictateState.Typing(preview)
+                    runCatching {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        cm?.setPrimaryClip(ClipData.newPlainText("voice_typing", preview))
+                    }
+                    core.remoteText(pcId, joined) { access ->
+                        onStatus(access)
+                        state = DictateState.Idle(lastTyped = preview)
+                    }
+                    return@rememberLauncherForActivityResult
+                }
+            }
+        }
+        state = DictateState.Idle()
+    }
+
     fun destroyRecognizer() {
         val sr = recognizer
         recognizer = null
@@ -1056,36 +1082,33 @@ internal fun VoiceTypingBar(
             if (state is DictateState.Error) {
                 state = DictateState.Idle()
             }
+        } else if (state is DictateState.Typing && (state as DictateState.Typing).text == "Transcribing...") {
+            // Safety timeout: if recognition service hangs during transcription, auto-reset
+            kotlinx.coroutines.delay(4000)
+            if (state is DictateState.Typing && (state as DictateState.Typing).text == "Transcribing...") {
+                destroyRecognizer()
+                state = DictateState.Idle()
+            }
         }
     }
 
-    fun startRecognition() {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            state = DictateState.Error(DictateError.PermissionNeeded)
-            return
-        }
-
+    fun startInlineSpeechRecognizer() {
         destroyRecognizer()
         currentPartial = ""
 
         val sr = runCatching {
-            // 1. Standard speech recognizer (uses Google voice engine / system default)
             if (SpeechRecognizer.isRecognitionAvailable(context)) {
                 SpeechRecognizer.createSpeechRecognizer(context)
             } else {
                 null
             }
         }.getOrNull() ?: runCatching {
-            // 2. Explicit Google recognition service component
             val comp = ComponentName(
                 "com.google.android.googlequicksearchbox",
                 "com.google.android.voicesearch.serviceapi.GoogleRecognitionService",
             )
             SpeechRecognizer.createSpeechRecognizer(context, comp)
         }.getOrNull() ?: runCatching {
-            // 3. Fallback on-device recognizer on API 33+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
             ) {
@@ -1094,7 +1117,6 @@ internal fun VoiceTypingBar(
                 null
             }
         }.getOrNull() ?: runCatching {
-            // 4. Fallback direct createSpeechRecognizer
             SpeechRecognizer.createSpeechRecognizer(context)
         }.getOrNull()
 
@@ -1215,6 +1237,36 @@ internal fun VoiceTypingBar(
         }.onFailure {
             destroyRecognizer()
             state = DictateState.Error(DictateError.NoRecognizer)
+        }
+    }
+
+    fun startRecognition() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            state = DictateState.Error(DictateError.PermissionNeeded)
+            return
+        }
+
+        val speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, context.getString(R.string.remote_dictate_hint, pcName))
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            val localeTag = Locale.getDefault().toLanguageTag()
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
+        }
+
+        if (speechIntent.resolveActivity(context.packageManager) != null) {
+            state = DictateState.Listening(partial = "")
+            runCatching {
+                speechLauncher.launch(speechIntent)
+            }.onFailure {
+                startInlineSpeechRecognizer()
+            }
+        } else {
+            startInlineSpeechRecognizer()
         }
     }
 

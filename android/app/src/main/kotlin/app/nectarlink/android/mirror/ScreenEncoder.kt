@@ -46,7 +46,7 @@ internal class ScreenEncoder(
     private val codecName = selectCodec(preferredCodec)
 
     @Volatile private var running = true
-    @Volatile private var keyframeWanted = false
+    @Volatile private var keyframeWanted = true
     @Volatile private var newBitrateWanted: Int? = null
     @Volatile private var lastDropKeyframeMs = 0L
     @Volatile private var resizeWanted = false
