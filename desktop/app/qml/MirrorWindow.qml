@@ -450,17 +450,6 @@ Window {
                     Mirror.press(win.mirrorKey, "home")
                 }
             }
-            IconButton {
-                id: recentsBtn
-                implicitWidth: 24; implicitHeight: 24; iconSize: 13
-                iconPath: Icons.apps
-                iconColor: "white"
-                label: qsTr("Recent apps")
-                onClicked: {
-                    video.forceActiveFocus()
-                    Mirror.press(win.mirrorKey, "app_switch")
-                }
-            }
 
             Rectangle {
                 width: 1
@@ -887,68 +876,6 @@ Window {
                 variant: "tonal"
                 text: win.info.app ? qsTr("Open again") : qsTr("Try again")
                 onClicked: Mirror.reopen(win.mirrorKey)
-            }
-        }
-    }
-    // Floating bottom navigation bar: Back, Home, Recent apps
-    Rectangle {
-        id: bottomNavBar
-        anchors.bottom: parent.bottom
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottomMargin: 10
-        height: 36
-        radius: 18
-        color: Qt.rgba(0, 0, 0, 0.72)
-        border.width: 1
-        border.color: Qt.rgba(255, 255, 255, 0.16)
-        visible: win.phase === "showing"
-        width: navRow.implicitWidth + 16
-
-        Row {
-            id: navRow
-            anchors.centerIn: parent
-            spacing: 12
-
-            IconButton {
-                id: bottomBackBtn
-                width: 30
-                height: 30
-                iconSize: 16
-                iconPath: Icons.back
-                iconColor: "white"
-                label: qsTr("Back (Esc / Backspace / Right-click)")
-                onClicked: {
-                    video.forceActiveFocus()
-                    Mirror.press(win.mirrorKey, "back")
-                }
-            }
-
-            IconButton {
-                id: bottomHomeBtn
-                width: 30
-                height: 30
-                iconSize: 16
-                iconPath: Icons.home
-                iconColor: "white"
-                label: qsTr("Home (Middle-click)")
-                onClicked: {
-                    video.forceActiveFocus()
-                    Mirror.press(win.mirrorKey, "home")
-                }
-            }
-
-            IconButton {
-                id: bottomRecentsBtn
-                width: 30
-                height: 30
-                iconSize: 16
-                iconPath: Icons.apps
-                iconColor: "white"
-                label: qsTr("Recent apps")
-                onClicked: {
-                    video.forceActiveFocus()
-                    Mirror.press(win.mirrorKey, "app_switch")
-                }
             }
         }
     }
