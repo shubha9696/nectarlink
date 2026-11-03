@@ -256,11 +256,11 @@ fn send_inputs(inputs: &[INPUT]) {
         for input in inputs {
             match input.r#type {
                 INPUT_KEYBOARD => unsafe {
-                    let ki = unsafe { input.Anonymous.ki };
+                    let ki = input.Anonymous.ki;
                     keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
                 },
                 INPUT_MOUSE => unsafe {
-                    let mi = unsafe { input.Anonymous.mi };
+                    let mi = input.Anonymous.mi;
                     mouse_event(mi.dwFlags.0, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
                 },
                 _ => {}

@@ -664,6 +664,16 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
 
             // 3. Check if already on Winlogon or lock curtain
             let is_winlogon = if hdesk != 0 {
+                #[link(name = "user32")]
+                extern "system" {
+                    fn GetUserObjectInformationA(
+                        hobj: isize,
+                        nindex: i32,
+                        pvinfo: *mut u8,
+                        nlength: u32,
+                        lpnlengthneeded: *mut u32,
+                    ) -> i32;
+                }
                 let mut buf = [0u8; 128];
                 let mut needed = 0u32;
                 let ok = unsafe {
