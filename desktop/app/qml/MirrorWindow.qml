@@ -409,11 +409,11 @@ Window {
         id: toolbar
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.margins: 12
-        width: toolbarRow.implicitWidth + 8
-        height: 40
-        radius: 20
-        color: Qt.rgba(0, 0, 0, 0.68)
+        anchors.margins: 6
+        width: toolbarRow.implicitWidth + 6
+        height: 28
+        radius: 14
+        color: Qt.rgba(0, 0, 0, 0.72)
         visible: win.phase === "showing"
         readonly property bool toolbarHasFocus: copyShotBtn.activeFocus || saveShotBtn.activeFocus
             || recordBtn.activeFocus || stayAwakeBtn.activeFocus || screenOffBtn.activeFocus || soundBtn.activeFocus || windowModeBtn.activeFocus
@@ -426,10 +426,11 @@ Window {
         Row {
             id: toolbarRow
             anchors.centerIn: parent
-            spacing: 2
+            spacing: 1
 
             IconButton {
                 id: backBtn
+                implicitWidth: 24; implicitHeight: 24; iconSize: 13
                 iconPath: Icons.back
                 iconColor: "white"
                 label: qsTr("Back (Esc / Backspace / Right-click)")
@@ -440,6 +441,7 @@ Window {
             }
             IconButton {
                 id: homeBtn
+                implicitWidth: 24; implicitHeight: 24; iconSize: 13
                 iconPath: Icons.home
                 iconColor: "white"
                 label: qsTr("Home (Middle-click)")
@@ -450,6 +452,7 @@ Window {
             }
             IconButton {
                 id: recentsBtn
+                implicitWidth: 24; implicitHeight: 24; iconSize: 13
                 iconPath: Icons.apps
                 iconColor: "white"
                 label: qsTr("Recent apps")
@@ -461,13 +464,14 @@ Window {
 
             Rectangle {
                 width: 1
-                height: 20
+                height: 14
                 anchors.verticalCenter: parent.verticalCenter
                 color: Qt.rgba(255, 255, 255, 0.2)
             }
 
             IconButton {
                 id: copyShotBtn
+                implicitWidth: 24; implicitHeight: 24; iconSize: 13
                 iconPath: Icons.copy
                 iconColor: "white"
                 label: qsTr("Copy screenshot (Ctrl+Shift+C)")
@@ -475,6 +479,7 @@ Window {
             }
             IconButton {
                 id: saveShotBtn
+                implicitWidth: 24; implicitHeight: 24; iconSize: 13
                 iconPath: Icons.camera
                 iconColor: "white"
                 label: qsTr("Save screenshot (Ctrl+S)")
@@ -482,6 +487,7 @@ Window {
             }
             IconButton {
                 id: recordBtn
+                implicitWidth: 24; implicitHeight: 24; iconSize: 13
                 iconPath: win.info.recording === true ? Icons.stopSquare : Icons.record
                 iconColor: win.info.recording === true ? Theme.error : "white"
                 label: win.info.recording === true ? qsTr("Stop recording (Ctrl+R)") : qsTr("Record video (Ctrl+R)")
@@ -491,14 +497,15 @@ Window {
                 visible: win.info.recording === true
                 anchors.verticalCenter: parent.verticalCenter
                 leftPadding: 2
-                rightPadding: 6
+                rightPadding: 4
                 role: "code"
-                size: 12
+                size: 11
                 color: "white"
                 text: win.formatDuration(win.recordingElapsedSecs)
             }
             IconButton {
                 id: stayAwakeBtn
+                implicitWidth: 24; implicitHeight: 24; iconSize: 13
                 iconPath: Icons.coffee
                 iconColor: win.info.stayAwake === true ? Theme.primary : "white"
                 label: win.info.stayAwake === true
@@ -509,6 +516,7 @@ Window {
             IconButton {
                 id: screenOffBtn
                 visible: win.info.canScreenOff === true
+                implicitWidth: 24; implicitHeight: 24; iconSize: 13
                 iconPath: Icons.screenOff
                 iconColor: win.info.screenOff === true ? Theme.primary : "white"
                 label: win.info.screenOff === true
@@ -519,13 +527,13 @@ Window {
             Row {
                 id: audioModeToggle
                 visible: true
-                height: 22
+                height: 20
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 2
+                spacing: 1
 
                 Rectangle {
-                    height: 22
-                    radius: 11
+                    height: 20
+                    radius: 10
                     color: Qt.rgba(255, 255, 255, 0.12)
                     border.width: 1
                     border.color: Qt.rgba(255, 255, 255, 0.18)
@@ -534,21 +542,21 @@ Window {
                     Row {
                         id: audioToggleRow
                         anchors.centerIn: parent
-                        spacing: 2
+                        spacing: 1
 
                         readonly property string currentMode: win.info.audioMode || (Mirror.muted ? "phone" : "pc")
 
                         // Option 1: PC only
                         Rectangle {
                             width: pcText.implicitWidth + 8
-                            height: 18
-                            radius: 9
+                            height: 16
+                            radius: 8
                             color: audioToggleRow.currentMode === "pc" ? Theme.primary : "transparent"
                             Text {
                                 id: pcText
                                 anchors.centerIn: parent
                                 text: qsTr("PC")
-                                font.pixelSize: 10
+                                font.pixelSize: 9
                                 font.bold: audioToggleRow.currentMode === "pc"
                                 color: audioToggleRow.currentMode === "pc" ? "white" : Qt.rgba(1, 1, 1, 0.72)
                             }
@@ -562,14 +570,14 @@ Window {
                         // Option 2: Phone only
                         Rectangle {
                             width: phoneText.implicitWidth + 8
-                            height: 18
-                            radius: 9
+                            height: 16
+                            radius: 8
                             color: audioToggleRow.currentMode === "phone" ? Theme.primary : "transparent"
                             Text {
                                 id: phoneText
                                 anchors.centerIn: parent
                                 text: qsTr("Phone")
-                                font.pixelSize: 10
+                                font.pixelSize: 9
                                 font.bold: audioToggleRow.currentMode === "phone"
                                 color: audioToggleRow.currentMode === "phone" ? "white" : Qt.rgba(1, 1, 1, 0.72)
                             }
@@ -584,6 +592,7 @@ Window {
             }
             IconButton {
                 id: qualityBtn
+                implicitWidth: 24; implicitHeight: 24; iconSize: 13
                 iconPath: Icons.settings
                 iconColor: qualityPopup.visible ? Theme.primary : "white"
                 label: qsTr("Streaming Quality (FPS & Bitrate)")
@@ -593,6 +602,7 @@ Window {
             IconButton {
                 id: windowModeBtn
                 visible: win.info.app === true
+                implicitWidth: 24; implicitHeight: 24; iconSize: 13
                 iconPath: win.windowSizeMode === 2 ? Icons.desktop : (win.windowSizeMode === 1 ? Icons.island : Icons.phone)
                 iconColor: win.windowSizeMode > 0 ? Theme.primary : "white"
                 label: win.windowSizeMode === 0
@@ -880,5 +890,66 @@ Window {
             }
         }
     }
+    // Floating bottom navigation bar: Back, Home, Recent apps
+    Rectangle {
+        id: bottomNavBar
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottomMargin: 10
+        height: 36
+        radius: 18
+        color: Qt.rgba(0, 0, 0, 0.72)
+        border.width: 1
+        border.color: Qt.rgba(255, 255, 255, 0.16)
+        visible: win.phase === "showing"
+        width: navRow.implicitWidth + 16
 
+        Row {
+            id: navRow
+            anchors.centerIn: parent
+            spacing: 12
+
+            IconButton {
+                id: bottomBackBtn
+                width: 30
+                height: 30
+                iconSize: 16
+                iconPath: Icons.back
+                iconColor: "white"
+                label: qsTr("Back (Esc / Backspace / Right-click)")
+                onClicked: {
+                    video.forceActiveFocus()
+                    Mirror.press(win.mirrorKey, "back")
+                }
+            }
+
+            IconButton {
+                id: bottomHomeBtn
+                width: 30
+                height: 30
+                iconSize: 16
+                iconPath: Icons.home
+                iconColor: "white"
+                label: qsTr("Home (Middle-click)")
+                onClicked: {
+                    video.forceActiveFocus()
+                    Mirror.press(win.mirrorKey, "home")
+                }
+            }
+
+            IconButton {
+                id: bottomRecentsBtn
+                width: 30
+                height: 30
+                iconSize: 16
+                iconPath: Icons.apps
+                iconColor: "white"
+                label: qsTr("Recent apps")
+                onClicked: {
+                    video.forceActiveFocus()
+                    Mirror.press(win.mirrorKey, "app_switch")
+                }
+            }
+        }
+    }
 }

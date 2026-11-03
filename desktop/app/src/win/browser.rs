@@ -32,7 +32,7 @@ use windows::{
             HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext},
             WindowsAndMessaging::{
                 EnumWindows, GW_OWNER, GetForegroundWindow, GetWindow, GetWindowTextW, GetWindowThreadProcessId, HWND_BOTTOM,
-                IsIconic, IsWindowVisible, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+                IsIconic, IsWindowVisible, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
                 SetWindowPos, ShowWindow,
             },
         },
@@ -61,7 +61,10 @@ pub fn programs_for(player: &str) -> Vec<String> {
         ("vlc", "vlc.exe"),
         ("mpv", "mpv.exe"),
         ("potplayer", "potplayermini64.exe"),
+        ("potplayer", "potplayer64.exe"),
+        ("potplayer", "potplayer.exe"),
         ("potplayermini", "potplayermini.exe"),
+        ("potplayermini", "potplayermini64.exe"),
         ("wmplayer", "wmplayer.exe"),
         ("microsoft.zunemusic", "microsoft.media.player.exe"),
         ("spotify", "spotify.exe"),
@@ -162,7 +165,11 @@ fn listed(minimized: bool) -> Vec<Window> {
 fn shown(hwnd: HWND, minimized: bool) -> bool {
     // SAFETY: plain queries on a window handle (a stale one just fails).
     unsafe {
-        if !IsWindowVisible(hwnd).as_bool() || (!minimized && IsIconic(hwnd).as_bool()) {
+        let is_iconic = IsIconic(hwnd).as_bool();
+        if !minimized && is_iconic {
+            return false;
+        }
+        if !IsWindowVisible(hwnd).as_bool() {
             return false;
         }
         if GetWindow(hwnd, GW_OWNER).is_ok_and(|owner| !owner.is_invalid()) {
@@ -175,7 +182,7 @@ fn shown(hwnd: HWND, minimized: bool) -> bool {
             (&mut cloaked as *mut u32).cast(),
             size_of::<u32>() as u32,
         );
-        cloaked == 0
+        cloaked == 0 || (minimized && is_iconic)
     }
 }
 
@@ -249,14 +256,41 @@ fn by_title(windows: Vec<Window>, title: &str) -> Option<Window> {
         return None;
     }
     let matching: Vec<Window> = windows
-        .into_iter()
+        .iter()
         .filter(|w| w.program != "nectarlink-desktop.exe" && w.title.to_lowercase().contains(&wanted))
+        .cloned()
         .collect();
-    matching.into_iter().max_by_key(|w| {
+    if let Some(best) = matching.into_iter().max_by_key(|w| {
         frame_of(w.hwnd).map_or(0u64, |r| {
             (r.right.saturating_sub(r.left) as u64) * (r.bottom.saturating_sub(r.top) as u64)
         })
-    })
+    }) {
+        return Some(best);
+    }
+    // Tokenized word matching if title contains punctuation differences or separators
+    let words: Vec<&str> = wanted
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| w.len() >= 3)
+        .collect();
+    if !words.is_empty() {
+        let mut best_score = 0;
+        let mut best_match = None;
+        for c in &windows {
+            if c.program == "nectarlink-desktop.exe" {
+                continue;
+            }
+            let wt = c.title.to_lowercase();
+            let score = words.iter().filter(|&&w| wt.contains(w)).count();
+            if score > best_score && score >= 2 {
+                best_score = score;
+                best_match = Some(c.clone());
+            }
+        }
+        if best_match.is_some() {
+            return best_match;
+        }
+    }
+    None
 }
 
 fn pick(candidates: Vec<Window>, title: &str) -> Option<Window> {
@@ -405,7 +439,11 @@ pub fn is_minimized(hwnd: HWND) -> bool {
 pub fn restore_behind(hwnd: HWND) {
     // SAFETY: plain window calls on a handle (a stale one just fails).
     unsafe {
-        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        if IsIconic(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        } else {
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        }
         let _ = SetWindowPos(hwnd, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 }

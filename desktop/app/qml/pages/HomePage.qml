@@ -2197,9 +2197,9 @@ Item {
                         id: exactAudioBar
                         width: parent.width
                         iconPath: Icons.music
-                        title: qsTr("Exact Audio Quality (Dolby / Studio)")
+                        title: qsTr("Studio / Dolby Audio Quality")
                         checked: true
-                        caption: checked ? qsTr("Lossless stereo • Full Dolby bass • No suppression") : qsTr("Low latency mode (ultra-fast)")
+                        caption: checked ? qsTr("Lossless stereo • Full bass") : qsTr("Low latency mode")
                         onToggled: (on) => {
                             checked = on;
                             AppController.setPhoneToggle(home.deviceId, "audio_quality", on ? "exact" : "low_latency");
