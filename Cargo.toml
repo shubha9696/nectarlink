@@ -38,6 +38,8 @@ clap = { version = "4.6", features = ["derive"] }
 # the bridge's symbol names and the Windows app no longer links. Move it
 # together with cxx-qt.
 cxx = "=1.0.202"
+cxx-build = "=1.0.202"
+cxx-gen = "=0.7.202"
 cxx-qt = "0.10"
 cxx-qt-build = "0.10"
 embed-resource = "3"
