@@ -183,6 +183,12 @@ impl Platform for DesktopPlatform {
     ) -> Option<std::sync::Arc<dyn nectarlink_core::MirrorSink>> {
         mirror::sink(peer, session)
     }
+    fn mirror_audio_sink(
+        &self,
+        peer: &nectarlink_core::DeviceId,
+    ) -> Option<std::sync::Arc<dyn nectarlink_core::MirrorSink>> {
+        mirror::audio_sink(peer)
+    }
     fn mic_sink(
         &self,
         peer: &nectarlink_core::DeviceId,

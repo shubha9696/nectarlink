@@ -52,6 +52,9 @@ class SoundCapture(
         // the phone's physical speakers.
         if (newMode == 2) {
             closeElevatedSocket()
+            if (Elevated.running) {
+                Elevated.stopAudio()
+            }
             audioRecord?.let { runCatching { it.stop() } }
         }
         thread?.interrupt()
@@ -306,6 +309,9 @@ class SoundCapture(
                 else -> 0 // pc
             }
             soundMode = newMode
+            if (newMode == 2 && Elevated.running) {
+                Elevated.stopAudio()
+            }
             Log.i(TAG, "Audio mode set to: $mode (code $soundMode, ${activeCaptures.size} active captures)")
             for (capture in activeCaptures) {
                 capture.onModeChanged(newMode)

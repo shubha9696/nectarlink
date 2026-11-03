@@ -324,7 +324,11 @@ object InputServer {
             if (!MessageDigest.isEqual(given.toByteArray(), token.toByteArray())) return
             val first = runCatching { reader.nextLine() }.getOrNull()
             if (first != null && first.startsWith("V ")) return appWindow(client, first, reader)
-            if (first == "A") return streamDeviceAudio(client.getOutputStream())
+            if (first == "A") return streamDeviceAudio(client)
+            if (first == "A_STOP") {
+                stopAudio()
+                return
+            }
             val writer = java.io.OutputStreamWriter(client.getOutputStream(), Charsets.UTF_8)
             controlOut = writer
             try {
@@ -350,8 +354,22 @@ object InputServer {
      * MediaProjection prompt and streams 10 ms (1920-byte) frames until the
      * socket closes.
      */
+    @Volatile
+    private var activeAudioRecorder: android.media.AudioRecord? = null
+
+    /** Stops and releases any currently running internal audio recorder in the shell process. */
+    fun stopAudio() {
+        val r = activeAudioRecorder
+        activeAudioRecorder = null
+        r?.let {
+            runCatching { it.stop() }
+            runCatching { it.release() }
+        }
+    }
+
     @android.annotation.SuppressLint("MissingPermission", "PrivateApi", "DiscouragedPrivateApi")
-    private fun streamDeviceAudio(out: java.io.OutputStream) {
+    private fun streamDeviceAudio(client: Socket) {
+        val out = client.getOutputStream()
         val rate = 48_000
         val channelMask = android.media.AudioFormat.CHANNEL_IN_STEREO
         val encoding = android.media.AudioFormat.ENCODING_PCM_16BIT
@@ -405,6 +423,16 @@ object InputServer {
         }
 
         val recorder = openRecorder() ?: return
+        activeAudioRecorder = recorder
+        val disconnectWatcher = Thread {
+            try {
+                val inStream = client.getInputStream()
+                while (inStream.read() != -1) {}
+            } catch (_: Exception) {}
+            runCatching { recorder.stop() }
+            runCatching { recorder.release() }
+        }.apply { isDaemon = true; start() }
+
         try {
             recorder.startRecording()
             val buf = ByteArray(frameBytes)
@@ -417,8 +445,10 @@ object InputServer {
         } catch (_: java.io.IOException) {
             // Client disconnected.
         } finally {
+            if (activeAudioRecorder === recorder) activeAudioRecorder = null
             runCatching { recorder.stop() }
             runCatching { recorder.release() }
+            runCatching { client.close() }
         }
     }
 

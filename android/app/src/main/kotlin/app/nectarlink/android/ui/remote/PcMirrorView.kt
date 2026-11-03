@@ -359,9 +359,10 @@ fun PcMirrorView(
     var qualityModeIndex by rememberSaveable { mutableIntStateOf(if (watch != null) 2 else 1) }
     val qualityModes = remember {
         listOf(
-            Triple("720p", 1280, 6_000_000),
-            Triple("1080p", 1920, 16_000_000),
-            Triple("2K Ultra", 2560, 28_000_000),
+            Triple("Auto", 1280, 2_500_000),
+            Triple("720p", 1280, 5_000_000),
+            Triple("1080p", 1920, 10_000_000),
+            Triple("2K Ultra", 2560, 20_000_000),
         )
     }
     val currentQuality = qualityModes[qualityModeIndex.coerceIn(0, 2)]
@@ -835,10 +836,12 @@ fun PcMirrorView(
                         var scrollAccumX = 0f
                         var scrollAccumY = 0f
 
+                        // Move cursor to pointer position on touch without holding left-down,
+                        // avoiding accidental text selection or window dragging while pointing.
                         if (touchStartedInVideo) {
                             core.sendPcMirrorInput(
                                 pcId,
-                                MirrorInputEvent.Touch(TouchPhase.DOWN, lastX, lastY),
+                                MirrorInputEvent.Touch(TouchPhase.MOVE, lastX, lastY),
                             )
                         }
 
@@ -858,12 +861,6 @@ fun PcMirrorView(
                                 maxPointers = pressedCount
                             }
                             if (pressedCount == 0 || primaryChange == null) {
-                                if (touchStartedInVideo && !twoFingerGesture) {
-                                    core.sendPcMirrorInput(
-                                        pcId,
-                                        MirrorInputEvent.Touch(TouchPhase.UP, lastX, lastY),
-                                    )
-                                }
                                 break
                             }
                             if (pressedCount >= 2) {
@@ -1003,10 +1000,9 @@ fun PcMirrorView(
                                 }
                                 lastTapUpTimeMs = 0L
                             } else {
-                                // Single tap: direct click on PC
+                                // Single tap: clean single left-click directly on PC
                                 core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.DOWN, lastX, lastY))
                                 core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.UP, lastX, lastY))
-                                core.remoteButton(pcId, "left", "click")
                                 lastTapUpTimeMs = upTime
                                 lastTapPos = downPos
                             }

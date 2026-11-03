@@ -73,7 +73,7 @@ mod imp {
 
     /// The lowest bitrate the stream backs off to on a slow link.
     #[cfg(any(windows, target_os = "linux"))]
-    const MIN_BITRATE: u32 = 8_000_000;
+    const MIN_BITRATE: u32 = 800_000;
 
     /// What a sharing session sent in the last stats window.
     #[cfg(any(windows, target_os = "linux"))]
@@ -2545,9 +2545,9 @@ mod imp {
                                     stats.dropped += 1;
                                     last_drop = Some(Instant::now());
                                     force_keyframe.store(true, Ordering::SeqCst);
-                                    // The link is slower than the stream: ask for less, at most every 2 s.
-                                    if last_rate_change.elapsed() >= Duration::from_secs(2) {
-                                        let lower = (bitrate / 4 * 3).max(MIN_BITRATE);
+                                    // The link is slower than the stream: ask for less, adapting quickly to network speed.
+                                    if last_rate_change.elapsed() >= Duration::from_millis(1000) {
+                                        let lower = (bitrate * 2 / 3).max(MIN_BITRATE);
                                         if lower < bitrate && enc.set_bitrate(lower) {
                                             bitrate = lower;
                                             last_rate_change = Instant::now();

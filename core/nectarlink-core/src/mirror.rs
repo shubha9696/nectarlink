@@ -48,7 +48,7 @@ fn pc_mirror_allowed(shared: &Shared, peer: &DeviceId) -> bool {
 }
 /// Packets waiting to go out, at most. Beyond this the network is behind:
 /// sending more would only add delay. 8 packets provides smooth routing over mobile relays.
-const QUEUE: usize = 8;
+const QUEUE: usize = 32;
 /// Sound packets waiting to go out, at most (each is a few milliseconds).
 const AUDIO_QUEUE: usize = 24;
 /// Icons in a `mirror.apps` answer, at most, in bytes: the rest go without
@@ -292,7 +292,7 @@ pub(crate) async fn receive_audio(
     // Sound comes with the screen, or on its own (`MirrorStart::sound_only`);
     // the app gives a sink for either.
     let listens = shared.we_offer(mirror::LISTEN);
-    let sink = listens.then(|| shared.platform.mirror_sink(&peer, mirror::SCREEN)).flatten();
+    let sink = listens.then(|| shared.platform.mirror_audio_sink(&peer)).flatten();
     let Some(sink) = sink.filter(|_| shared.toggle_on(&peer, TOGGLE)) else {
         let _ = send.reset(VarInt::from_u32(mirror::STOPPED));
         let _ = recv.stop(VarInt::from_u32(mirror::STOPPED));

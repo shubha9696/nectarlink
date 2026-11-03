@@ -2569,17 +2569,6 @@ impl Node {
             return Ok(());
         }
         let session = self.connected(peer)?;
-        if session.conn.max_datagram_size().is_some_and(|max_dgram| 10 + pcm.len() <= max_dgram) {
-            let mut pkt = Vec::with_capacity(10 + pcm.len());
-            pkt.extend_from_slice(b"NLPA");
-            pkt.extend_from_slice(&sample_rate.to_le_bytes());
-            pkt.push(channels);
-            pkt.push(0);
-            pkt.extend_from_slice(&pcm);
-            if session.send_datagram(bytes::Bytes::from(pkt)).is_ok() {
-                return Ok(());
-            }
-        }
         let env = Envelope::new(
             types::AUDIO_PCM,
             &nectarlink_protocol::messages::AudioPcmFrame { sample_rate, channels, pcm },

@@ -32,8 +32,8 @@ const QUEUE: usize = 256;
 /// How much sound is gathered before playing (and again after a stall).
 const START_MS: u32 = 15;
 /// More than this waiting, and the oldest is dropped down to [`TRIM_TO_MS`].
-const MOST_MS: u32 = 120;
-const TRIM_TO_MS: u32 = 30;
+const MOST_MS: u32 = 240;
+const TRIM_TO_MS: u32 = 45;
 /// The device's buffer.
 const DEVICE_BUFFER: Duration = Duration::from_millis(15);
 
@@ -118,6 +118,18 @@ impl Jitter {
             let drop = (self.bytes.len() - keep) / self.frame * self.frame;
             self.bytes.drain(..drop);
             self.trimmed += drop;
+            let fade_frames = (self.per_ms * 2).min(self.bytes.len() / self.frame);
+            for f in 0..fade_frames {
+                let factor = f as f32 / fade_frames as f32;
+                for ch in 0..(self.frame / 2) {
+                    let idx = f * self.frame + ch * 2;
+                    let sample = i16::from_le_bytes([self.bytes[idx], self.bytes[idx + 1]]);
+                    let faded = (sample as f32 * factor) as i16;
+                    let bytes = faded.to_le_bytes();
+                    self.bytes[idx] = bytes[0];
+                    self.bytes[idx + 1] = bytes[1];
+                }
+            }
         }
     }
 

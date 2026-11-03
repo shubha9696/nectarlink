@@ -508,7 +508,7 @@ mod imp {
         let send_node = node.clone();
         core_host::spawn(async move {
             while let Some((r, ch, pcm)) = rx.recv().await {
-                let chunk_size = 960;
+                let chunk_size = 1920;
                 for chunk in pcm.chunks(chunk_size) {
                     if send_node.send_pc_audio_pcm(&peer, r, ch, chunk.to_vec()).await.is_err() {
                         return;

@@ -280,40 +280,19 @@ class PcSpeakerPlayer(
                 .setChannelMask(channelMask)
                 .build()
 
-            if (exact) {
-                // Mode 1: Exact Audio Quality (Dolby Atmos / Studio Lossless Stereo)
-                // USAGE_MEDIA + CONTENT_TYPE_MUSIC engages full stereo speaker separation,
-                // rich dynamic range, full Dolby Atmos / Dirac bass, and DAC clarity without fast-mixer mono squashing.
-                val attrs = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
 
-                val targetBuf = maxOf(minBuf, (sampleRate * channels * 2 * 120) / 1000)
-                AudioTrack.Builder()
-                    .setAudioAttributes(attrs)
-                    .setAudioFormat(format)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .setBufferSizeInBytes(targetBuf)
-                    .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
-                    .build()
-            } else {
-                // Mode 2: Ultra-Low Latency (0 ms Instant Mode for Gaming / Typing)
-                // Minimal buffer frames to eliminate hardware playout latency while maintaining stereo separation.
-                val attrs = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_GAME)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-
-                val targetBuf = maxOf(minBuf, (sampleRate * channels * 2 * 25) / 1000)
-                AudioTrack.Builder()
-                    .setAudioAttributes(attrs)
-                    .setAudioFormat(format)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .setBufferSizeInBytes(targetBuf)
-                    .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                    .build()
-            }
+            val targetBuf = maxOf(minBuf * 2, (sampleRate * channels * 2 * 40) / 1000)
+            AudioTrack.Builder()
+                .setAudioAttributes(attrs)
+                .setAudioFormat(format)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .setBufferSizeInBytes(targetBuf)
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                .build()
         }.getOrElse {
             Log.w(TAG, "failed to create AudioTrack", it)
             null
@@ -359,12 +338,12 @@ class PcSpeakerPlayer(
         private const val TAG = "PcSpeakerPlayer"
         private const val INACTIVITY_TIMEOUT_MS = 30_000L
         private const val MAX_QUEUE_CHUNKS = 128
-        private const val MAX_BUFFER_MS_LOW_LATENCY = 45
-        private const val TARGET_TRIM_MS_LOW_LATENCY = 15
-        private const val MAX_BUFFER_MS_EXACT = 250
-        private const val TARGET_TRIM_MS_EXACT = 100
-        private const val PREBUFFER_MS_LOW_LATENCY = 10
-        private const val PREBUFFER_MS_EXACT = 35
+        private const val MAX_BUFFER_MS_LOW_LATENCY = 120
+        private const val TARGET_TRIM_MS_LOW_LATENCY = 30
+        private const val MAX_BUFFER_MS_EXACT = 120
+        private const val TARGET_TRIM_MS_EXACT = 30
+        private const val PREBUFFER_MS_LOW_LATENCY = 15
+        private const val PREBUFFER_MS_EXACT = 15
         const val ACTIVE_WINDOW_MS = 3_000L
         private const val WATCHDOG_CHECK_INTERVAL_MS = 1_000L
 

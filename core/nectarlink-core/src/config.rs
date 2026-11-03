@@ -274,6 +274,15 @@ pub trait Platform: Send + Sync + 'static {
         None
     }
 
+    /// Where a phone's sound stream goes on this PC when it streams without
+    /// a video window, or alongside its screen.
+    fn mirror_audio_sink(
+        &self,
+        peer: &nectarlink_protocol::DeviceId,
+    ) -> Option<std::sync::Arc<dyn crate::MirrorSink>> {
+        self.mirror_sink(peer, mirror::SCREEN)
+    }
+
     /// A PC asked for this phone's screen: ask the user, then (if they
     /// agree) stream it with [`Node::mirror_open`](crate::Node::mirror_open).
     /// Or, with `options.app`, for an app in a window of its own: run it on

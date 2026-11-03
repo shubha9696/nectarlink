@@ -1834,8 +1834,21 @@ fn ensure_gamepad_loop() {
     });
 }
 
-/// Where the core puts a phone's video (or the screen's sound, from a
-/// stream of its own): only for mirrorings this PC asked for.
+/// Sink for incoming audio streams from a phone (screen sound or sound-only).
+pub fn audio_sink(device: &DeviceId) -> Option<Arc<dyn MirrorSink>> {
+    let window = Window::screen(*device);
+    // If a screen mirror window is already showing or asking on this PC, attach audio to that window:
+    if let Some(p) = phase(&window) {
+        if p == Phase::Showing || p == Phase::Asking {
+            return Some(Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>);
+        }
+    }
+    // Otherwise (app opener apps, or "Play phone audio on PC" toggle), play sound directly without opening any window:
+    crate::phone_sound::sink(device)
+}
+
+/// Where the core puts a phone's video: only for mirrorings this PC asked for,
+/// or screen mirroring initiated from the phone.
 pub fn sink(device: &DeviceId, session: u32) -> Option<Arc<dyn MirrorSink>> {
     let window = Window { device: *device, session };
     // Sound-only mode: only if the PC explicitly asked for sound-only without a window.
@@ -1843,7 +1856,7 @@ pub fn sink(device: &DeviceId, session: u32) -> Option<Arc<dyn MirrorSink>> {
         return crate::phone_sound::sink(device);
     }
     let p = phase(&window);
-    if p.is_none() || p == Some(Phase::Asking) || p == Some(Phase::Showing) {
+    if p == Some(Phase::Asking) || p == Some(Phase::Showing) {
         if session == MIRROR_SCREEN {
             crate::phone_sound::stop_for_window(*device);
             crate::pc_audio_stream::set_enabled(false);
@@ -1852,9 +1865,17 @@ pub fn sink(device: &DeviceId, session: u32) -> Option<Arc<dyn MirrorSink>> {
         state(|s| {
             if let Some(shown) = s.windows.get_mut(&window) {
                 shown.phase = Phase::Showing;
-            } else {
-                s.windows.insert(window, Shown { phase: Phase::Showing, app: None, pkg: None });
             }
+        });
+        core_host::host().hub.changed(Changes::MIRROR);
+        return Some(Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>);
+    }
+    if p.is_none() && session == MIRROR_SCREEN {
+        crate::phone_sound::stop_for_window(*device);
+        crate::pc_audio_stream::set_enabled(false);
+        ffi::video_clear(&window.key());
+        state(|s| {
+            s.windows.insert(window, Shown { phase: Phase::Showing, app: None, pkg: None });
         });
         core_host::host().hub.changed(Changes::MIRROR);
         return Some(Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>);
@@ -2044,6 +2065,7 @@ fn decode(window: Window, items: &Receiver<Item>, waiting: &AtomicUsize) {
     let mut size = (0, 0);
     // After a gap, pictures are garbage until the next keyframe.
     let mut need_keyframe = true;
+    let mut last_kf_req = Instant::now();
     let mut stats = Stats::new();
     while let Ok(item) = items.recv() {
         match item {
@@ -2079,6 +2101,10 @@ fn decode(window: Window, items: &Receiver<Item>, waiting: &AtomicUsize) {
             Item::Packet { keyframe, time_us, data } => {
                 let behind = waiting.fetch_sub(1, Ordering::AcqRel) > 1;
                 if need_keyframe && !keyframe {
+                    if last_kf_req.elapsed() >= Duration::from_millis(1500) {
+                        last_kf_req = Instant::now();
+                        keyframe_please();
+                    }
                     continue;
                 }
                 need_keyframe = false;

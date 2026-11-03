@@ -885,6 +885,20 @@ object Elevated {
      * Opens a 48 kHz 16-bit stereo PCM audio stream from the Elevated helper
      * (`InputServer` command `"A"`). Returns null if Elevated isn't running.
      */
+    /** Stops internal audio capture in the Elevated helper immediately. */
+    fun stopAudio(): Boolean {
+        val (port, token) = helper ?: return false
+        return runCatching {
+            java.net.Socket(java.net.InetAddress.getLoopbackAddress(), port).use { sock ->
+                sock.soTimeout = 1000
+                val out = OutputStreamWriter(sock.getOutputStream(), Charsets.UTF_8)
+                out.write("$token\nA_STOP\n")
+                out.flush()
+                true
+            }
+        }.getOrDefault(false)
+    }
+
     fun openAudioStream(): java.net.Socket? {
         val (port, token) = helper ?: return null
         return runCatching {
