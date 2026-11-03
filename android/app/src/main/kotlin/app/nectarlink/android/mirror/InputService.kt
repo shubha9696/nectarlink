@@ -278,14 +278,20 @@ class InputService : AccessibilityService() {
     private fun key(key: String) {
         when (key) {
             "sound_mode:pc" -> {
-                app.nectarlink.android.mirror.SoundCapture.dualPlayback = false
+                app.nectarlink.android.mirror.SoundCapture.setMode("pc")
                 return
             }
-            "sound_mode:both", "sound_mode:phone" -> {
-                app.nectarlink.android.mirror.SoundCapture.dualPlayback = true
+            "sound_mode:phone" -> {
+                app.nectarlink.android.mirror.SoundCapture.setMode("phone")
                 return
             }
-            "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
+            "back" -> {
+                if (!performGlobalAction(GLOBAL_ACTION_BACK)) {
+                    if (app.nectarlink.android.elevated.Elevated.running) {
+                        app.nectarlink.android.elevated.Elevated.runCommand("input keyevent 4")
+                    }
+                }
+            }
             "home" -> performGlobalAction(GLOBAL_ACTION_HOME)
             "recents" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
             "notifications" -> performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)

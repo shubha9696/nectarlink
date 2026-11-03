@@ -274,6 +274,27 @@ pub fn set_muted(muted: bool) {
     core_host::host().hub.changed(Changes::MIRROR);
 }
 
+static QUALITY: Mutex<(u32, u32)> = Mutex::new((60, 8_000_000));
+
+pub fn set_quality(window: Window, fps: u32, bitrate: u32) {
+    {
+        let mut q = QUALITY.lock().unwrap_or_else(|e| e.into_inner());
+        *q = (fps, bitrate);
+    }
+    let dev = window.device;
+    core_host::spawn(async move {
+        if let Some(node) = core_host::node() {
+            let _ = node
+                .set_phone_toggle(
+                    dev,
+                    "mirror_bitrate".into(),
+                    nectarlink_core::PhoneToggleValue::Level(bitrate as u64),
+                )
+                .await;
+        }
+    });
+}
+
 /// Whether `device`'s sound is coming in.
 pub fn has_sound(device: &DeviceId) -> bool {
     state(|s| s.sound.contains(device))
@@ -820,7 +841,8 @@ pub fn start(device: DeviceId) {
         s.windows.insert(window, Shown { phase: Phase::Asking, app: None, pkg: None });
         power(s, &device)
     });
-    request(window, MirrorStart { stay_awake, screen_off, ..OPTIONS });
+    let (fps, bitrate) = *QUALITY.lock().unwrap_or_else(|e| e.into_inner());
+    request(window, MirrorStart { stay_awake, screen_off, fps, bitrate, ..OPTIONS });
 }
 
 /// Phone currently receiving PC keyboard input without screen mirroring.
@@ -919,6 +941,7 @@ pub fn start_app(device: DeviceId, pkg: String, label: String) {
     });
     let Some((window, (stay_awake, screen_off))) = window else { return };
     ffi::video_clear(&window.key());
+    let (fps, bitrate) = *QUALITY.lock().unwrap_or_else(|e| e.into_inner());
     request(
         window,
         MirrorStart {
@@ -927,6 +950,8 @@ pub fn start_app(device: DeviceId, pkg: String, label: String) {
             app: Some(pkg),
             stay_awake,
             screen_off,
+            fps,
+            bitrate,
             ..OPTIONS
         },
     );
@@ -1055,6 +1080,10 @@ pub fn stop(window: Window) {
 pub fn on_event(event: &NodeEvent) {
     match event {
         NodeEvent::Mirroring { device, session, on: true } => {
+            if *session == MIRROR_SCREEN && crate::phone_sound::active().is_some_and(|(d, _)| d == *device) {
+                // Sound only mode: do not open a screen mirror window!
+                return;
+            }
             let window = Window { device: *device, session: *session };
             set_phase(window, Phase::Showing);
             if *session != MIRROR_SCREEN {
@@ -1814,11 +1843,6 @@ pub fn sink(device: &DeviceId, session: u32) -> Option<Arc<dyn MirrorSink>> {
         if p == Some(Phase::Asking) {
             ffi::video_clear(&window.key());
             state(|s| {
-                for (w, shown) in s.windows.iter_mut() {
-                    if w.device == *device && w.session != MIRROR_SCREEN && shown.phase == Phase::Asking {
-                        shown.phase = Phase::Ended(None);
-                    }
-                }
                 s.windows.insert(window, Shown { phase: Phase::Showing, app: None, pkg: None });
             });
             core_host::host().hub.changed(Changes::MIRROR);

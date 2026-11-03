@@ -269,9 +269,18 @@ class PhoneToggles(
                 "audio_mode", "dual_sound" -> {
                     when (value) {
                         is PhoneToggleValue.Mode -> app.nectarlink.android.mirror.SoundCapture.setMode(value.mode)
-                        is PhoneToggleValue.Bool -> app.nectarlink.android.mirror.SoundCapture.setMode(if (value.on) "both" else "pc")
+                        is PhoneToggleValue.Bool -> app.nectarlink.android.mirror.SoundCapture.setMode(if (value.on) "phone" else "pc")
                         else -> return false
                     }
+                    true
+                }
+                "mirror_bitrate" -> {
+                    val bitrate = when (value) {
+                        is PhoneToggleValue.Level -> value.level.toInt()
+                        is PhoneToggleValue.Mode -> value.mode.toIntOrNull() ?: return false
+                        else -> return false
+                    }
+                    app.nectarlink.android.mirror.MirrorService.updateBitrate(bitrate)
                     true
                 }
                 "hotspot" -> {

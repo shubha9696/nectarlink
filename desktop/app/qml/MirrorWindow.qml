@@ -414,7 +414,7 @@ Window {
         height: 40
         radius: 20
         color: Qt.rgba(0, 0, 0, 0.68)
-        visible: win.phase === "showing" && video.frameSize.width > 0
+        visible: win.phase === "showing"
         readonly property bool toolbarHasFocus: copyShotBtn.activeFocus || saveShotBtn.activeFocus
             || recordBtn.activeFocus || stayAwakeBtn.activeFocus || screenOffBtn.activeFocus || soundBtn.activeFocus || windowModeBtn.activeFocus
         opacity: topZoneHover.hovered || toolbarHover.hovered || toolbarWakeTimer.running
@@ -652,6 +652,7 @@ Window {
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
                                 mirrorPrefs.fps = modelData
+                                Mirror.setQuality(win.mirrorKey, modelData, mirrorPrefs.bitrate)
                                 win.showNotice(qsTr("Frame rate set to %1 FPS").arg(modelData))
                             }
                         }
@@ -689,6 +690,7 @@ Window {
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
                                 mirrorPrefs.bitrate = modelData.val
+                                Mirror.setQuality(win.mirrorKey, mirrorPrefs.fps, modelData.val)
                                 win.showNotice(qsTr("Bitrate set to %1").arg(modelData.label + "bps"))
                             }
                         }
@@ -877,6 +879,68 @@ Window {
                 variant: "tonal"
                 text: win.info.app ? qsTr("Open again") : qsTr("Try again")
                 onClicked: Mirror.reopen(win.mirrorKey)
+            }
+        }
+    }
+    // Floating bottom navigation bar: Back, Home, Recent apps
+    Rectangle {
+        id: bottomNavBar
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottomMargin: 10
+        height: 36
+        radius: 18
+        color: Qt.rgba(0, 0, 0, 0.72)
+        border.width: 1
+        border.color: Qt.rgba(255, 255, 255, 0.16)
+        visible: win.phase === "showing"
+        width: navRow.implicitWidth + 16
+
+        Row {
+            id: navRow
+            anchors.centerIn: parent
+            spacing: 12
+
+            IconButton {
+                id: bottomBackBtn
+                width: 30
+                height: 30
+                iconSize: 16
+                iconPath: Icons.back
+                iconColor: "white"
+                label: qsTr("Back (Esc / Backspace / Right-click)")
+                onClicked: {
+                    video.forceActiveFocus()
+                    Mirror.press(win.mirrorKey, "back")
+                }
+            }
+
+            IconButton {
+                id: bottomHomeBtn
+                width: 30
+                height: 30
+                iconSize: 16
+                iconPath: Icons.home
+                iconColor: "white"
+                label: qsTr("Home (Middle-click)")
+                onClicked: {
+                    video.forceActiveFocus()
+                    Mirror.press(win.mirrorKey, "home")
+                }
+            }
+
+            IconButton {
+                id: bottomRecentsBtn
+                width: 30
+                height: 30
+                iconSize: 16
+                iconPath: Icons.apps
+                iconColor: "white"
+                label: qsTr("Recent apps")
+                onClicked: {
+                    video.forceActiveFocus()
+                    Mirror.press(win.mirrorKey, "app_switch")
+                }
             }
         }
     }

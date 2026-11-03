@@ -360,7 +360,7 @@ impl MirrorSink for Sink {
 
         // The mirror window's mute is the phone's sound on this PC.
 
-        if crate::mirror::muted() {
+        if crate::mirror::muted() || crate::mirror::audio_mode(&self.device) == "phone" {
 
             return;
 

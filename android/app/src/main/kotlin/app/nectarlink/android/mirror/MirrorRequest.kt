@@ -132,13 +132,7 @@ class MirrorConsentActivity : ComponentActivity() {
     private var request: MirrorRequest? = null
 
     private val sound = registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
-        val asked = request
-        if (asked != null && asked.soundOnly) {
-            MirrorService.startSoundOnly(this, asked)
-            finish()
-        } else {
-            askForScreen()
-        }
+        askForScreen()
     }
 
     private val prompt = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -168,23 +162,7 @@ class MirrorConsentActivity : ComponentActivity() {
             return
         }
 
-        if (asked.soundOnly) {
-            if (app.nectarlink.android.elevated.Elevated.running) {
-                MirrorService.startElevated(this, asked)
-                finish()
-                return
-            }
-            val hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-            if (hasAudio) {
-                MirrorService.startSoundOnly(this, asked)
-                finish()
-                return
-            } else {
-                sound.launch(Manifest.permission.RECORD_AUDIO)
-                return
-            }
-        }
-        val wantsSound = asked.audio && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+        val wantsSound = (asked.audio || asked.soundOnly) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
         if (wantsSound) sound.launch(Manifest.permission.RECORD_AUDIO) else askForScreen()
     }

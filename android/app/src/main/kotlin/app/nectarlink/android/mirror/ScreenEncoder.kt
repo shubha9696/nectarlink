@@ -47,6 +47,7 @@ internal class ScreenEncoder(
 
     @Volatile private var running = true
     @Volatile private var keyframeWanted = false
+    @Volatile private var newBitrateWanted: Int? = null
     @Volatile private var lastDropKeyframeMs = 0L
     @Volatile private var resizeWanted = false
     @Volatile private var size: Size = screenSize()
@@ -78,6 +79,10 @@ internal class ScreenEncoder(
     /** The PC needs a fresh start. */
     fun requestKeyframe() {
         keyframeWanted = true
+    }
+
+    fun updateBitrate(newB: Int) {
+        newBitrateWanted = newB
     }
 
     private fun run() {
@@ -129,6 +134,12 @@ internal class ScreenEncoder(
         // start from any of them.
         var parameters = ByteArray(0)
         while (running && !resizeWanted) {
+            newBitrateWanted?.let { newB ->
+                newBitrateWanted = null
+                runCatching {
+                    codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, newB) })
+                }
+            }
             if (keyframeWanted) {
                 keyframeWanted = false
                 codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) })

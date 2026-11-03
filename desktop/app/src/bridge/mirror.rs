@@ -73,6 +73,10 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "saveGeometry"]
         fn save_geometry(self: &Mirror, key: &QString, x: i32, y: i32, width: u32, height: u32);
+        /// Sets streaming FPS and bitrate for a mirror window.
+        #[qinvokable]
+        #[cxx_name = "setQuality"]
+        fn set_quality(self: &Mirror, key: &QString, fps: i32, bitrate: i32);
         /// Loads a phone's apps (into `apps`).
         #[qinvokable]
         #[cxx_name = "loadApps"]
@@ -339,6 +343,12 @@ impl qobject::Mirror {
     pub fn save_geometry(&self, key: &QString, x: i32, y: i32, width: u32, height: u32) {
         if let Some(window) = Window::parse(&String::from(key)) {
             mirror::save_geometry(window, x, y, width, height);
+        }
+    }
+
+    pub fn set_quality(&self, key: &QString, fps: i32, bitrate: i32) {
+        if let Some(window) = Window::parse(&String::from(key)) {
+            mirror::set_quality(window, fps as u32, bitrate as u32);
         }
     }
 

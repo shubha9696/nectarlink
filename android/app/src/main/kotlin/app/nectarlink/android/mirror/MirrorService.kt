@@ -525,6 +525,11 @@ class MirrorService : Service() {
             service.requestElevatedKeyframe()
         }
 
+        fun updateBitrate(bitrate: Int) {
+            val service = current ?: return
+            service.encoder?.updateBitrate(bitrate)
+        }
+
         /** Updates keep-awake and screen-off state while mirroring to [pcId]. */
         fun setPower(pcId: String, stayAwake: Boolean, screenOff: Boolean) {
             val service = current ?: return
