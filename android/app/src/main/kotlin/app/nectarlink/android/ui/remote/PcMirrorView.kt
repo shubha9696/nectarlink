@@ -53,6 +53,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -333,12 +340,15 @@ private fun isSystemAutoRotateOn(context: Context): Boolean =
  * With [watch] (Play on phone), it shows what that PC player plays instead, full screen,
  * and sends the PC nothing: a tap calls [onTap].
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PcMirrorView(
     pcId: String,
     pcName: String,
     core: Core,
     modifier: Modifier = Modifier,
+    utteranceJoiner: UtteranceJoiner = remember { UtteranceJoiner() },
+    onStatus: (Core.RemoteAccess) -> Unit = {},
     isFullScreen: Boolean = false,
     onFullScreenChange: (Boolean) -> Unit = {},
     watch: String? = null,
@@ -380,6 +390,7 @@ fun PcMirrorView(
     var zoomOffsetY by rememberSaveable { mutableFloatStateOf(0.0f) }
     val isPcLocked by app.nectarlink.android.core.PcLockManager.pcLocked.collectAsStateWithLifecycle()
     var showKeyboardBar by rememberSaveable { mutableStateOf(false) }
+    val activeMods = remember { mutableStateListOf<String>() }
     var typedText by remember { mutableStateOf(TextFieldValue("")) }
     var surface by remember { mutableStateOf<Surface?>(null) }
     var hasRenderedFrame by remember(pcId) { mutableStateOf(false) }
@@ -1463,24 +1474,16 @@ fun PcMirrorView(
             }
         }
 
-        // Keyboard input bar: sits below the weight(1f) video container inside an imePadding() Column,
-        // so opening the IME shifts the video up and never covers the picture.
-        if (showKeyboardBar) {
+        // Full-screen keyboard input bar when toggled open in landscape full screen
+        if (isFullScreen && showKeyboardBar) {
             val typePlaceholder = stringResource(R.string.remote_type_placeholder, pcName)
             val sendLabel = stringResource(R.string.pc_mirror_send_text)
             val backspaceLabel = stringResource(R.string.pc_mirror_backspace)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(
-                        if (isFullScreen) {
-                            Modifier
-                                .background(Color(0xFF101216))
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        } else {
-                            Modifier
-                        },
-                    ),
+                    .background(Color(0xFF101216))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -1499,7 +1502,7 @@ fun PcMirrorView(
                         } else {
                             next.copy(selection = TextRange(next.text.length))
                         }
-                        if (isFullScreen) bumpOverlay()
+                        bumpOverlay()
                     },
                     placeholder = { Text(typePlaceholder) },
                     singleLine = true,
@@ -1513,14 +1516,6 @@ fun PcMirrorView(
                     modifier = Modifier
                         .weight(1f)
                         .focusRequester(keyboardFocusRequester)
-                        .onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown && event.key == Key.Backspace && typedText.text.isEmpty()) {
-                                core.sendPcMirrorInput(pcId, MirrorInputEvent.Key("backspace"))
-                                true
-                            } else {
-                                false
-                            }
-                        }
                         .semantics { contentDescription = typePlaceholder },
                 )
                 FilledTonalButton(
@@ -1542,67 +1537,193 @@ fun PcMirrorView(
             }
         }
 
-        // Portrait action bar
+        // Portrait controls & keyboard keys section below the mirrored PC screen
         if (!isFullScreen && watch == null) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            val imeVisible = WindowInsets.isImeVisible
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (imeVisible) Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()) else Modifier),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (isPcLocked) {
+                // Row 1: Mouse click buttons + Keyboard toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     FilledTonalButton(
-                        onClick = {
-                            app.nectarlink.android.biometric.BiometricUnlock.unlock(context, pcId, core)
-                        },
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
+                        onClick = { core.remoteButton(pcId, "left", "click", onStatus) },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(0.88f).height(44.dp),
                     ) {
-                        Text("Unlock PC", maxLines = 1)
+                        Text(
+                            stringResource(R.string.remote_left_click),
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { core.remoteButton(pcId, "middle", "click", onStatus) },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(1.04f).height(44.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.remote_middle_click),
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    FilledTonalButton(
+                        onClick = { core.remoteButton(pcId, "right", "click", onStatus) },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(0.94f).height(44.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.remote_right_click),
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Button(
+                        onClick = { showKeyboardBar = !showKeyboardBar },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(1.26f).height(44.dp),
+                        colors = if (showKeyboardBar) {
+                            ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            ButtonDefaults.filledTonalButtonColors()
+                        },
+                    ) {
+                        Text(
+                            stringResource(R.string.remote_keyboard),
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
-                OutlinedButton(
-                    onClick = { showFloatingTouchpad = !showFloatingTouchpad },
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
-                ) {
-                    Text(if (showFloatingTouchpad) "Hide Pad" else "Touchpad", maxLines = 1)
-                }
-                OutlinedButton(
-                    onClick = { core.remoteButton(pcId, "right", "click") },
-                    modifier = Modifier
-                        .weight(1f)
-                        .semantics { contentDescription = rightClickLabel },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
-                ) {
-                    Text(rightClickLabel, maxLines = 1)
-                }
-                OutlinedButton(
-                    onClick = { showKeyboardBar = !showKeyboardBar },
-                    modifier = Modifier
-                        .weight(1f)
-                        .semantics { contentDescription = keyboardLabel },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 10.dp),
-                ) {
-                    Text(keyboardLabel, maxLines = 1)
-                }
-                OutlinedButton(
-                    onClick = {
-                        qualityModeIndex = (qualityModeIndex + 1) % qualityModes.size
-                        reconnectTick++
+
+                // Row 2: Voice typing bar (Dictation with Stop button, typing to PC and paste button)
+                VoiceTypingBar(
+                    pcId = pcId,
+                    pcName = pcName,
+                    core = core,
+                    utteranceJoiner = utteranceJoiner,
+                    onStatus = onStatus,
+                )
+
+                // Row 3: Special keys & modifiers (Ctrl, Alt, Shift, Win + Esc, Tab, arrows, extra keys)
+                SpecialKeysBar(
+                    activeMods = activeMods,
+                    showExtraKeys = showKeyboardBar,
+                    onToggleMod = { mod ->
+                        if (mod in activeMods) activeMods.remove(mod) else activeMods.add(mod)
                     },
-                    modifier = Modifier.weight(0.95f).semantics { contentDescription = qualityA11yLabel },
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
-                ) {
-                    Text(qualityShortLabel, maxLines = 1)
-                }
-                OutlinedButton(
-                    onClick = {
-                        mirrorFpsIndex = (mirrorFpsIndex + 1) % fpsModes.size
-                        reconnectTick++
+                    onKey = { key, forceMods ->
+                        val mods = forceMods ?: activeMods.toList()
+                        core.remoteKey(pcId, key, mods, onStatus)
+                        if (forceMods == null) activeMods.clear()
                     },
-                    modifier = Modifier.weight(0.95f),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
+                )
+
+                // Row 4: Soft keyboard input row when toggled open
+                if (showKeyboardBar) {
+                    val typePlaceholder = stringResource(R.string.remote_type_placeholder, pcName)
+                    OutlinedTextField(
+                        value = typedText,
+                        onValueChange = { next ->
+                            val diff = typingDiff(typedText.text, next.text)
+                            if (activeMods.isNotEmpty() && diff.backspaces == 0 && diff.added.length == 1 &&
+                                diff.added[0].isLetterOrDigit()
+                            ) {
+                                core.remoteKey(pcId, diff.added.lowercase(), activeMods.toList(), onStatus)
+                                activeMods.clear()
+                                return@OutlinedTextField
+                            }
+                            repeat(diff.backspaces) { i ->
+                                core.remoteKey(pcId, "backspace", if (i == 0) activeMods.toList() else emptyList(), onStatus)
+                            }
+                            if (diff.added.isNotEmpty()) core.remoteText(pcId, diff.added, onStatus)
+                            if (diff.backspaces > 0 || diff.added.isNotEmpty()) activeMods.clear()
+                            typedText = if (next.selection == TextRange(next.text.length)) {
+                                next
+                            } else {
+                                next.copy(selection = TextRange(next.text.length))
+                            }
+                        },
+                        placeholder = { Text(typePlaceholder) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(
+                            onSend = {
+                                core.remoteKey(pcId, "enter", activeMods.toList(), onStatus)
+                                activeMods.clear()
+                            },
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(keyboardFocusRequester)
+                            .semantics { contentDescription = typePlaceholder },
+                    )
+                }
+
+                // Row 5: Utility controls row (Touchpad overlay / 720p / 60fps / Fullscreen / Unlock PC)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("${currentFps}fps", maxLines = 1)
+                    if (isPcLocked) {
+                        FilledTonalButton(
+                            onClick = {
+                                app.nectarlink.android.biometric.BiometricUnlock.unlock(context, pcId, core)
+                            },
+                            modifier = Modifier.weight(1.1f).height(38.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                        ) {
+                            Text("Unlock PC", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = { showFloatingTouchpad = !showFloatingTouchpad },
+                        modifier = Modifier.weight(1f).height(38.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    ) {
+                        Text(if (showFloatingTouchpad) "Hide Pad" else "Touchpad", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            qualityModeIndex = (qualityModeIndex + 1) % qualityModes.size
+                            reconnectTick++
+                        },
+                        modifier = Modifier.weight(0.9f).height(38.dp).semantics { contentDescription = qualityA11yLabel },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    ) {
+                        Text(qualityShortLabel, maxLines = 1, style = MaterialTheme.typography.labelSmall)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            mirrorFpsIndex = (mirrorFpsIndex + 1) % fpsModes.size
+                            reconnectTick++
+                        },
+                        modifier = Modifier.weight(0.9f).height(38.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    ) {
+                        Text("${currentFps}fps", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+                    }
+                    OutlinedButton(
+                        onClick = { enterFullScreen(fromButton = true) },
+                        modifier = Modifier.weight(0.7f).height(38.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    ) {
+                        ExpandCollapseIcon(isFullScreen = false)
+                    }
                 }
             }
         }

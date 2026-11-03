@@ -358,6 +358,8 @@ fun RemoteScreen(
                     pcId = device.id,
                     pcName = device.name,
                     core = core,
+                    utteranceJoiner = utteranceJoiner,
+                    onStatus = onStatus,
                     isFullScreen = screenFullScreen,
                     onFullScreenChange = { screenFullScreen = it },
                     modifier = Modifier.fillMaxSize(),
@@ -1004,14 +1006,14 @@ private fun AirMouseView(
     }
 }
 
-private enum class DictateError {
+internal enum class DictateError {
     NoRecognizer,
     PermissionNeeded,
     NoSpeech,
     Failed,
 }
 
-private sealed interface DictateState {
+internal sealed interface DictateState {
     data class Idle(val lastTyped: String? = null) : DictateState
     data class Listening(val partial: String = "") : DictateState
     data class Typing(val text: String) : DictateState
@@ -1019,7 +1021,7 @@ private sealed interface DictateState {
 }
 
 @Composable
-private fun VoiceTypingBar(
+internal fun VoiceTypingBar(
     pcId: String,
     pcName: String,
     core: Core,
@@ -1375,7 +1377,7 @@ private fun VoiceTypingBar(
 }
 
 @Composable
-private fun SpecialKeysBar(
+internal fun SpecialKeysBar(
     activeMods: List<String>,
     showExtraKeys: Boolean,
     onToggleMod: (String) -> Unit,
