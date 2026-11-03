@@ -172,16 +172,6 @@ class PcSpeakerPlayer(
                     prebufferedBytes = 0
                 }
 
-                // In low-latency mode: drain any stale backlog so audio remains locked to 0 ms real-time!
-                if (!exact) {
-                    synchronized(queue) {
-                        while (queue.size > 1) {
-                            val dropped = queue.pollFirst() ?: break
-                            queuedBytes = (queuedBytes - dropped.pcm.size).coerceAtLeast(0)
-                        }
-                    }
-                }
-
                 val pollTimeout = if (track?.playState == AudioTrack.PLAYSTATE_PLAYING) 15L else INACTIVITY_TIMEOUT_MS
                 val chunk = pollChunk(pollTimeout)
 
@@ -222,7 +212,7 @@ class PcSpeakerPlayer(
 
                 val activeTrack = track ?: continue
 
-                if (needsCrossfade && exact) {
+                if (needsCrossfade) {
                     applyFadeIn(chunk.pcm, chunk.channels)
                     needsCrossfade = false
                 }
@@ -299,22 +289,14 @@ class PcSpeakerPlayer(
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build()
 
-                val targetBuf = maxOf(minBuf, (sampleRate * channels * 2 * 60) / 1000)
-                val track = AudioTrack.Builder()
+                val targetBuf = maxOf(minBuf, (sampleRate * channels * 2 * 120) / 1000)
+                AudioTrack.Builder()
                     .setAudioAttributes(attrs)
                     .setAudioFormat(format)
                     .setTransferMode(AudioTrack.MODE_STREAM)
                     .setBufferSizeInBytes(targetBuf)
                     .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
                     .build()
-
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    runCatching {
-                        val frames = targetBuf / (channels * 2)
-                        track.setBufferSizeInFrames(frames)
-                    }
-                }
-                track
             } else {
                 // Mode 2: Ultra-Low Latency (0 ms Instant Mode for Gaming / Typing)
                 // Minimal buffer frames to eliminate hardware playout latency while maintaining stereo separation.
@@ -323,22 +305,14 @@ class PcSpeakerPlayer(
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build()
 
-                val track = AudioTrack.Builder()
+                val targetBuf = maxOf(minBuf, (sampleRate * channels * 2 * 25) / 1000)
+                AudioTrack.Builder()
                     .setAudioAttributes(attrs)
                     .setAudioFormat(format)
                     .setTransferMode(AudioTrack.MODE_STREAM)
-                    .setBufferSizeInBytes(minBuf)
+                    .setBufferSizeInBytes(targetBuf)
                     .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                     .build()
-
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    runCatching {
-                        val lowLatencyFrames = (sampleRate * 8) / 1000 // 8 ms burst
-                        val targetFrames = lowLatencyFrames.coerceAtLeast(192).coerceAtMost(track.bufferCapacityInFrames)
-                        track.setBufferSizeInFrames(targetFrames)
-                    }
-                }
-                track
             }
         }.getOrElse {
             Log.w(TAG, "failed to create AudioTrack", it)
@@ -384,13 +358,13 @@ class PcSpeakerPlayer(
     companion object {
         private const val TAG = "PcSpeakerPlayer"
         private const val INACTIVITY_TIMEOUT_MS = 30_000L
-        private const val MAX_QUEUE_CHUNKS = 64
-        private const val MAX_BUFFER_MS_LOW_LATENCY = 10
-        private const val TARGET_TRIM_MS_LOW_LATENCY = 3
-        private const val MAX_BUFFER_MS_EXACT = 60
-        private const val TARGET_TRIM_MS_EXACT = 25
-        private const val PREBUFFER_MS_LOW_LATENCY = 0
-        private const val PREBUFFER_MS_EXACT = 20
+        private const val MAX_QUEUE_CHUNKS = 128
+        private const val MAX_BUFFER_MS_LOW_LATENCY = 45
+        private const val TARGET_TRIM_MS_LOW_LATENCY = 15
+        private const val MAX_BUFFER_MS_EXACT = 250
+        private const val TARGET_TRIM_MS_EXACT = 100
+        private const val PREBUFFER_MS_LOW_LATENCY = 10
+        private const val PREBUFFER_MS_EXACT = 35
         const val ACTIVE_WINDOW_MS = 3_000L
         private const val WATCHDOG_CHECK_INTERVAL_MS = 1_000L
 

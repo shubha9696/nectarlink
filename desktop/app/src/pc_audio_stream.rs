@@ -125,7 +125,6 @@ mod imp {
         fn encode_stereo_f32(&mut self, floats: &[f32], channels: usize) -> Vec<u8> {
             let frames = floats.len() / channels.max(1);
             let mut out = Vec::with_capacity(frames * 4);
-            let exact = is_exact_quality();
             for frame in floats.chunks_exact(channels.max(1)) {
                 let (l_in, r_in) = if channels == 2 {
                     // Exact bit-perfect stereo: zero downmix alteration, 100% stereo separation
@@ -134,31 +133,24 @@ mod imp {
                         if frame[1].is_finite() { frame[1] } else { 0.0 },
                     )
                 } else if channels >= 6 {
-                    // 5.1 / 7.1 Dolby Surround matrix downmix (ITU-R BS.775 standard)
-                    // Channel 0: Front Left, 1: Front Right, 2: Center
-                    // Channel 3: Low Frequency Effects (LFE / Subwoofer) - deep movie bass!
-                    // Channel 4: Left Surround, 5: Right Surround
+                    // 5.1 / 7.1 Dolby Surround matrix downmix (ITU-R BS.775 normalized)
                     let fl = if frame[0].is_finite() { frame[0] } else { 0.0 };
                     let fr = if frame[1].is_finite() { frame[1] } else { 0.0 };
-                    let c = if frame[2].is_finite() { frame[2] * 0.7071 } else { 0.0 };
-                    let lfe = if frame[3].is_finite() { frame[3] * 0.7071 } else { 0.0 };
-                    let ls = if frame[4].is_finite() { frame[4] * 0.7071 } else { 0.0 };
-                    let rs = if frame[5].is_finite() { frame[5] * 0.7071 } else { 0.0 };
+                    let c = if frame[2].is_finite() { frame[2] } else { 0.0 };
+                    let lfe = if frame[3].is_finite() { frame[3] } else { 0.0 };
+                    let ls = if frame[4].is_finite() { frame[4] } else { 0.0 };
+                    let rs = if frame[5].is_finite() { frame[5] } else { 0.0 };
                     let (bl, br) = if channels >= 8 {
                         (
-                            if frame[6].is_finite() { frame[6] * 0.5 } else { 0.0 },
-                            if frame[7].is_finite() { frame[7] * 0.5 } else { 0.0 },
+                            if frame[6].is_finite() { frame[6] } else { 0.0 },
+                            if frame[7].is_finite() { frame[7] } else { 0.0 },
                         )
                     } else {
                         (0.0, 0.0)
                     };
-                    let l = fl + c + lfe + ls + bl;
-                    let r = fr + c + lfe + rs + br;
-                    if exact {
-                        (l * 0.75, r * 0.75)
-                    } else {
-                        (l * 0.707, r * 0.707)
-                    }
+                    let l = fl * 0.38 + c * 0.27 + lfe * 0.27 + ls * 0.27 + bl * 0.19;
+                    let r = fr * 0.38 + c * 0.27 + lfe * 0.27 + rs * 0.27 + br * 0.19;
+                    (l, r)
                 } else if channels > 1 {
                     (
                         if frame[0].is_finite() { frame[0] } else { 0.0 },
@@ -169,29 +161,8 @@ mod imp {
                     (mono, mono)
                 };
 
-                // Transparent analog-modeled soft saturation:
-                // 100% linear transparency up to 0.95 full scale, smooth tape-style saturation above 0.95
-                let soft_limit = |x: f32| -> f32 {
-                    if !x.is_finite() {
-                        return 0.0;
-                    }
-                    let abs_x = x.abs();
-                    if abs_x <= 0.95 {
-                        x
-                    } else {
-                        let sign = if x < 0.0 { -1.0 } else { 1.0 };
-                        let over = (abs_x - 0.95) / 0.05;
-                        sign * (0.95 + 0.05 * (over / (1.0 + over * over).sqrt()))
-                    }
-                };
-
-                let (l_clean, r_clean) = if exact {
-                    // Exact PC quality: 100% bit-perfect linear fidelity directly from PC soundcard
-                    (l_in.clamp(-1.0, 1.0), r_in.clamp(-1.0, 1.0))
-                } else {
-                    // Low latency mode: smooth fast limiting
-                    (soft_limit(l_in), soft_limit(r_in))
-                };
+                let l_clean = l_in.clamp(-1.0, 1.0);
+                let r_clean = r_in.clamp(-1.0, 1.0);
                 let l_i16 = (l_clean * 32767.0).round().clamp(-32768.0, 32767.0) as i16;
                 let r_i16 = (r_clean * 32767.0).round().clamp(-32768.0, 32767.0) as i16;
                 out.extend_from_slice(&l_i16.to_le_bytes());
@@ -537,7 +508,7 @@ mod imp {
         let send_node = node.clone();
         core_host::spawn(async move {
             while let Some((r, ch, pcm)) = rx.recv().await {
-                let chunk_size = if is_exact_quality() { 960 } else { 480 };
+                let chunk_size = 960;
                 for chunk in pcm.chunks(chunk_size) {
                     if send_node.send_pc_audio_pcm(&peer, r, ch, chunk.to_vec()).await.is_err() {
                         return;
@@ -584,56 +555,23 @@ mod imp {
                         } else {
                             Vec::new()
                         }
-                    } else if is_float && bits_per_sample == 32 {
-                        let floats = std::slice::from_raw_parts(data_ptr.cast::<f32>(), frames * channels);
-                        let has_signal = floats.iter().any(|&s| s.is_finite() && s.abs() > 1e-5);
-                        if has_signal {
-                            silence_tail_packets = 10; // ~50 ms of tail so end of audio doesn't abruptly clip
-                            enhancer.encode_stereo_f32(floats, channels)
-                        } else if silence_tail_packets > 0 {
-                            silence_tail_packets -= 1;
-                            vec![0u8; frames * 4]
-                        } else {
-                            Vec::new()
-                        }
-                    } else if bits_per_sample == 32 {
-                        let i32s = std::slice::from_raw_parts(data_ptr.cast::<i32>(), frames * channels);
-                        let has_signal = i32s.iter().any(|&s| s.abs() > 200);
-                        if has_signal {
-                            silence_tail_packets = 50;
-                            enhancer.encode_stereo_i32(i32s, channels)
-                        } else if silence_tail_packets > 0 {
-                            silence_tail_packets -= 1;
-                            vec![0u8; frames * 4]
-                        } else {
-                            Vec::new()
-                        }
-                    } else if bits_per_sample == 24 {
-                        let raw_bytes = std::slice::from_raw_parts(data_ptr, frames * channels * 3);
-                        let has_signal = raw_bytes.iter().any(|&b| b != 0);
-                        if has_signal {
-                            silence_tail_packets = 50;
-                            enhancer.encode_stereo_i24(raw_bytes, channels)
-                        } else if silence_tail_packets > 0 {
-                            silence_tail_packets -= 1;
-                            vec![0u8; frames * 4]
-                        } else {
-                            Vec::new()
-                        }
-                    } else if bits_per_sample == 16 {
-                        let i16s = std::slice::from_raw_parts(data_ptr.cast::<i16>(), frames * channels);
-                        let has_signal = i16s.iter().any(|&s| s.unsigned_abs() > 2);
-                        if has_signal {
-                            silence_tail_packets = 50;
-                            enhancer.encode_stereo_i16(i16s, channels)
-                        } else if silence_tail_packets > 0 {
-                            silence_tail_packets -= 1;
-                            vec![0u8; frames * 4]
-                        } else {
-                            Vec::new()
-                        }
                     } else {
-                        Vec::new()
+                        silence_tail_packets = 200; // keep ~1 second of continuity during brief pauses
+                        if is_float && bits_per_sample == 32 {
+                            let floats = std::slice::from_raw_parts(data_ptr.cast::<f32>(), frames * channels);
+                            enhancer.encode_stereo_f32(floats, channels)
+                        } else if bits_per_sample == 32 {
+                            let i32s = std::slice::from_raw_parts(data_ptr.cast::<i32>(), frames * channels);
+                            enhancer.encode_stereo_i32(i32s, channels)
+                        } else if bits_per_sample == 24 {
+                            let raw_bytes = std::slice::from_raw_parts(data_ptr, frames * channels * 3);
+                            enhancer.encode_stereo_i24(raw_bytes, channels)
+                        } else if bits_per_sample == 16 {
+                            let i16s = std::slice::from_raw_parts(data_ptr.cast::<i16>(), frames * channels);
+                            enhancer.encode_stereo_i16(i16s, channels)
+                        } else {
+                            Vec::new()
+                        }
                     };
                     let _ = capture.ReleaseBuffer(frames_to_read);
 
