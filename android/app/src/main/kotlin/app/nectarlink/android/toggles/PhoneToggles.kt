@@ -398,15 +398,22 @@ class PhoneToggles(
                     app.nectarlink.android.core.PcLockManager.setPcBluetooth(on)
                     true
                 }
+                "audio_mode" -> {
+                    true
+                }
                 "audio_quality" -> {
-                    val mode = (value as? PhoneToggleValue.Mode)?.mode ?: return false
-                    app.nectarlink.android.audio.PcSpeakerPlayer.exactQuality = (mode == "exact")
+                    val exact = when (value) {
+                        is PhoneToggleValue.Mode -> value.mode == "exact"
+                        is PhoneToggleValue.Bool -> value.on
+                        else -> return false
+                    }
+                    app.nectarlink.android.audio.PcSpeakerPlayer.exactQuality = exact
                     true
                 }
                 else -> false
             }
         }.onFailure { Log.w(TAG, "toggle $id failed", it) }.getOrDefault(false)
-        if (ok && id != "pc_active" && id != "pc_locked" && id != "pc_bluetooth" && id != "audio_quality") {
+        if (ok && id != "pc_active" && id != "pc_locked" && id != "pc_bluetooth" && id != "audio_mode" && id != "audio_quality") {
             pushIfChanged()
             schedulePush()
             mainHandler.removeCallbacks(followUpRunnable)

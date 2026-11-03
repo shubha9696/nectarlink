@@ -141,32 +141,7 @@ internal class PhonePlatform(
         if (options.app != null) {
             val opened = appWindows.open(pcId, options)
             if (!opened) {
-                val pkg = options.app
-                if (pkg != null) {
-                    val launchIntent = context.packageManager.getLaunchIntentForPackage(pkg)?.apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-                    }
-                    if (launchIntent != null) {
-                        runCatching { context.startActivity(launchIntent) }
-                    }
-                }
-                val request = MirrorRequest(
-                    pcId,
-                    options.maxSize.coerceIn(320u, 4096u).toInt(),
-                    options.fps.coerceIn(1u, 120u).toInt(),
-                    options.bitrate.coerceIn(500_000u, 50_000_000u).toInt(),
-                    options.audio,
-                    options.stayAwake,
-                    options.screenOff,
-                    options.soundOnly,
-                )
-                if (MirrorService.tryStartWithCachedConsent(context, request)) {
-                    true
-                } else if (Elevated.running && MirrorService.startElevated(context, request)) {
-                    true
-                } else {
-                    onMirror(pcId, request)
-                }
+                false
             } else {
                 true
             }

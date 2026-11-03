@@ -3441,6 +3441,8 @@ impl PhoneToggleSet {
                 | toggle_ids::PC_ACTIVE
                 | toggle_ids::PC_LOCKED
                 | toggle_ids::PC_BLUETOOTH
+                | toggle_ids::AUDIO_MODE
+                | toggle_ids::AUDIO_QUALITY
                 | "dual_sound",
                 PhoneToggleValue::Bool(_),
             ) => true,
@@ -3455,7 +3457,7 @@ impl PhoneToggleSet {
                 matches!(m.as_str(), "pc" | "phone" | "both")
             }
             (toggle_ids::AUDIO_QUALITY, PhoneToggleValue::Mode(m)) => {
-                matches!(m.as_str(), "exact" | "low_latency")
+                matches!(m.as_str(), "exact" | "low_latency" | "true" | "false")
             }
             _ => false,
         }

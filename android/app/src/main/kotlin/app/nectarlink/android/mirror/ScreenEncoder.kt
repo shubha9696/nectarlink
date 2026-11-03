@@ -230,7 +230,7 @@ internal class ScreenEncoder(
 
     companion object {
         private const val TAG = "ScreenEncoder"
-        private const val WAIT_US = 50_000L
+        private const val WAIT_US = 10_000L
         private val hevcDecoderSupported by lazy(LazyThreadSafetyMode.PUBLICATION) {
             runCatching {
                 android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS)

@@ -1726,7 +1726,11 @@ impl qobject::AppController {
                 Some(PhoneToggleValue::Bool(raw == "true"))
             }
             "volume" | "brightness" => raw.parse::<u8>().ok().map(|v| PhoneToggleValue::Level(v.min(100))),
-            "ringer" | "dual_sound" | "audio_mode" | "audio_quality" => Some(PhoneToggleValue::Mode(raw)),
+            "ringer" | "dual_sound" | "audio_mode" => Some(PhoneToggleValue::Mode(raw)),
+            "audio_quality" => {
+                let mode = if raw == "true" || raw == "exact" { "exact" } else { "low_latency" };
+                Some(PhoneToggleValue::Mode(mode.into()))
+            }
             _ => None,
         };
         let Some(val) = parsed else { return };
@@ -1755,7 +1759,7 @@ impl qobject::AppController {
                 Err(e) => {
                     let latest = node.phone_toggles(device);
                     core_host::host().hub.update(|s| s.set_toggles(device, latest));
-                    show_message(describe(&e));
+                    tracing::warn!(?e, "set_phone_toggle failed");
                 }
             }
         });

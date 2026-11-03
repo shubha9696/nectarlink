@@ -126,7 +126,7 @@ object Elevated {
     fun isRootAvailable(): Boolean = rootAvailableCached
 
     /** Whether the user set Elevated up through root. */
-    private fun usesRoot() = isRootAvailable() && prefs().getBoolean(ROOT, false)
+    fun usesRoot() = isRootAvailable() && prefs().getBoolean(ROOT, false)
 
     private fun prefs() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
