@@ -37,9 +37,6 @@ Sheet {
 
     function launch(app) {
         Mirror.startApp(deviceId, app.pkg, app.label)
-        if (AppController.featureState(deviceId, "mirroring.app_windows").state !== "available") {
-            Mirror.start(deviceId)
-        }
         close()
     }
 

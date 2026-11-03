@@ -45,9 +45,6 @@ Item {
 
     function launch(app) {
         Mirror.startApp(deviceId, app.pkg, app.label)
-        if (feature.state !== "available") {
-            Mirror.start(deviceId)
-        }
     }
 
     // Loads the list the first time the page shows for a phone; Refresh reloads it.
