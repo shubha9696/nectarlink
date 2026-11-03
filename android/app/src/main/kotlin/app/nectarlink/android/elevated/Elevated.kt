@@ -293,7 +293,7 @@ object Elevated {
         adb = null
     }
 
-    private fun paired() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PAIRED, false)
+    fun paired() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PAIRED, false)
 
     /** The phone's own adbd, as NectarLink. */
     private class Connection(context: Context) : AbsAdbConnectionManager() {
