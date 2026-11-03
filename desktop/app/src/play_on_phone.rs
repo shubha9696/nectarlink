@@ -135,7 +135,12 @@ mod imp {
     /// What this PC's `player` plays: its title, and where it is, in seconds.
     fn now_playing(player: &str) -> (String, Option<u32>) {
         let views = crate::media::local_views();
-        let Some(view) = views.into_iter().find(|v| v.player.id == player) else {
+        let view = views
+            .iter()
+            .find(|v| v.player.id == player || player == "active")
+            .or_else(|| views.iter().find(|v| v.player.playing))
+            .or_else(|| views.first());
+        let Some(view) = view else {
             return (String::new(), None);
         };
         let position = view.player.position.map(|ms| {
@@ -143,7 +148,7 @@ mod imp {
                 if view.player.playing { view.at.elapsed().map_or(0, |d| d.as_millis() as u64) } else { 0 };
             ((ms + since) / 1000) as u32
         });
-        (view.player.title.unwrap_or_default(), position.filter(|&s| s > 0))
+        (view.player.title.clone().unwrap_or_default(), position.filter(|&s| s > 0))
     }
 
     /// Plays what this PC's `player` plays on a phone (the Play on phone
@@ -295,6 +300,10 @@ mod imp {
                     if window.as_ref().is_none_or(|w| browser::frame_of(w.hwnd).is_none()) {
                         let (title, _) = now_playing(&player);
                         window = browser::window_for(&player, &title);
+                        #[cfg(windows)]
+                        if window.is_none() {
+                            window = browser::find_fallback_window();
+                        }
                     }
                     // Minimized, it draws nothing and the phone's picture stops:
                     // back behind the other windows, it plays on out of the way.

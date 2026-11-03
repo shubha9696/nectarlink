@@ -31,7 +31,7 @@ use windows::{
             },
             HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext},
             WindowsAndMessaging::{
-                EnumWindows, GW_OWNER, GetWindow, GetWindowTextW, GetWindowThreadProcessId, HWND_BOTTOM,
+                EnumWindows, GW_OWNER, GetForegroundWindow, GetWindow, GetWindowTextW, GetWindowThreadProcessId, HWND_BOTTOM,
                 IsIconic, IsWindowVisible, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
                 SetWindowPos, ShowWindow,
             },
@@ -57,6 +57,15 @@ pub fn programs_for(player: &str) -> Vec<String> {
         ("floorp", "floorp.exe"),
         ("librewolf", "librewolf.exe"),
         ("waterfox", "waterfox.exe"),
+        ("arc", "arc.exe"),
+        ("vlc", "vlc.exe"),
+        ("mpv", "mpv.exe"),
+        ("potplayer", "potplayermini64.exe"),
+        ("potplayermini", "potplayermini.exe"),
+        ("wmplayer", "wmplayer.exe"),
+        ("microsoft.zunemusic", "microsoft.media.player.exe"),
+        ("spotify", "spotify.exe"),
+        ("netflix", "netflix.exe"),
         // Firefox's app ID is a hash of where it's installed; this is the
         // one for its default location. Other installs (and Firefox-based
         // browsers) have hashes of their own: their window is found by its
@@ -79,6 +88,21 @@ pub fn programs_for(player: &str) -> Vec<String> {
     programs
 }
 
+/// Whether `program` is a media player desktop app.
+pub fn is_media_app(program: &str) -> bool {
+    matches!(
+        program,
+        "vlc.exe"
+            | "mpv.exe"
+            | "potplayermini64.exe"
+            | "potplayermini.exe"
+            | "wmplayer.exe"
+            | "microsoft.media.player.exe"
+            | "spotify.exe"
+            | "netflix.exe"
+    )
+}
+
 /// Whether `program` (an executable's file name) is a browser whose
 /// address bar and page this module can read.
 pub fn is_browser(program: &str) -> bool {
@@ -94,6 +118,7 @@ pub fn is_browser(program: &str) -> bool {
             | "floorp.exe"
             | "librewolf.exe"
             | "waterfox.exe"
+            | "arc.exe"
     )
 }
 
@@ -184,41 +209,99 @@ fn program_of(hwnd: HWND) -> Option<String> {
 
 /// The window that plays `title` for the media session `player`: one of
 /// its program's windows whose title has the media's title in it (a
-/// browser's shows its active tab's), or its only window.
+/// browser's shows its active tab's), or its most prominent active window.
 pub fn window_for(player: &str, title: &str) -> Option<Window> {
     let programs = programs_for(player);
     let all = windows_and_minimized();
     let candidates: Vec<Window> = all.iter().filter(|w| programs.contains(&w.program)).cloned().collect();
-    pick(candidates, title).or_else(|| by_title(all, title))
+    pick(candidates, title)
+        .or_else(|| by_title(all.clone(), title))
+        .or_else(find_fallback_window)
 }
 
-/// The one window (of any program but this app) whose title has the
-/// media's title in it, for players whose app ID names no program (a hash,
-/// as Firefox-based browsers report).
+/// Fallback when no candidate matches: finds the foreground browser/media window,
+/// or the largest visible browser/media window on screen.
+pub fn find_fallback_window() -> Option<Window> {
+    let all = windows_and_minimized();
+    let fg = unsafe { GetForegroundWindow() };
+    if let Some(found) = all.iter().find(|w| w.hwnd == fg && w.program != "nectarlink-desktop.exe") {
+        if is_browser(&w.program) || is_media_app(&w.program) {
+            return Some(found.clone());
+        }
+    }
+    all.into_iter()
+        .filter(|w| {
+            w.program != "nectarlink-desktop.exe" && (is_browser(&w.program) || is_media_app(&w.program))
+        })
+        .max_by_key(|w| {
+            let (area, has_title) = frame_of(w.hwnd).map_or((0u64, false), |r| {
+                let a = (r.right.saturating_sub(r.left) as u64) * (r.bottom.saturating_sub(r.top) as u64);
+                (a, !w.title.is_empty())
+            });
+            (has_title, area)
+        })
+}
+
+/// Finds a window by exact or fuzzy matching of the media's title.
 fn by_title(windows: Vec<Window>, title: &str) -> Option<Window> {
     let wanted = title.trim().to_lowercase();
     if wanted.chars().count() < 3 {
         return None;
     }
-    let mut matching = windows
+    let matching: Vec<Window> = windows
         .into_iter()
-        .filter(|w| w.program != "nectarlink-desktop.exe" && w.title.to_lowercase().contains(&wanted));
-    let found = matching.next()?;
-    // Two windows with that title: can't tell which one plays.
-    matching.next().is_none().then_some(found)
+        .filter(|w| w.program != "nectarlink-desktop.exe" && w.title.to_lowercase().contains(&wanted))
+        .collect();
+    matching.into_iter().max_by_key(|w| {
+        frame_of(w.hwnd).map_or(0u64, |r| {
+            (r.right.saturating_sub(r.left) as u64) * (r.bottom.saturating_sub(r.top) as u64)
+        })
+    })
 }
 
 fn pick(candidates: Vec<Window>, title: &str) -> Option<Window> {
+    if candidates.is_empty() {
+        return None;
+    }
     let wanted = title.trim().to_lowercase();
-    if !wanted.is_empty()
-        && let Some(found) = candidates.iter().find(|w| w.title.to_lowercase().contains(&wanted))
-    {
+    if !wanted.is_empty() {
+        // 1. Direct substring match in window title
+        if let Some(found) = candidates.iter().find(|w| w.title.to_lowercase().contains(&wanted)) {
+            return Some(found.clone());
+        }
+        // 2. Keyword matching across words
+        let words: Vec<&str> = wanted
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.len() >= 3)
+            .collect();
+        if !words.is_empty() {
+            let mut best_score = 0;
+            let mut best_match = None;
+            for c in &candidates {
+                let wt = c.title.to_lowercase();
+                let score = words.iter().filter(|&&w| wt.contains(w)).count();
+                if score > best_score {
+                    best_score = score;
+                    best_match = Some(c.clone());
+                }
+            }
+            if best_score > 0 {
+                return best_match;
+            }
+        }
+    }
+    // 3. Fallback among candidates: pick foreground window if it matches, else largest frame
+    let fg = unsafe { GetForegroundWindow() };
+    if let Some(found) = candidates.iter().find(|w| w.hwnd == fg) {
         return Some(found.clone());
     }
-    match candidates.as_slice() {
-        [only] => Some(only.clone()),
-        _ => None,
-    }
+    candidates.into_iter().max_by_key(|w| {
+        let (area, has_title) = frame_of(w.hwnd).map_or((0u64, false), |r| {
+            let a = (r.right.saturating_sub(r.left) as u64) * (r.bottom.saturating_sub(r.top) as u64);
+            (a, !w.title.is_empty())
+        });
+        (has_title, area)
+    })
 }
 
 /// Has this thread see the screen in physical pixels, as screen captures

@@ -200,7 +200,7 @@ private fun WatchScreen(
                 core = core,
                 modifier = Modifier.fillMaxSize(),
                 isFullScreen = true,
-                onFullScreenChange = { full -> if (!full) onClose() },
+                onFullScreenChange = { /* keep watching session active, do not auto-close */ },
                 watch = player,
                 onTap = onTap,
             )

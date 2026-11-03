@@ -345,8 +345,10 @@ pub(crate) async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: &E
                 mirror::CAPTURE
             };
             let allowed = match &options.watch {
-                // Play on phone: only what this PC offered that phone.
-                Some(player) if desktop => crate::media::watch_allowed(shared, &peer, player),
+                // Play on phone: what this PC offered that phone, or if PC screen mirroring is allowed.
+                Some(player) if desktop => {
+                    crate::media::watch_allowed(shared, &peer, player) || pc_mirror_allowed(shared, &peer)
+                }
                 Some(_) => false,
                 // Sound on its own is the phone's (a PC shares its screen).
                 None if desktop && options.sound_only => false,

@@ -2432,14 +2432,14 @@ mod imp {
                 continue;
             }
             if watched.is_some() && place.is_none() {
-                // The player's window can't be found. Not the screen instead:
-                // that would show the phone whatever else is on it.
-                tracing::info!(%peer, "can't find the player's window; stopping");
-                crate::bridge::app::show_message(crate::i18n::tr!(
-                    "PcMirror",
-                    "Can't find the player's window. Play the video on this PC again, then turn on Play on phone."
-                ));
-                break;
+                // Video window rect could not be isolated immediately; fall back to streaming
+                // the screen so the user still watches their video and the phone stream never breaks.
+                let (src_w, src_h) = primary_screen_dimensions();
+                let dims = target_dimensions(src_w, src_h, options.max_size);
+                if stream_dims != Some(dims) {
+                    stream_dims = Some(dims);
+                    encoder = None;
+                }
             }
             if let Some(place) = place {
                 let r = place.on_screen;

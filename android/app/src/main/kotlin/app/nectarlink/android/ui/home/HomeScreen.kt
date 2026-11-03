@@ -4292,6 +4292,102 @@ private fun PcAudioCardSection(
 
                     cornerRadius = 16.dp,
 
+                    fillColor = ink.copy(alpha = if (mediaSummary?.playing == true) 0.14f else 0.06f),
+
+                )
+
+                .clickable(role = Role.Button) {
+                    val intent = app.nectarlink.android.ui.watch.WatchActivity.intent(
+                        context = context,
+                        pcId = pcId,
+                        pcName = pcName,
+                        player = "active",
+                        title = mediaSummary?.title,
+                        file = null,
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                }
+
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+
+            verticalAlignment = Alignment.CenterVertically,
+
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+
+        ) {
+
+            Icon(
+
+                painter = painterResource(R.drawable.ic_play),
+
+                contentDescription = null,
+
+                tint = ink.copy(alpha = 0.9f),
+
+                modifier = Modifier.size(20.dp),
+
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+
+                Text(
+
+                    text = "Play on phone",
+
+                    style = MaterialTheme.typography.labelLarge,
+
+                    color = ink,
+
+                    maxLines = 1,
+
+                    overflow = TextOverflow.Ellipsis,
+
+                )
+
+                Text(
+
+                    text = if (!mediaSummary?.title.isNullOrBlank()) {
+                        "Watch: ${mediaSummary?.title}"
+                    } else {
+                        "Watch PC video on this phone"
+                    },
+
+                    style = MaterialTheme.typography.labelSmall,
+
+                    color = ink.copy(alpha = 0.78f),
+
+                    maxLines = 1,
+
+                    overflow = TextOverflow.Ellipsis,
+
+                )
+
+            }
+
+            Icon(
+
+                painter = painterResource(R.drawable.ic_fast_forward),
+
+                contentDescription = null,
+
+                tint = ink.copy(alpha = 0.6f),
+
+                modifier = Modifier.size(18.dp),
+
+            )
+
+        }
+
+        Row(
+
+            modifier = Modifier
+
+                .fillMaxWidth()
+
+                .bentoWell(
+
+                    cornerRadius = 16.dp,
+
                     fillColor = ink.copy(alpha = if (phoneAudioOnPc) 0.14f else 0.06f),
 
                 )
