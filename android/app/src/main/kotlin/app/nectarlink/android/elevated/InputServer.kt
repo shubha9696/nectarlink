@@ -394,7 +394,7 @@ object InputServer {
                     .setBufferSizeInBytes(minBuf)
                 if (shellCtx != null) {
                     runCatching {
-                        val setCtx = recBuilder.javaClass.getMethod("setContext", Context::class.java)
+                        val setCtx = recBuilder.javaClass.getMethod("setContext", android.content.Context::class.java)
                         setCtx.invoke(recBuilder, shellCtx)
                     }
                 }
