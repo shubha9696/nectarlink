@@ -884,6 +884,9 @@ impl Shared {
     /// Removes any cached non-LAN (cellular / public IPv6 / WAN) or stale loopback
     /// addresses for `peer` so `maintain` does not repeatedly dial a dead endpoint.
     pub(crate) fn purge_non_lan_addrs(&self, peer: &DeviceId) {
+        if self.away_mode() {
+            return;
+        }
         if let Ok(Some(record)) = self.store.get_peer(peer) {
             let lan_only: Vec<SocketAddr> = record
                 .last_addrs
@@ -1377,7 +1380,9 @@ async fn maintain(shared: Weak<Shared>, peer: DeviceId, wake: Arc<Notify>, cance
             // remote peer rejected non-LAN path): purge non-LAN addresses and sleep with
             // exponential backoff so we never flap in a tight loop.
             if let Some(n) = shared.upgrade() {
-                n.purge_non_lan_addrs(&peer);
+                if !n.away_mode() {
+                    n.purge_non_lan_addrs(&peer);
+                }
             }
             let jitter = backoff.mul_f64(rand::random::<f64>() * 0.2);
             tokio::select! {
@@ -2569,11 +2574,23 @@ impl Node {
             return Ok(());
         }
         let session = self.connected(peer)?;
-        let env = Envelope::new(
-            types::AUDIO_PCM,
-            &nectarlink_protocol::messages::AudioPcmFrame { sample_rate, channels, pcm },
-        )?;
-        session.try_send_realtime(env)
+        // Send via zero-HOL-blocking native QUIC datagram (sub-MTU: 10-byte NLPA header + pcm <= 1180)
+                if pcm.len() <= 1180 {
+                    let mut d = Vec::with_capacity(10 + pcm.len());
+                    d.extend_from_slice(b"NLPA");
+                    d.extend_from_slice(&sample_rate.to_le_bytes());
+                    d.push(channels);
+                    d.push(0); // reserved
+                    d.extend_from_slice(&pcm);
+                    if session.send_datagram(bytes::Bytes::from(d)).is_ok() {
+                        return Ok(());
+                    }
+                }
+                let env = Envelope::new(
+                    types::AUDIO_PCM,
+                    &nectarlink_protocol::messages::AudioPcmFrame { sample_rate, channels, pcm },
+                )?;
+                session.try_send_realtime(env)
     }
 
     /// Opens a web link on a paired device.

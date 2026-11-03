@@ -148,8 +148,8 @@ mod imp {
                     } else {
                         (0.0, 0.0)
                     };
-                    let l = fl * 0.38 + c * 0.27 + lfe * 0.27 + ls * 0.27 + bl * 0.19;
-                    let r = fr * 0.38 + c * 0.27 + lfe * 0.27 + rs * 0.27 + br * 0.19;
+                    let l = fl * 0.28 + c * 0.20 + lfe * 0.20 + ls * 0.20 + bl * 0.12;
+                    let r = fr * 0.28 + c * 0.20 + lfe * 0.20 + rs * 0.20 + br * 0.12;
                     (l, r)
                 } else if channels > 1 {
                     (
@@ -350,7 +350,7 @@ mod imp {
         };
 
         let mut enhancer = SpeakerEnhancer::new(rate);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(256);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(16);
         let send_node = node.clone();
         core_host::spawn(async move {
             while let Some((r, ch, pcm)) = rx.recv().await {
@@ -504,11 +504,11 @@ mod imp {
         };
 
         let mut enhancer = SpeakerEnhancer::new(rate);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(256);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(16);
         let send_node = node.clone();
         core_host::spawn(async move {
             while let Some((r, ch, pcm)) = rx.recv().await {
-                let chunk_size = 1920;
+                let chunk_size = 960;
                 for chunk in pcm.chunks(chunk_size) {
                     if send_node.send_pc_audio_pcm(&peer, r, ch, chunk.to_vec()).await.is_err() {
                         return;

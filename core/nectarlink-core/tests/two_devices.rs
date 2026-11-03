@@ -2893,6 +2893,7 @@ async fn phone_toggles_arrive_on_connect_change_and_respect_capabilities_and_tog
         brightness: 40,
         wifi: true,
         bluetooth: true,
+        hotspot: Some(false),
     };
     phone.node.toggles_changed(initial.clone()).await.unwrap();
 
@@ -3046,6 +3047,7 @@ async fn phone_toggles_arrive_on_connect_change_and_respect_capabilities_and_tog
         brightness: 90,
         wifi: false,
         bluetooth: true,
+        hotspot: Some(true),
     };
     phone.node.toggles_changed(updated.clone()).await.unwrap();
     let got_updated = wait_for(&mut pc, "updated toggles", |e| match e {

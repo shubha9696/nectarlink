@@ -48,7 +48,7 @@ fn pc_mirror_allowed(shared: &Shared, peer: &DeviceId) -> bool {
 }
 /// Packets waiting to go out, at most. Beyond this the network is behind:
 /// sending more would only add delay. 8 packets provides smooth routing over mobile relays.
-const QUEUE: usize = 32;
+const QUEUE: usize = 128;
 /// Sound packets waiting to go out, at most (each is a few milliseconds).
 const AUDIO_QUEUE: usize = 24;
 /// Icons in a `mirror.apps` answer, at most, in bytes: the rest go without
@@ -541,8 +541,12 @@ impl MirrorStream {
             Err(()) if self.closed.load(Ordering::Acquire) => MirrorSend::Closed,
             Err(()) if self.audio => MirrorSend::Dropped,
             Err(()) => {
-                *resyncing = true;
-                MirrorSend::NeedKeyframe
+                if !*resyncing {
+                    *resyncing = true;
+                    MirrorSend::NeedKeyframe
+                } else {
+                    MirrorSend::Dropped
+                }
             }
         }
     }

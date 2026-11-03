@@ -1038,7 +1038,6 @@ internal fun VoiceTypingBar(
         recognizer = null
         if (sr != null) {
             runCatching {
-                sr.stopListening()
                 sr.cancel()
                 sr.destroy()
             }
@@ -1048,6 +1047,15 @@ internal fun VoiceTypingBar(
     DisposableEffect(pcId) {
         onDispose {
             destroyRecognizer()
+        }
+    }
+
+    LaunchedEffect(state) {
+        if (state is DictateState.Error) {
+            kotlinx.coroutines.delay(2500)
+            if (state is DictateState.Error) {
+                state = DictateState.Idle()
+            }
         }
     }
 
@@ -1100,10 +1108,15 @@ internal fun VoiceTypingBar(
                 state = DictateState.Listening(partial = currentPartial)
             }
 
-            override fun onBeginningOfSpeech() {}
+            override fun onBeginningOfSpeech() {
+                state = DictateState.Listening(partial = currentPartial.ifEmpty { "Listening..." })
+            }
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
+
+            override fun onEndOfSpeech() {
+                state = DictateState.Typing(currentPartial.ifEmpty { "Transcribing..." })
+            }
 
             override fun onPartialResults(partialResults: Bundle?) {
                 val partial = partialResults
@@ -1118,14 +1131,12 @@ internal fun VoiceTypingBar(
             }
 
             override fun onResults(results: Bundle?) {
-                val raw = results
-                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    ?.firstOrNull()
-                    ?.takeIf { it.isNotBlank() }
-                    ?: currentPartial
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                val raw = matches?.firstOrNull()?.trim()?.ifEmpty { null }
+                    ?: currentPartial.trim().ifEmpty { null }
                 destroyRecognizer()
                 currentPartial = ""
-                if (raw.isBlank()) {
+                if (raw.isNullOrBlank()) {
                     state = DictateState.Error(DictateError.NoSpeech)
                     return
                 }
@@ -1147,7 +1158,7 @@ internal fun VoiceTypingBar(
             }
 
             override fun onError(error: Int) {
-                val captured = currentPartial
+                val captured = currentPartial.trim()
                 destroyRecognizer()
                 currentPartial = ""
                 if (captured.isNotBlank()) {
@@ -1192,7 +1203,9 @@ internal fun VoiceTypingBar(
             val localeTag = Locale.getDefault().toLanguageTag()
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
-            putExtra("android.speech.extra.DICTATION_MODE", true)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1000L)
         }
 
         recognizer = sr
@@ -1206,28 +1219,32 @@ internal fun VoiceTypingBar(
     }
 
     fun stopRecognition() {
-        val captured = currentPartial.trim().ifEmpty {
-            (state as? DictateState.Listening)?.partial?.trim().orEmpty()
-        }
-        destroyRecognizer()
-        currentPartial = ""
-        if (captured.isNotEmpty()) {
-            val joined = utteranceJoiner.next(captured)
-            if (joined.isNotEmpty()) {
-                val preview = joined.trimStart()
-                state = DictateState.Typing(preview)
-                runCatching {
-                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                    cm?.setPrimaryClip(ClipData.newPlainText("voice_typing", preview))
+        val sr = recognizer
+        if (sr != null) {
+            // Tell SpeechRecognizer to stop listening to microphone and transcribe recorded audio!
+            runCatching { sr.stopListening() }
+            state = DictateState.Typing(currentPartial.ifEmpty { "Transcribing..." })
+        } else {
+            val captured = currentPartial.trim()
+            currentPartial = ""
+            if (captured.isNotEmpty()) {
+                val joined = utteranceJoiner.next(captured)
+                if (joined.isNotEmpty()) {
+                    val preview = joined.trimStart()
+                    state = DictateState.Typing(preview)
+                    runCatching {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        cm?.setPrimaryClip(ClipData.newPlainText("voice_typing", preview))
+                    }
+                    core.remoteText(pcId, joined) { access ->
+                        onStatus(access)
+                        state = DictateState.Idle(lastTyped = preview)
+                    }
+                    return
                 }
-                core.remoteText(pcId, joined) { access ->
-                    onStatus(access)
-                    state = DictateState.Idle(lastTyped = preview)
-                }
-                return
             }
+            state = DictateState.Idle()
         }
-        state = DictateState.Idle()
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(

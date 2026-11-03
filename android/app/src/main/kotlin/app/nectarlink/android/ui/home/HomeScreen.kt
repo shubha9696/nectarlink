@@ -3355,8 +3355,8 @@ private fun PcCard(
                                     soundOnly = false,
                                 )
                                 if (app.nectarlink.android.elevated.Elevated.running && app.nectarlink.android.mirror.MirrorService.startElevated(context, req)) {
-                                    // started
-                                } else {
+                                    // started with elevated instantly
+                                } else if (!app.nectarlink.android.mirror.MirrorService.tryStartWithCachedConsent(context, req)) {
                                     val intent = req.toIntent(Intent(context, app.nectarlink.android.mirror.MirrorConsentActivity::class.java))
                                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     context.startActivity(intent)

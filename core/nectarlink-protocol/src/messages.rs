@@ -3390,6 +3390,9 @@ pub struct PhoneToggles {
     pub brightness: u8,
     pub wifi: bool,
     pub bluetooth: bool,
+    /// `None` when hotspot status is unknown or unsupported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotspot: Option<bool>,
 }
 
 impl PhoneToggles {
@@ -5081,6 +5084,7 @@ mod tests {
             brightness: 50,
             wifi: true,
             bluetooth: true,
+            hotspot: Some(false),
         };
         assert!(state.is_valid());
         let env = Envelope::new(types::PHONE_TOGGLES, &state).unwrap();

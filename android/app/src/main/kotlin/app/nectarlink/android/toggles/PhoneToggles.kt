@@ -134,6 +134,16 @@ class PhoneToggles(
         add("toggles.hotspot")
     }
 
+    fun isHotspotOn(): Boolean {
+        if (localHotspotReservation != null) return true
+        return runCatching {
+            val method = wifi?.javaClass?.getMethod("isWifiApEnabled")
+            (method?.invoke(wifi) as? Boolean) == true
+        }.getOrElse {
+            Elevated.isHotspotActive()
+        }
+    }
+
     /** Reads the current state of all phone quick settings. */
     fun snapshot(): CorePhoneToggles = CorePhoneToggles(
         dnd = readDnd(),
@@ -143,6 +153,7 @@ class PhoneToggles(
         brightness = readBrightness().toUByte(),
         wifi = readWifi(),
         bluetooth = readBluetooth(),
+        hotspot = isHotspotOn(),
     )
 
     /** Forces an immediate snapshot push to `nectarlink-core`. */

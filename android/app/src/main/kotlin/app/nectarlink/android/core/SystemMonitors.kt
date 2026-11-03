@@ -677,9 +677,7 @@ class SignalMonitor(private val context: Context, private val onChange: (SignalS
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         val active = cm?.activeNetwork
         val caps = cm?.getNetworkCapabilities(active)
-        val onWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true || wifiBars != null
-
-        val isHotspot = !onWifi && (app.nectarlink.android.elevated.Elevated.isHotspotActive() || isConnectedToHotspot())
+        val isHotspot = app.nectarlink.android.elevated.Elevated.isHotspotActive() || isConnectedToHotspot()
         val next = SignalSnapshot(
             cellBars = cellBars,
             cellType = if (isHotspot) "Hotspot" else resolveCellType(),

@@ -247,6 +247,9 @@ pub mod qobject {
         #[cxx_name = "setHotspotNetwork"]
         fn set_hotspot_network(self: &AppController, device: &QString, network: &QString);
         #[qinvokable]
+        #[cxx_name = "isHotspot"]
+        fn is_hotspot(self: &AppController, device: &QString) -> bool;
+        #[qinvokable]
         fn set_device_toggle(self: Pin<&mut AppController>, device: &QString, name: &QString, on: bool);
         /// Latest quick settings toggles for a phone as JSON (`""` when unknown).
         #[qinvokable]
@@ -1641,6 +1644,24 @@ impl qobject::AppController {
         QString::from(
             &serde_json::to_string(&crate::win::wifi::saved_networks()).unwrap_or_else(|_| "[]".into()),
         )
+    }
+
+    pub fn is_hotspot(&self, device: &QString) -> bool {
+        let Some(id) = super::parse_device(device) else { return false };
+        let hub = &core_host::host().hub;
+        if hub.read(|s| s.toggles.get(&id).and_then(|t| t.hotspot).unwrap_or(false)) {
+            return true;
+        }
+        if hub.read(|s| s.devices.iter().find(|d| d.id == id).map(|d| d.cell_type == "Hotspot").unwrap_or(false)) {
+            return true;
+        }
+        #[cfg(target_os = "windows")]
+        if let Some(target_profile) = crate::hotspot::network_for(id) {
+            if crate::win::wifi::reach(&target_profile) == crate::win::wifi::Reach::Connected {
+                return true;
+            }
+        }
+        false
     }
 
     pub fn hotspot_network(&self, device: &QString) -> QString {

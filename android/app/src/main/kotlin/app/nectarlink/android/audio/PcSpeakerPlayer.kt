@@ -4,48 +4,192 @@ package app.nectarlink.android.audio
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
-import android.media.audiofx.LoudnessEnhancer
+import android.media.audiofx.BassBoost
+import android.media.audiofx.Virtualizer
+import android.os.Build
 import android.os.Process
 import android.util.Log
-import java.util.concurrent.LinkedBlockingDeque
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Plays live PCM-16LE audio frames streamed from a paired PC (`pc.audio.relay`)
- * with two distinct, audibly different operational modes:
- * 1) Exact Audio Quality (Dolby / Studio): Uncompressed bit-perfect 48kHz stereo,
- *    rich Dolby Atmos bass and full stereo field without clipping or suppression.
- * 2) Ultra-Low Latency (0 ms): Minimal hardware frame buffer, immediate playout,
- *    stale frame trimming for instantaneous twitch response.
+ * Plays live PCM-16LE audio streamed from PC loopback (`pc.audio.relay`) with the
+ * exact pull-based jitter buffer architecture of PC audio playback (`win/audio_out.rs`):
+ *
+ * 1) Studio / Dolby Audio Quality (`exactQuality = true`):
+ *    - Bit-perfect 48kHz lossless stereo
+ *    - Hardware BassBoost (warm, punchy, deep low-end bass)
+ *    - Hardware Virtualizer (wide 3D spatial surround immersion)
+ *    - Spatialization behavior allowed (Android 12+)
+ *    - 12 ms initial gather, 35 ms ceiling, 15 ms trim target
+ *
+ * 2) Standard / Low Latency Gaming (`exactQuality = false`):
+ *    - Raw direct bitstream, zero DSP latency
+ *    - Performance mode low latency with sonification attributes
+ *    - 5 ms initial gather, 20 ms ceiling, 8 ms trim target
+ *
+ * Total buffer across phone is permanently clamped between 15 ms and 35 ms,
+ * completely preventing buffer accumulation or latency drift.
  */
 class PcSpeakerPlayer(
     private val activity: ActivityWindow = ActivityWindow(ACTIVE_WINDOW_MS),
 ) {
-    private class AudioChunk(
+    /**
+     * Pull-based audio jitter buffer, identically matching the algorithm in
+     * `desktop/app/src/win/audio_out.rs` (`Jitter`).
+     */
+    private class JitterBuffer(
         val sampleRate: Int,
         val channels: Int,
-        val pcm: ByteArray,
-    )
+        val startMs: Int,
+        val mostMs: Int,
+        val trimToMs: Int,
+    ) {
+        private val frame = channels * 2
+        private val perMs = (sampleRate * frame) / 1000
+        private val maxBytes = perMs * 250 // 250 ms ring capacity
+        private val ring = ByteArray(maxBytes)
+        private val lock = Any()
 
-    private val queue = LinkedBlockingDeque<AudioChunk>(MAX_QUEUE_CHUNKS)
+        private var writeHead = 0
+        private var readHead = 0
+        private var count = 0
+        private var waiting = true
+        private var needFadeIn = false
+
+        fun push(data: ByteArray) {
+            if (data.isEmpty()) return
+            synchronized(lock) {
+                val limit = perMs * mostMs
+                if (count + data.size > limit) {
+                    // Buffer is piling up: drop oldest sound down to trimToMs
+                    val keep = perMs * trimToMs
+                    val drop = ((count + data.size - keep) / frame) * frame
+                    val actualDrop = minOf(drop, count)
+                    readHead = (readHead + actualDrop) % maxBytes
+                    count -= actualDrop
+                    needFadeIn = true
+                }
+
+                // Copy new frames into ring buffer
+                var srcOffset = 0
+                var remaining = data.size
+                while (remaining > 0) {
+                    val space = maxBytes - count
+                    if (space <= 0) break
+                    val toWrite = minOf(remaining, maxBytes - writeHead, space)
+                    System.arraycopy(data, srcOffset, ring, writeHead, toWrite)
+                    writeHead = (writeHead + toWrite) % maxBytes
+                    count += toWrite
+                    srcOffset += toWrite
+                    remaining -= toWrite
+                }
+            }
+        }
+
+        fun fill(out: ByteArray, offset: Int, length: Int): Int {
+            synchronized(lock) {
+                if (waiting) {
+                    if (count >= perMs * startMs) {
+                        waiting = false
+                    } else {
+                        return 0 // still gathering sound
+                    }
+                }
+
+                if (count == 0) {
+                    waiting = true // ran dry, wait for startMs again
+                    return 0
+                }
+
+                val toRead = minOf(length, count) / frame * frame
+                if (toRead == 0) return 0
+
+                var read = 0
+                while (read < toRead) {
+                    val chunk = minOf(toRead - read, maxBytes - readHead)
+                    System.arraycopy(ring, readHead, out, offset + read, chunk)
+                    readHead = (readHead + chunk) % maxBytes
+                    count -= chunk
+                    read += chunk
+                }
+
+                if (needFadeIn) {
+                    applyFadeIn(out, offset, read, channels)
+                    needFadeIn = false
+                }
+                return read
+            }
+        }
+
+        fun clear() {
+            synchronized(lock) {
+                count = 0
+                readHead = 0
+                writeHead = 0
+                waiting = true
+                needFadeIn = false
+            }
+        }
+
+        private fun applyFadeIn(buf: ByteArray, offset: Int, length: Int, channels: Int) {
+            val frameBytes = channels * 2
+            val rampFrames = minOf(48, length / frameBytes) // 1 ms ramp at 48kHz
+            for (i in 0 until rampFrames) {
+                val factor = i.toFloat() / rampFrames.toFloat()
+                val frameOffset = offset + i * frameBytes
+                for (ch in 0 until channels) {
+                    val pos = frameOffset + ch * 2
+                    if (pos + 1 < offset + length) {
+                        val sample = (buf[pos].toInt() and 0xFF) or (buf[pos + 1].toInt() shl 8)
+                        val s16 = sample.toShort()
+                        val faded = (s16 * factor).toInt().coerceIn(-32768, 32767).toShort()
+                        buf[pos] = (faded.toInt() and 0xFF).toByte()
+                        buf[pos + 1] = ((faded.toInt() shr 8) and 0xFF).toByte()
+                    }
+                }
+            }
+        }
+    }
+
+    private class AudioEffectsHolder(audioSessionId: Int) {
+        val bassBoost: BassBoost? = runCatching {
+            BassBoost(0, audioSessionId).apply {
+                if (strengthSupported) {
+                    setStrength(750.toShort()) // 75% deep, warm bass boost
+                }
+                enabled = true
+            }
+        }.getOrNull()
+
+        val virtualizer: Virtualizer? = runCatching {
+            Virtualizer(0, audioSessionId).apply {
+                if (strengthSupported) {
+                    setStrength(650.toShort()) // 65% Dolby spatial surround width
+                }
+                enabled = true
+            }
+        }.getOrNull()
+
+        fun release() {
+            runCatching { bassBoost?.release() }
+            runCatching { virtualizer?.release() }
+        }
+    }
+
     private val workerRunning = AtomicBoolean(false)
     private val watchdogRunning = AtomicBoolean(false)
-    @Volatile
-    private var watchdogThread: Thread? = null
+    @Volatile private var watchdogThread: Thread? = null
 
     private val _playing = MutableStateFlow(false)
-
-    /** True while audio frames arrived within the trailing [ACTIVE_WINDOW_MS]. */
     val playing: StateFlow<Boolean> = _playing.asStateFlow()
 
-    @Volatile
-    private var queuedBytes: Int = 0
-    @Volatile
-    private var needsCrossfade: Boolean = false
+    @Volatile private var currentJitter: JitterBuffer? = null
+    @Volatile private var stopRequested = false
+    @Volatile private var lastSampleRate = 48_000
+    @Volatile private var lastChannels = 2
 
     fun playFrame(sampleRate: Int, channels: Int, pcm: ByteArray) {
         if (pcm.isEmpty() || sampleRate <= 0 || channels <= 0) return
@@ -56,28 +200,23 @@ class PcSpeakerPlayer(
         ensureWatchdog()
 
         val safeRate = sampleRate.coerceIn(8_000, 96_000)
-        // Ensure channels is at least 2 for true stereo playback
         val safeChannels = if (channels >= 2) 2 else 1
-        val frameBytes = safeChannels * 2
-        val exact = exactQuality
-        val maxBufMs = if (exact) MAX_BUFFER_MS_EXACT else MAX_BUFFER_MS_LOW_LATENCY
-        val trimMs = if (exact) TARGET_TRIM_MS_EXACT else TARGET_TRIM_MS_LOW_LATENCY
-        val maxQueuedBytes = (safeRate * frameBytes * maxBufMs) / 1000
-        val targetTrimBytes = (safeRate * frameBytes * trimMs) / 1000
+        lastSampleRate = safeRate
+        lastChannels = safeChannels
 
-        synchronized(queue) {
-            if (queuedBytes + pcm.size > maxQueuedBytes || queue.size >= MAX_QUEUE_CHUNKS - 1) {
-                while (queuedBytes > targetTrimBytes && queue.isNotEmpty()) {
-                    val dropped = queue.pollFirst() ?: break
-                    queuedBytes = (queuedBytes - dropped.pcm.size).coerceAtLeast(0)
-                }
-                needsCrossfade = true
-            }
-            if (queue.offerLast(AudioChunk(safeRate, safeChannels, pcm))) {
-                queuedBytes += pcm.size
-            }
+        var jitter = currentJitter
+        if (jitter == null || jitter.sampleRate != safeRate || jitter.channels != safeChannels) {
+            val exact = exactQuality
+            val startMs = if (exact) 12 else 5
+            val mostMs = if (exact) 35 else 20
+            val trimToMs = if (exact) 15 else 8
+            jitter = JitterBuffer(safeRate, safeChannels, startMs, mostMs, trimToMs)
+            currentJitter = jitter
         }
 
+        jitter.push(pcm)
+
+        stopRequested = false
         if (workerRunning.compareAndSet(false, true)) {
             Thread(::runAudioLoop, "nectarlink-pc-speaker").apply {
                 isDaemon = true
@@ -89,13 +228,9 @@ class PcSpeakerPlayer(
     fun stop() {
         activity.reset()
         _playing.value = false
+        stopRequested = true
+        currentJitter?.clear()
         watchdogThread?.interrupt()
-        synchronized(queue) {
-            queue.clear()
-            queuedBytes = 0
-            // Poison pill with rate = 0 signals immediate stop.
-            queue.offerFirst(AudioChunk(0, 0, ByteArray(0)))
-        }
     }
 
     private fun ensureWatchdog() {
@@ -123,28 +258,7 @@ class PcSpeakerPlayer(
         } finally {
             watchdogThread = null
             watchdogRunning.set(false)
-            if (activity.isActive() && watchdogRunning.compareAndSet(false, true)) {
-                _playing.value = true
-                Thread(::runWatchdogLoop, "nectarlink-pc-speaker-watchdog").apply {
-                    isDaemon = true
-                    start()
-                }
-            }
         }
-    }
-
-    private fun pollChunk(timeoutMs: Long): AudioChunk? {
-        val chunk = if (timeoutMs <= 0L) {
-            queue.pollFirst()
-        } else {
-            queue.pollFirst(timeoutMs, TimeUnit.MILLISECONDS)
-        }
-        if (chunk != null && chunk.pcm.isNotEmpty()) {
-            synchronized(queue) {
-                queuedBytes = (queuedBytes - chunk.pcm.size).coerceAtLeast(0)
-            }
-        }
-        return chunk
     }
 
     private fun runAudioLoop() {
@@ -153,106 +267,80 @@ class PcSpeakerPlayer(
         }
 
         var track: AudioTrack? = null
-        var enhancer: LoudnessEnhancer? = null
+        var effects: AudioEffectsHolder? = null
         var currentRate = 0
         var currentChannels = 0
         var currentExact = exactQuality
-        var needsPrebuffer = true
-        var prebufferedBytes = 0
-        var silenceFillMs = 0
+        var silenceCount = 0
+
+        val chunkBytes = 960 // 5 ms at 48kHz stereo
+        val buffer = ByteArray(chunkBytes)
 
         try {
-            while (true) {
+            while (!stopRequested) {
                 val exact = exactQuality
-                if (exact != currentExact || trackRecreateRequested.getAndSet(false)) {
-                    releaseTrack(track, enhancer)
-                    track = null
+                val rate = lastSampleRate
+                val channels = lastChannels
+
+                if (track == null ||
+                    track.state != AudioTrack.STATE_INITIALIZED ||
+                    currentRate != rate ||
+                    currentChannels != channels ||
+                    currentExact != exact ||
+                    trackRecreateRequested.getAndSet(false)
+                ) {
+                    releaseTrack(track, effects)
+                    track = createTrack(rate, channels, exact)
+                    effects = if (exact && track != null) {
+                        AudioEffectsHolder(track.audioSessionId)
+                    } else {
+                        null
+                    }
+                    val startMs = if (exact) 12 else 5
+                    val mostMs = if (exact) 35 else 20
+                    val trimToMs = if (exact) 15 else 8
+                    currentJitter = JitterBuffer(rate, channels, startMs, mostMs, trimToMs)
+                    currentRate = rate
+                    currentChannels = channels
                     currentExact = exact
-                    needsPrebuffer = true
-                    prebufferedBytes = 0
+                    silenceCount = 0
                 }
 
-                val pollTimeout = if (track?.playState == AudioTrack.PLAYSTATE_PLAYING) 15L else INACTIVITY_TIMEOUT_MS
-                val chunk = pollChunk(pollTimeout)
+                val activeTrack = track ?: break
+                val jitter = currentJitter ?: break
 
-                if (chunk == null) {
-                    val activeTrack = track ?: break
-                    if (activeTrack.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                        silenceFillMs += 15
-                        if (silenceFillMs >= 250) {
+                val filled = jitter.fill(buffer, 0, buffer.size)
+                if (filled > 0) {
+                    silenceCount = 0
+                    if (activeTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                        runCatching { activeTrack.play() }
+                    }
+                    activeTrack.write(buffer, 0, filled)
+                } else {
+                    silenceCount++
+                    if (silenceCount > 500) { // ~1 second of silence
+                        if (activeTrack.playState == AudioTrack.PLAYSTATE_PLAYING) {
                             runCatching {
                                 activeTrack.pause()
                                 activeTrack.flush()
                             }
-                            needsPrebuffer = true
-                            prebufferedBytes = 0
-                            silenceFillMs = 0
+                        }
+                        if (silenceCount > 1500 && !activity.isActive()) {
+                            break // Exit thread after inactivity
                         }
                     }
-                    continue
-                }
-
-                if (chunk.sampleRate == 0) break // Poison pill to exit
-                silenceFillMs = 0
-
-                if (track == null ||
-                    track.state != AudioTrack.STATE_INITIALIZED ||
-                    currentRate != chunk.sampleRate ||
-                    currentChannels != chunk.channels
-                ) {
-                    releaseTrack(track, enhancer)
-                    track = createTrack(chunk.sampleRate, chunk.channels, exact)
-                    enhancer = track?.let { createEnhancer(it.audioSessionId) }
-                    currentRate = chunk.sampleRate
-                    currentChannels = chunk.channels
-                    currentExact = exact
-                    needsPrebuffer = true
-                    prebufferedBytes = 0
-                }
-
-                val activeTrack = track ?: continue
-
-                if (needsCrossfade) {
-                    applyFadeIn(chunk.pcm, chunk.channels)
-                    needsCrossfade = false
-                }
-
-                val prebufferMs = if (exact) PREBUFFER_MS_EXACT else PREBUFFER_MS_LOW_LATENCY
-                val prebufferThreshold = (chunk.sampleRate * chunk.channels * 2 * prebufferMs) / 1000
-                if (needsPrebuffer && prebufferThreshold > 0) {
-                    prebufferedBytes += chunk.pcm.size
-                    activeTrack.write(chunk.pcm, 0, chunk.pcm.size)
-                    if (prebufferedBytes >= prebufferThreshold) {
-                        if (activeTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
-                            runCatching { activeTrack.play() }
-                        }
-                        needsPrebuffer = false
+                    try {
+                        Thread.sleep(2)
+                    } catch (_: InterruptedException) {
+                        break
                     }
-                    continue
                 }
-
-                if (activeTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
-                    runCatching { activeTrack.play() }
-                    needsPrebuffer = false
-                }
-
-                // Active write
-                activeTrack.write(chunk.pcm, 0, chunk.pcm.size)
             }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
         } finally {
             workerRunning.set(false)
-            releaseTrack(track, enhancer)
-            val hasPending = synchronized(queue) {
-                queue.peekFirst()?.let { it.sampleRate > 0 } == true
-            }
-            if (hasPending && workerRunning.compareAndSet(false, true)) {
-                Thread(::runAudioLoop, "nectarlink-pc-speaker").apply {
-                    isDaemon = true
-                    start()
-                }
-            }
+            releaseTrack(track, effects)
         }
     }
 
@@ -280,32 +368,46 @@ class PcSpeakerPlayer(
                 .setChannelMask(channelMask)
                 .build()
 
-            val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build()
+            val attrBuilder = AudioAttributes.Builder()
+            if (exact) {
+                // Studio / Dolby Mode: Audiophile music pipeline, spatial audio enabled
+                attrBuilder
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    attrBuilder.setSpatializationBehavior(AudioAttributes.SPATIALIZATION_BEHAVIOR_SPATIALIZED_ALLOW)
+                }
+            } else {
+                // Low Latency Mode: game / direct stream pipeline for instantaneous feedback
+                attrBuilder
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            }
 
-            val targetBuf = maxOf(minBuf * 2, (sampleRate * channels * 2 * 40) / 1000)
-            AudioTrack.Builder()
-                .setAudioAttributes(attrs)
+            val track = AudioTrack.Builder()
+                .setAudioAttributes(attrBuilder.build())
                 .setAudioFormat(format)
                 .setTransferMode(AudioTrack.MODE_STREAM)
-                .setBufferSizeInBytes(targetBuf)
+                .setBufferSizeInBytes(maxOf(minBuf, sampleRate * (channels * 2) * 20 / 1000))
                 .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                 .build()
+
+            // Clamp hardware internal buffer to 20 ms to prevent latency accumulation
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val targetFrames = (sampleRate * 20) / 1000
+                runCatching {
+                    track.setBufferSizeInFrames(maxOf(targetFrames, 192))
+                }
+            }
+            track
         }.getOrElse {
             Log.w(TAG, "failed to create AudioTrack", it)
             null
         }
     }
 
-    private fun createEnhancer(audioSessionId: Int): LoudnessEnhancer? {
-        // Return null to avoid digital clipping and distortion on full-scale audio
-        return null
-    }
-
-    private fun releaseTrack(track: AudioTrack?, enhancer: LoudnessEnhancer?) {
-        runCatching { enhancer?.release() }
+    private fun releaseTrack(track: AudioTrack?, effects: AudioEffectsHolder?) {
+        effects?.release()
         if (track == null) return
         runCatching {
             if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
@@ -315,35 +417,8 @@ class PcSpeakerPlayer(
         runCatching { track.release() }
     }
 
-    private fun applyFadeIn(pcm: ByteArray, channels: Int) {
-        val frameBytes = channels * 2
-        val rampFrames = minOf(48, pcm.size / frameBytes) // 1 ms smooth ramp at 48kHz
-        for (i in 0 until rampFrames) {
-            val factor = i.toFloat() / rampFrames.toFloat()
-            val offset = i * frameBytes
-            for (ch in 0 until channels) {
-                val bytePos = offset + ch * 2
-                if (bytePos + 1 < pcm.size) {
-                    val sample = (pcm[bytePos].toInt() and 0xFF) or (pcm[bytePos + 1].toInt() shl 8)
-                    val s16 = sample.toShort()
-                    val faded = (s16 * factor).toInt().coerceIn(-32768, 32767).toShort()
-                    pcm[bytePos] = (faded.toInt() and 0xFF).toByte()
-                    pcm[bytePos + 1] = ((faded.toInt() shr 8) and 0xFF).toByte()
-                }
-            }
-        }
-    }
-
     companion object {
         private const val TAG = "PcSpeakerPlayer"
-        private const val INACTIVITY_TIMEOUT_MS = 30_000L
-        private const val MAX_QUEUE_CHUNKS = 128
-        private const val MAX_BUFFER_MS_LOW_LATENCY = 120
-        private const val TARGET_TRIM_MS_LOW_LATENCY = 30
-        private const val MAX_BUFFER_MS_EXACT = 120
-        private const val TARGET_TRIM_MS_EXACT = 30
-        private const val PREBUFFER_MS_LOW_LATENCY = 15
-        private const val PREBUFFER_MS_EXACT = 15
         const val ACTIVE_WINDOW_MS = 3_000L
         private const val WATCHDOG_CHECK_INTERVAL_MS = 1_000L
 
@@ -351,7 +426,7 @@ class PcSpeakerPlayer(
 
         /**
          * When true (default), audio streams in uncompressed bit-perfect stereo with
-         * full Dolby Atmos / spatial surround pipeline and zero suppression.
+         * rich hardware BassBoost and Dolby spatial Virtualizer immersion.
          */
         @Volatile
         var exactQuality: Boolean = true

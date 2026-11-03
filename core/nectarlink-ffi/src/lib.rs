@@ -961,6 +961,7 @@ pub struct PhoneToggles {
     pub brightness: u8,
     pub wifi: bool,
     pub bluetooth: bool,
+    pub hotspot: Option<bool>,
 }
 
 impl From<core::PhoneToggles> for PhoneToggles {
@@ -973,6 +974,7 @@ impl From<core::PhoneToggles> for PhoneToggles {
             brightness: t.brightness,
             wifi: t.wifi,
             bluetooth: t.bluetooth,
+            hotspot: t.hotspot,
         }
     }
 }
@@ -987,6 +989,7 @@ impl From<PhoneToggles> for core::PhoneToggles {
             brightness: t.brightness,
             wifi: t.wifi,
             bluetooth: t.bluetooth,
+            hotspot: t.hotspot,
         }
     }
 }

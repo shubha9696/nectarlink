@@ -60,7 +60,11 @@ class AppDisplay(
             codec = first.codec
             surface = first.surface
             val made = if (fullScreen) {
-                createMirrorDisplay(curW, curH, curDpi, first.surface)
+                val mirrorVd = createMirrorDisplay(curW, curH, curDpi, first.surface)
+                if (mirrorVd == null && surfaceControlToken == null) {
+                    throw java.io.IOException("Mirror display unsupported via shell")
+                }
+                mirrorVd
             } else {
                 createDisplay(curW, curH, curDpi, first.surface)
             }
@@ -108,6 +112,14 @@ class AppDisplay(
             runCatching { surface?.release() }
             display?.release()
             display = null
+            surfaceControlToken?.let { token ->
+                runCatching {
+                    Class.forName("android.view.SurfaceControl")
+                        .getMethod("destroyDisplay", android.os.IBinder::class.java)
+                        .invoke(null, token)
+                }
+                surfaceControlToken = null
+            }
         }
     }
 
@@ -233,9 +245,11 @@ class AppDisplay(
         out.write(bytes)
     }
 
-    private fun createMirrorDisplay(w: Int, h: Int, d: Int, surface: Surface): VirtualDisplay {
+    private var surfaceControlToken: Any? = null
+
+    private fun createMirrorDisplay(w: Int, h: Int, d: Int, surface: Surface): VirtualDisplay? {
         // 1. Android 11+ hidden static helper DisplayManager.createVirtualDisplay(name, width, height, displayIdToMirror, surface)
-        runCatching {
+        val vd = runCatching {
             val m = DisplayManager::class.java.getMethod(
                 "createVirtualDisplay",
                 String::class.java,
@@ -244,24 +258,16 @@ class AppDisplay(
                 Int::class.javaPrimitiveType,
                 Surface::class.java,
             )
-            val vd = m.invoke(null, "NectarlinkScreen", w, h, 0, surface) as? VirtualDisplay
-            if (vd != null) return vd
-        }
+            m.invoke(null, "NectarlinkScreen", w, h, 0, surface) as? VirtualDisplay
+        }.getOrNull()
+        if (vd != null) return vd
+
         // 2. Shell DisplayManager instance with VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR
-        val constructor = DisplayManager::class.java.getDeclaredConstructor(Context::class.java)
-        constructor.isAccessible = true
-        val manager = constructor.newInstance(ShellContext.get())
-        @SuppressLint("WrongConstant")
-        return runCatching {
-            manager.createVirtualDisplay(
-                "NectarlinkScreen",
-                w,
-                h,
-                d,
-                surface,
-                PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR or DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION,
-            )
-        }.getOrElse {
+        val vdShell = runCatching {
+            val constructor = DisplayManager::class.java.getDeclaredConstructor(Context::class.java)
+            constructor.isAccessible = true
+            val manager = constructor.newInstance(ShellContext.get())
+            @SuppressLint("WrongConstant")
             manager.createVirtualDisplay(
                 "NectarlinkScreen",
                 w,
@@ -270,7 +276,36 @@ class AppDisplay(
                 surface,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             )
+        }.getOrNull()
+        if (vdShell != null) return vdShell
+
+        // 3. SurfaceControl display projection (scrcpy zero-permission method)
+        runCatching {
+            val sc = Class.forName("android.view.SurfaceControl")
+            val token = sc.getMethod("createDisplay", String::class.java, Boolean::class.javaPrimitiveType)
+                .invoke(null, "NectarlinkScreen", false)
+            if (token != null) {
+                sc.getMethod("openTransaction").invoke(null)
+                try {
+                    sc.getMethod("setDisplaySurface", android.os.IBinder::class.java, Surface::class.java)
+                        .invoke(null, token, surface)
+                    runCatching {
+                        sc.getMethod("setDisplayLayerStack", android.os.IBinder::class.java, Int::class.javaPrimitiveType)
+                            .invoke(null, token, 0)
+                    }
+                    val rectClass = android.graphics.Rect::class.java
+                    val r = android.graphics.Rect(0, 0, w, h)
+                    runCatching {
+                        sc.getMethod("setDisplayProjection", android.os.IBinder::class.java, Int::class.javaPrimitiveType, rectClass, rectClass)
+                            .invoke(null, token, 0, r, r)
+                    }
+                } finally {
+                    sc.getMethod("closeTransaction").invoke(null)
+                }
+                surfaceControlToken = token
+            }
         }
+        return null
     }
 
     private fun createDisplay(w: Int, h: Int, d: Int, surface: Surface): VirtualDisplay {
