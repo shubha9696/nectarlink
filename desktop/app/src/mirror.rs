@@ -288,7 +288,7 @@ pub fn set_quality(window: Window, fps: u32, bitrate: u32) {
                 .set_phone_toggle(
                     dev,
                     "mirror_bitrate".into(),
-                    nectarlink_core::PhoneToggleValue::Level(bitrate as u64),
+                    nectarlink_core::PhoneToggleValue::Mode(bitrate.to_string()),
                 )
                 .await;
         }
