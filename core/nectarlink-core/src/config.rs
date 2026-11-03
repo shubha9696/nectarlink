@@ -280,7 +280,7 @@ pub trait Platform: Send + Sync + 'static {
         &self,
         peer: &nectarlink_protocol::DeviceId,
     ) -> Option<std::sync::Arc<dyn crate::MirrorSink>> {
-        self.mirror_sink(peer, mirror::SCREEN)
+        self.mirror_sink(peer, crate::mirror::SCREEN)
     }
 
     /// A PC asked for this phone's screen: ask the user, then (if they

@@ -119,7 +119,7 @@ pub fn build_wifi_optimized_transport_config() -> noq_proto::TransportConfig {
     // 1. Switch from Cubic (loss-based) to BBR (bandwidth & RTT model).
     // BBR ignores isolated Wi-Fi Block-ACK packet losses and paces outgoing
     // packets smoothly at the router's bottleneck rate.
-    let mut bbr = BbrConfig::default();
+    let bbr = BbrConfig::default();
     // bbr.initial_window(64 * 1024); // 64 KiB gentle start so we don't shock the router queue
     config.congestion_controller_factory(Arc::new(bbr));
 
