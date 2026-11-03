@@ -1080,9 +1080,13 @@ pub fn stop(window: Window) {
 pub fn on_event(event: &NodeEvent) {
     match event {
         NodeEvent::Mirroring { device, session, on: true } => {
-            if *session == MIRROR_SCREEN && crate::phone_sound::active().is_some_and(|(d, _)| d == *device) {
+            if *session == MIRROR_SCREEN && crate::phone_sound::active().is_some_and(|(d, ph)| d == *device && ph == crate::phone_sound::Phase::Asking) {
                 // Sound only mode: do not open a screen mirror window!
                 return;
+            }
+            if *session == MIRROR_SCREEN {
+                crate::phone_sound::stop_for_window(*device);
+                crate::pc_audio_stream::set_enabled(false);
             }
             let window = Window { device: *device, session: *session };
             set_phase(window, Phase::Showing);
@@ -1834,13 +1838,16 @@ fn ensure_gamepad_loop() {
 /// stream of its own): only for mirrorings this PC asked for.
 pub fn sink(device: &DeviceId, session: u32) -> Option<Arc<dyn MirrorSink>> {
     let window = Window { device: *device, session };
-    // Sound-only mode: if phone sound is active, route directly to phone_sound sink without a window.
-    if session == MIRROR_SCREEN && crate::phone_sound::active().is_some_and(|(d, _)| d == *device) {
+    // Sound-only mode: only if the PC explicitly asked for sound-only without a window.
+    if session == MIRROR_SCREEN && crate::phone_sound::active().is_some_and(|(d, ph)| d == *device && ph == crate::phone_sound::Phase::Asking) {
         return crate::phone_sound::sink(device);
     }
     if session == MIRROR_SCREEN {
         let p = phase(&window);
-        if p == Some(Phase::Asking) {
+        if p.is_none() || p == Some(Phase::Asking) {
+            crate::phone_sound::stop_for_window(*device);
+            crate::pc_audio_stream::set_enabled(false);
+
             ffi::video_clear(&window.key());
             state(|s| {
                 s.windows.insert(window, Shown { phase: Phase::Showing, app: None, pkg: None });

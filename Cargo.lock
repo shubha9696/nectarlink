@@ -726,9 +726,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.7"
+version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2376ffd6f96d8a9db59875b4b6b0237d6900b5baf64279714e05493ce64828a"
+checksum = "261af4dc7a06ea8a527a8717d8cbba3417530d6ea14e1edb3de6b67806be474f"
 dependencies = [
  "cmov",
 ]
@@ -794,9 +794,9 @@ dependencies = [
 
 [[package]]
 name = "cxx-gen"
-version = "0.7.202"
+version = "0.7.205"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5010d4044b4ac8b18aca2341f3a6227aaf332ec8f5e38fcb93cba53451f2dc92"
+checksum = "157db3fc21feec4fc9917861635d04fd7a3c4ae9ee3957bb0dc2a96b678e7b87"
 dependencies = [
  "codespan-reporting 0.13.1",
  "indexmap",
@@ -2415,7 +2415,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-adb"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "thiserror 2.0.21",
  "tokio",
@@ -2425,7 +2425,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-cli"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "anyhow",
  "clap",
@@ -2445,7 +2445,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-core"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "blake3",
  "bytes",
@@ -2480,7 +2480,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-credprov"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "ciborium",
  "serde",
@@ -2488,7 +2488,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-desktop"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2521,7 +2521,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-ffi"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "jni-sys 0.4.1",
  "nectarlink-core",
@@ -2535,7 +2535,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-protocol"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "blake3",
  "ciborium",
@@ -2551,7 +2551,7 @@ dependencies = [
 
 [[package]]
 name = "nectarlink-vcam"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "ab_glyph",
  "embed-resource",
@@ -5231,7 +5231,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "anyhow",
  "serde_json",

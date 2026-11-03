@@ -263,45 +263,29 @@ fn stop(device: DeviceId) {
 
 
 /// The mirror window is about to ask `device` for its screen, which brings
-
 /// the sound too: the phone shares one or the other, so this one ends first.
-
 pub fn stop_for_window(device: DeviceId) {
-
     if active().is_some_and(|(d, _)| d == device) {
-
         stop(device);
-
     }
-
 }
 
-
+/// Stops any active phone sound session.
+pub fn stop_active() {
+    if let Some((d, _)) = active() {
+        stop(d);
+    }
+}
 
 /// The sink for `device`'s sound stream while it plays here without a window.
-
 pub fn sink(device: &DeviceId) -> Option<Arc<dyn MirrorSink>> {
-
     let matches_active = active().is_some_and(|(d, _)| d == *device);
-
-    let paired = core_host::host().hub.read(|s| s.device(device).is_some());
-
-    if matches_active || paired {
-
-        if !matches_active {
-
-            set_active(Some((*device, Phase::Playing)));
-
-        }
-
+    if matches_active {
+        crate::pc_audio_stream::set_enabled(false);
         Some(Arc::new(Sink { device: *device, player: Mutex::new(None) }) as Arc<dyn MirrorSink>)
-
     } else {
-
         None
-
     }
-
 }
 
 

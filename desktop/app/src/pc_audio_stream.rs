@@ -93,6 +93,9 @@ mod imp {
 
     /// Enables or disables PC-to-phone audio loopback streaming.
     pub fn set_enabled(enabled: bool) {
+        if enabled {
+            crate::phone_sound::stop_active();
+        }
         ENABLED.store(enabled, Ordering::SeqCst);
         if enabled {
             ensure_worker();

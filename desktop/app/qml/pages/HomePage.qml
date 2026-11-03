@@ -2084,7 +2084,12 @@ Item {
                         title: qsTr("Phone as speaker")
                         caption: checked ? qsTr("Streaming PC audio") : ""
                         checked: Preferences.streamPcAudioToPhone
-                        onToggled: (on) => Preferences.streamPcAudioToPhone = on
+                        onToggled: (on) => {
+                            Preferences.streamPcAudioToPhone = on
+                            if (on) {
+                                MediaList.setPhoneSound(false)
+                            }
+                        }
                     }
 
                     // Play on phone: the video playing on this PC, on the phone.
@@ -2114,7 +2119,12 @@ Item {
                         caption: sound === "playing" ? qsTr("Playing %1's sound").arg(MediaList.phoneSoundName)
                             : sound === "asking" ? qsTr("Allow it on %1").arg(MediaList.phoneSoundName)
                             : ""
-                        onToggled: (on) => MediaList.setPhoneSound(on)
+                        onToggled: (on) => {
+                            MediaList.setPhoneSound(on)
+                            if (on) {
+                                Preferences.streamPcAudioToPhone = false
+                            }
+                        }
                     }
 
                     // Audio Output Mode Selection (PC only, Phone only)

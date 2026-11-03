@@ -3343,6 +3343,7 @@ private fun PcCard(
                             if (isCastingScreen) {
                                 app.nectarlink.android.mirror.MirrorService.stop(device.id)
                             } else {
+                                if (streamingToPhone) onSetPcAudio(200, null)
                                 val req = app.nectarlink.android.mirror.MirrorRequest(
                                     pcId = device.id,
                                     maxSize = 1920,
@@ -4201,9 +4202,12 @@ private fun PcAudioCardSection(
                 )
 
                 .clickable(role = Role.Switch) {
-
+                    if (!streamingToPhone) {
+                        if (phoneAudioOnPc || isCastingScreen) {
+                            app.nectarlink.android.mirror.MirrorService.stop(pcId)
+                        }
+                    }
                     onSetPcAudio(if (!streamingToPhone) 201 else 200, null)
-
                 }
 
                 .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -4295,13 +4299,10 @@ private fun PcAudioCardSection(
                 )
 
                 .clickable(role = Role.Switch) {
-
                     if (phoneAudioOnPc) {
-
                         app.nectarlink.android.mirror.MirrorService.stop(pcId)
-
                     } else {
-
+                        if (streamingToPhone) onSetPcAudio(200, null)
                         val req = app.nectarlink.android.mirror.MirrorRequest(
                             pcId = pcId,
                             maxSize = 0,
