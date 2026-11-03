@@ -128,14 +128,15 @@ impl Platform for DesktopPlatform {
                 }
             }
             "audio_quality" => {
-                if let nectarlink_core::PhoneToggleValue::Mode(m) = value {
-                    let exact = m == "exact";
-                    pc_audio_stream::set_exact_quality(exact);
-                    tracing::info!(exact, "Audio quality mode updated on PC");
-                    Ok(())
-                } else {
-                    Err("invalid value for audio_quality".into())
-                }
+                let exact = match value {
+                    nectarlink_core::PhoneToggleValue::Mode(m) => m == "exact" || m == "true",
+                    nectarlink_core::PhoneToggleValue::Bool(b) => *b,
+                    _ => return Err("invalid value for audio_quality".into()),
+                };
+                pc_audio_stream::set_exact_quality(exact);
+                crate::core_host::host().hub.changed(crate::state::Changes::PREFS);
+                tracing::info!(exact, "Audio quality mode updated on PC");
+                Ok(())
             }
             _ => Err("unsupported toggle on desktop".into()),
         }

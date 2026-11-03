@@ -1728,8 +1728,10 @@ impl qobject::AppController {
             "volume" | "brightness" => raw.parse::<u8>().ok().map(|v| PhoneToggleValue::Level(v.min(100))),
             "ringer" | "dual_sound" | "audio_mode" => Some(PhoneToggleValue::Mode(raw)),
             "audio_quality" => {
-                let mode = if raw == "true" || raw == "exact" { "exact" } else { "low_latency" };
-                Some(PhoneToggleValue::Mode(mode.into()))
+                let exact = raw == "true" || raw == "exact";
+                crate::pc_audio_stream::set_exact_quality(exact);
+                core_host::host().hub.changed(Changes::PREFS);
+                Some(PhoneToggleValue::Mode(if exact { "exact".into() } else { "low_latency".into() }))
             }
             _ => None,
         };

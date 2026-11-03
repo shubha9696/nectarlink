@@ -537,9 +537,8 @@ mod imp {
         let send_node = node.clone();
         core_host::spawn(async move {
             while let Some((r, ch, pcm)) = rx.recv().await {
-                // Slice into 960-byte (5 ms at 48 kHz stereo) sub-MTU chunks so each
-                // chunk travels in a single QUIC datagram without HOL blocking.
-                for chunk in pcm.chunks(960) {
+                let chunk_size = if is_exact_quality() { 960 } else { 480 };
+                for chunk in pcm.chunks(chunk_size) {
                     if send_node.send_pc_audio_pcm(&peer, r, ch, chunk.to_vec()).await.is_err() {
                         return;
                     }

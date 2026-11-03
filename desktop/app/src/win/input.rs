@@ -163,11 +163,14 @@ pub fn is_screen_locked() -> bool {
 
 pub fn send_to_lock_pipe(cmd: &str) -> bool {
     use std::fs::OpenOptions;
-    use std::io::Write;
+    use std::io::{BufRead, BufReader, Write};
     for attempt in 0..2 {
-        if let Ok(mut file) = OpenOptions::new().write(true).open(r"\\.\pipe\nectarlink_lock_input") {
-            if file.write_all(cmd.as_bytes()).is_ok() {
-                let _ = file.flush();
+        if let Ok(file) = OpenOptions::new().read(true).write(true).open(r"\\.\pipe\nectarlink_lock_input") {
+            let mut writer = std::io::BufWriter::new(&file);
+            if writer.write_all(cmd.as_bytes()).is_ok() && writer.flush().is_ok() {
+                let mut reader = BufReader::new(&file);
+                let mut reply = String::new();
+                let _ = reader.read_line(&mut reply);
                 return true;
             }
         }
@@ -206,7 +209,6 @@ fn send_inputs(inputs: &[INPUT]) {
                             keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
                         }
                     }
-                    std::thread::sleep(std::time::Duration::from_millis(15));
                 }
                 INPUT_MOUSE => {
                     let mi = unsafe { input.Anonymous.mi };
@@ -218,7 +220,6 @@ fn send_inputs(inputs: &[INPUT]) {
                                 mouse_event(move_flags, mi.dx as u32, mi.dy as u32, 0, 0);
                             }
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(8));
                     }
                     let btn_flags = mi.dwFlags.0 & !(MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
                     if btn_flags != 0 {
@@ -228,7 +229,6 @@ fn send_inputs(inputs: &[INPUT]) {
                                 mouse_event(btn_flags, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
                             }
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(12));
                     }
                 }
                 _ => {}
@@ -460,6 +460,16 @@ pub fn scroll(dx: f32, dy: f32) {
 /// (so that secure password/PIN prompts on the Windows lock screen and LogonUI accept them),
 /// falling back to `KEYEVENTF_UNICODE` for non-ASCII or complex Unicode.
 pub fn type_text(text: &str) {
+    if is_screen_locked() {
+        let clean = text.trim_matches(|c| c == '\r' || c == '\n');
+        if !clean.is_empty() {
+            let msg = format!("TYPE {}\n", clean);
+            if send_to_lock_pipe(&msg) {
+                return;
+            }
+        }
+    }
+
     unsafe extern "system" {
         fn VkKeyScanW(ch: u16) -> i16;
     }
@@ -581,6 +591,28 @@ pub fn press_key(key: &str, mods: &[KeyMod]) {
     if key == "lock" {
         let _ = crate::links::power(PowerAction::Lock);
         return;
+    }
+    if is_screen_locked() {
+        if key == "enter" {
+            let _ = send_to_lock_pipe("KEY 13 28 0\n");
+            let _ = send_to_lock_pipe("KEY 13 28 2\n");
+            return;
+        }
+        if key == "backspace" {
+            let _ = send_to_lock_pipe("KEY 8 14 0\n");
+            let _ = send_to_lock_pipe("KEY 8 14 2\n");
+            return;
+        }
+        if key == "space" {
+            let _ = send_to_lock_pipe("KEY 32 57 0\n");
+            let _ = send_to_lock_pipe("KEY 32 57 2\n");
+            return;
+        }
+        if key == "escape" {
+            let _ = send_to_lock_pipe("KEY 27 1 0\n");
+            let _ = send_to_lock_pipe("KEY 27 1 2\n");
+            return;
+        }
     }
     let Some((vk, extended, preset_mods)) = resolve_key(key) else {
         return;

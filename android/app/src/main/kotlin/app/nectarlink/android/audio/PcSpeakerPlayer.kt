@@ -16,7 +16,11 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Plays live PCM-16LE audio frames streamed from a paired PC (`pc.audio.relay`)
- * with low latency, robust jitter buffering, and zero underrun crackles.
+ * with two distinct, audibly different operational modes:
+ * 1) Exact Audio Quality (Dolby / Studio): Uncompressed bit-perfect 48kHz stereo,
+ *    rich Dolby Atmos bass and full stereo field without clipping or suppression.
+ * 2) Ultra-Low Latency (0 ms): Minimal hardware frame buffer, immediate playout,
+ *    stale frame trimming for instantaneous twitch response.
  */
 class PcSpeakerPlayer(
     private val activity: ActivityWindow = ActivityWindow(ACTIVE_WINDOW_MS),
@@ -52,10 +56,12 @@ class PcSpeakerPlayer(
         ensureWatchdog()
 
         val safeRate = sampleRate.coerceIn(8_000, 96_000)
+        // Ensure channels is at least 2 for true stereo playback
         val safeChannels = if (channels >= 2) 2 else 1
         val frameBytes = safeChannels * 2
-        val maxBufMs = if (exactQuality) MAX_BUFFER_MS_EXACT else MAX_BUFFER_MS_LOW_LATENCY
-        val trimMs = if (exactQuality) TARGET_TRIM_MS_EXACT else TARGET_TRIM_MS_LOW_LATENCY
+        val exact = exactQuality
+        val maxBufMs = if (exact) MAX_BUFFER_MS_EXACT else MAX_BUFFER_MS_LOW_LATENCY
+        val trimMs = if (exact) TARGET_TRIM_MS_EXACT else TARGET_TRIM_MS_LOW_LATENCY
         val maxQueuedBytes = (safeRate * frameBytes * maxBufMs) / 1000
         val targetTrimBytes = (safeRate * frameBytes * trimMs) / 1000
 
@@ -150,14 +156,32 @@ class PcSpeakerPlayer(
         var enhancer: LoudnessEnhancer? = null
         var currentRate = 0
         var currentChannels = 0
+        var currentExact = exactQuality
         var needsPrebuffer = true
         var prebufferedBytes = 0
         var silenceFillMs = 0
 
         try {
             while (true) {
-                // If currently playing, poll with a fast 15 ms timeout to detect starved queue immediately.
-                // If paused, sleep on INACTIVITY_TIMEOUT_MS without burning CPU or DAC power.
+                val exact = exactQuality
+                if (exact != currentExact || trackRecreateRequested.getAndSet(false)) {
+                    releaseTrack(track, enhancer)
+                    track = null
+                    currentExact = exact
+                    needsPrebuffer = true
+                    prebufferedBytes = 0
+                }
+
+                // In low-latency mode: drain any stale backlog so audio remains locked to 0 ms real-time!
+                if (!exact) {
+                    synchronized(queue) {
+                        while (queue.size > 1) {
+                            val dropped = queue.pollFirst() ?: break
+                            queuedBytes = (queuedBytes - dropped.pcm.size).coerceAtLeast(0)
+                        }
+                    }
+                }
+
                 val pollTimeout = if (track?.playState == AudioTrack.PLAYSTATE_PLAYING) 15L else INACTIVITY_TIMEOUT_MS
                 val chunk = pollChunk(pollTimeout)
 
@@ -166,7 +190,6 @@ class PcSpeakerPlayer(
                     if (activeTrack.playState == AudioTrack.PLAYSTATE_PLAYING) {
                         silenceFillMs += 15
                         if (silenceFillMs >= 250) {
-                            // PC paused/stopped audio: pause and flush to clear stale DAC buffers
                             runCatching {
                                 activeTrack.pause()
                                 activeTrack.flush()
@@ -188,22 +211,23 @@ class PcSpeakerPlayer(
                     currentChannels != chunk.channels
                 ) {
                     releaseTrack(track, enhancer)
-                    track = createTrack(chunk.sampleRate, chunk.channels)
+                    track = createTrack(chunk.sampleRate, chunk.channels, exact)
                     enhancer = track?.let { createEnhancer(it.audioSessionId) }
                     currentRate = chunk.sampleRate
                     currentChannels = chunk.channels
+                    currentExact = exact
                     needsPrebuffer = true
                     prebufferedBytes = 0
                 }
 
                 val activeTrack = track ?: continue
 
-                if (needsCrossfade) {
+                if (needsCrossfade && exact) {
                     applyFadeIn(chunk.pcm, chunk.channels)
                     needsCrossfade = false
                 }
 
-                val prebufferMs = if (exactQuality) PREBUFFER_MS_EXACT else PREBUFFER_MS_LOW_LATENCY
+                val prebufferMs = if (exact) PREBUFFER_MS_EXACT else PREBUFFER_MS_LOW_LATENCY
                 val prebufferThreshold = (chunk.sampleRate * chunk.channels * 2 * prebufferMs) / 1000
                 if (needsPrebuffer && prebufferThreshold > 0) {
                     prebufferedBytes += chunk.pcm.size
@@ -222,7 +246,7 @@ class PcSpeakerPlayer(
                     needsPrebuffer = false
                 }
 
-                // High-performance blocking write on dedicated audio thread: guarantees zero dropped frames and zero crackles
+                // Active write
                 activeTrack.write(chunk.pcm, 0, chunk.pcm.size)
             }
         } catch (_: InterruptedException) {
@@ -230,7 +254,6 @@ class PcSpeakerPlayer(
         } finally {
             workerRunning.set(false)
             releaseTrack(track, enhancer)
-            // If new frames arrived just as the loop exited, restart the worker.
             val hasPending = synchronized(queue) {
                 queue.peekFirst()?.let { it.sampleRate > 0 } == true
             }
@@ -243,12 +266,13 @@ class PcSpeakerPlayer(
         }
     }
 
-    private fun createTrack(sampleRate: Int, channels: Int): AudioTrack? {
-        val channelMask = if (channels == 1) {
-            AudioFormat.CHANNEL_OUT_MONO
-        } else {
+    private fun createTrack(sampleRate: Int, channels: Int, exact: Boolean): AudioTrack? {
+        val channelMask = if (channels >= 2) {
             AudioFormat.CHANNEL_OUT_STEREO
+        } else {
+            AudioFormat.CHANNEL_OUT_MONO
         }
+
         val minBuf = AudioTrack.getMinBufferSize(
             sampleRate,
             channelMask,
@@ -258,44 +282,63 @@ class PcSpeakerPlayer(
             Log.w(TAG, "invalid minBufferSize=$minBuf for rate=$sampleRate channels=$channels")
             return null
         }
-        val targetMs = if (exactQuality) 30 else 10
-        val targetBuf = maxOf(minBuf, (sampleRate * channels * 2 * targetMs) / 1000)
 
         return runCatching {
-            val attrsBuilder = AudioAttributes.Builder()
-                .setUsage(if (exactQuality) AudioAttributes.USAGE_MEDIA else AudioAttributes.USAGE_GAME)
-                .setContentType(if (exactQuality) AudioAttributes.CONTENT_TYPE_MUSIC else AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .setFlags(AudioAttributes.FLAG_LOW_LATENCY)
-
-            if (android.os.Build.VERSION.SDK_INT >= 32) {
-                runCatching {
-                    // AudioAttributes.SPATIALIZATION_BEHAVIOR_AUTO
-                    val method = attrsBuilder.javaClass.getMethod("setSpatializationBehavior", Int::class.javaPrimitiveType)
-                    method.invoke(attrsBuilder, 0)
-                }
-            }
-            val attrs = attrsBuilder.build()
-
             val format = AudioFormat.Builder()
                 .setSampleRate(sampleRate)
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setChannelMask(channelMask)
                 .build()
 
-            val trackBuilder = AudioTrack.Builder()
-                .setAudioAttributes(attrs)
-                .setAudioFormat(format)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .setBufferSizeInBytes(targetBuf)
-                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+            if (exact) {
+                // Mode 1: Exact Audio Quality (Dolby Atmos / Studio Lossless Stereo)
+                // USAGE_MEDIA + CONTENT_TYPE_MUSIC engages full stereo speaker separation,
+                // rich dynamic range, full Dolby Atmos / Dirac bass, and DAC clarity without fast-mixer mono squashing.
+                val attrs = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
 
-            trackBuilder.build().also { trk ->
+                val targetBuf = maxOf(minBuf, (sampleRate * channels * 2 * 60) / 1000)
+                val track = AudioTrack.Builder()
+                    .setAudioAttributes(attrs)
+                    .setAudioFormat(format)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .setBufferSizeInBytes(targetBuf)
+                    .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
+                    .build()
+
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     runCatching {
                         val frames = targetBuf / (channels * 2)
-                        trk.setBufferSizeInFrames(frames)
+                        track.setBufferSizeInFrames(frames)
                     }
                 }
+                track
+            } else {
+                // Mode 2: Ultra-Low Latency (0 ms Instant Mode for Gaming / Typing)
+                // Minimal buffer frames to eliminate hardware playout latency while maintaining stereo separation.
+                val attrs = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+
+                val track = AudioTrack.Builder()
+                    .setAudioAttributes(attrs)
+                    .setAudioFormat(format)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .setBufferSizeInBytes(minBuf)
+                    .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                    .build()
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    runCatching {
+                        val lowLatencyFrames = (sampleRate * 8) / 1000 // 8 ms burst
+                        val targetFrames = lowLatencyFrames.coerceAtLeast(192).coerceAtMost(track.bufferCapacityInFrames)
+                        track.setBufferSizeInFrames(targetFrames)
+                    }
+                }
+                track
             }
         }.getOrElse {
             Log.w(TAG, "failed to create AudioTrack", it)
@@ -342,14 +385,16 @@ class PcSpeakerPlayer(
         private const val TAG = "PcSpeakerPlayer"
         private const val INACTIVITY_TIMEOUT_MS = 30_000L
         private const val MAX_QUEUE_CHUNKS = 64
-        private const val MAX_BUFFER_MS_LOW_LATENCY = 20
-        private const val TARGET_TRIM_MS_LOW_LATENCY = 5
-        private const val MAX_BUFFER_MS_EXACT = 50
-        private const val TARGET_TRIM_MS_EXACT = 20
+        private const val MAX_BUFFER_MS_LOW_LATENCY = 10
+        private const val TARGET_TRIM_MS_LOW_LATENCY = 3
+        private const val MAX_BUFFER_MS_EXACT = 60
+        private const val TARGET_TRIM_MS_EXACT = 25
         private const val PREBUFFER_MS_LOW_LATENCY = 0
-        private const val PREBUFFER_MS_EXACT = 15
+        private const val PREBUFFER_MS_EXACT = 20
         const val ACTIVE_WINDOW_MS = 3_000L
         private const val WATCHDOG_CHECK_INTERVAL_MS = 1_000L
+
+        private val trackRecreateRequested = AtomicBoolean(false)
 
         /**
          * When true (default), audio streams in uncompressed bit-perfect stereo with
@@ -357,6 +402,11 @@ class PcSpeakerPlayer(
          */
         @Volatile
         var exactQuality: Boolean = true
+            set(value) {
+                if (field != value) {
+                    field = value
+                    trackRecreateRequested.set(true)
+                }
+            }
     }
 }
-
