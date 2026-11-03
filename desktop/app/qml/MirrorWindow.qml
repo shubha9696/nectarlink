@@ -416,7 +416,7 @@ Window {
         color: Qt.rgba(0, 0, 0, 0.72)
         visible: win.phase === "showing"
         readonly property bool toolbarHasFocus: copyShotBtn.activeFocus || saveShotBtn.activeFocus
-            || recordBtn.activeFocus || stayAwakeBtn.activeFocus || screenOffBtn.activeFocus || soundBtn.activeFocus || windowModeBtn.activeFocus
+            || recordBtn.activeFocus || stayAwakeBtn.activeFocus || screenOffBtn.activeFocus || windowModeBtn.activeFocus
         opacity: topZoneHover.hovered || toolbarHover.hovered || toolbarWakeTimer.running
             || win.info.recording === true || win.info.screenOff === true || toolbarHasFocus ? 1 : 0
         Behavior on opacity { enabled: !Theme.reduceMotion; NumberAnimation { duration: Theme.fadeFast } }

@@ -1261,6 +1261,11 @@ impl Shared {
                 addr = addr.with_ip_addr(a);
             }
         }
+        if let Ok(Some(record)) = self.store.get_peer(&peer) {
+            for &a in &record.last_addrs {
+                addr = addr.with_ip_addr(a);
+            }
+        }
         if self.away_mode() {
             for relay in self.endpoint.addr().relay_urls() {
                 addr = addr.with_relay_url(relay.clone());
@@ -3934,6 +3939,11 @@ async fn bind_endpoint(
         .datagram_receive_buffer_size(Some(8 * 1024 * 1024))
         .datagram_send_buffer_size(8 * 1024 * 1024)
         .congestion_controller_factory(controller)
+        .max_concurrent_multipath_paths(8)
+        .max_remote_nat_traversal_addresses(32)
+        .server_handshake_migration(true)
+        .send_observed_address_reports(true)
+        .receive_observed_address_reports(true)
         .build();
     let mut builder = Endpoint::builder(presets::Minimal)
         .secret_key(secret)

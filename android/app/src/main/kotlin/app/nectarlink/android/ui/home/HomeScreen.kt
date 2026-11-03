@@ -3343,12 +3343,12 @@ private fun PcCard(
                             if (isCastingScreen) {
                                 app.nectarlink.android.mirror.MirrorService.stop(device.id)
                             } else {
-                                onSetPcAudio(device.id, 200, null)
+                                val castBitrate = if (device.path.name.equals("Relay", ignoreCase = true)) 2_500_000 else 8_000_000
                                 val req = app.nectarlink.android.mirror.MirrorRequest(
                                     pcId = device.id,
                                     maxSize = 1920,
                                     fps = 60,
-                                    bitrate = 8_000_000,
+                                    bitrate = castBitrate,
                                     audio = true,
                                     stayAwake = false,
                                     screenOff = false,

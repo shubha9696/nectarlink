@@ -253,7 +253,9 @@ pub fn stop_active() {
 /// the sound too: the phone shares one or the other, so this one ends first.
 pub fn stop_for_window(device: DeviceId) {
     if active().is_some_and(|(d, _)| d == device) {
-        stop(device);
+        // Clear the active phone_sound state only: NEVER send mirror_stop to the phone,
+        // because the phone is actively sharing its screen window!
+        set_active(None);
     }
 }
 

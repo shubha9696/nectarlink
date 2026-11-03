@@ -2387,7 +2387,12 @@ mod imp {
         let max_bitrate = options.bitrate.clamp(400_000, 30_000_000);
         // Lowered when the link can't keep up (frames dropped to hold the delay down),
         // raised back once it has been clean for a while.
-        let mut bitrate = max_bitrate;
+        let is_relay = node.session(peer).is_some_and(|s| s.path() == nectarlink_core::ConnectionPath::Relay);
+        let mut bitrate = if is_relay {
+            1_500_000.min(max_bitrate)
+        } else {
+            max_bitrate
+        };
         let frame_interval = Duration::from_micros(1_000_000 / u64::from(fps));
         let dur_hns = (10_000_000 / u64::from(fps)) as i64;
 
@@ -2540,14 +2545,13 @@ mod imp {
                                         stats.keyframes += 1;
                                     }
                                 }
-                                MirrorSend::Dropped => stats.dropped += 1,
-                                MirrorSend::NeedKeyframe => {
+                                MirrorSend::Dropped | MirrorSend::NeedKeyframe => {
                                     stats.dropped += 1;
                                     last_drop = Some(Instant::now());
                                     force_keyframe.store(true, Ordering::SeqCst);
                                     // The link is slower than the stream: ask for less, adapting quickly to network speed.
-                                    if last_rate_change.elapsed() >= Duration::from_millis(1000) {
-                                        let lower = (bitrate * 2 / 3).max(MIN_BITRATE);
+                                    if last_rate_change.elapsed() >= Duration::from_millis(500) {
+                                        let lower = (bitrate * 3 / 4).max(MIN_BITRATE);
                                         if lower < bitrate && enc.set_bitrate(lower) {
                                             bitrate = lower;
                                             last_rate_change = Instant::now();

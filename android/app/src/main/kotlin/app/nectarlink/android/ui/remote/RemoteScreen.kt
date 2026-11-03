@@ -1084,8 +1084,15 @@ internal fun VoiceTypingBar(
             }
         } else if (state is DictateState.Typing && (state as DictateState.Typing).text == "Transcribing...") {
             // Safety timeout: if recognition service hangs during transcription, auto-reset
-            kotlinx.coroutines.delay(4000)
+            kotlinx.coroutines.delay(3000)
             if (state is DictateState.Typing && (state as DictateState.Typing).text == "Transcribing...") {
+                destroyRecognizer()
+                state = DictateState.Idle()
+            }
+        } else if (state is DictateState.Listening && (state as DictateState.Listening).partial.isEmpty()) {
+            // Safety timeout: if listening never captures speech within 6s, auto-cancel
+            kotlinx.coroutines.delay(6000)
+            if (state is DictateState.Listening && (state as DictateState.Listening).partial.isEmpty()) {
                 destroyRecognizer()
                 state = DictateState.Idle()
             }
