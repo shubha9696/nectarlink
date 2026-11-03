@@ -287,7 +287,11 @@ class SoundCapture(
         running = false
         activeCaptures.remove(this)
         closeElevatedSocket()
-        audioRecord?.let { runCatching { it.stop() } }
+        audioRecord?.let {
+            runCatching { it.stop() }
+            runCatching { it.release() }
+        }
+        audioRecord = null
         thread?.interrupt()
         thread = null
     }

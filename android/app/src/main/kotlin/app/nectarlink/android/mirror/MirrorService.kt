@@ -145,8 +145,20 @@ class MirrorService : Service() {
         }.getOrNull()
 
         if (granted == null) {
-            Log.w(TAG, "no screen capture granted")
+            Log.w(TAG, "no screen capture granted or consent expired")
+            cachedConsent = null
             stopSharing()
+            if (soundOnly) {
+                // If the previous consent token expired, prompt user for fresh consent
+                main.post {
+                    runCatching {
+                        val req = MirrorRequest(pcId = pc, maxSize = 0, fps = 0, bitrate = 0, audio = true, soundOnly = true)
+                        val intent = req.toIntent(Intent(this@MirrorService, MirrorConsentActivity::class.java))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                    }
+                }
+            }
             return START_NOT_STICKY
         }
 
@@ -391,6 +403,7 @@ class MirrorService : Service() {
     }
 
     private fun stopSharing() {
+        cachedConsent = null
         stayAwake = false
         screenOff = false
         soundOnly = false
@@ -511,13 +524,23 @@ class MirrorService : Service() {
 
         /** The PC stopped watching. */
         fun stop(pcId: String) {
-            val service = current ?: return
+            val service = current
+            if (service == null) {
+                cachedConsent = null
+                _session.value = MirrorSession()
+                return
+            }
             service.main.post { if (service.pcId == pcId) service.stopSharing() }
         }
 
         /** Stops any active screen mirroring session from the UI. */
         fun stopCurrent() {
-            val service = current ?: return
+            val service = current
+            if (service == null) {
+                cachedConsent = null
+                _session.value = MirrorSession()
+                return
+            }
             service.main.post { service.stopSharing() }
         }
 
