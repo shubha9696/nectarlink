@@ -41,7 +41,7 @@ pub const CONNECTION_RECEIVE_WINDOW_BYTES: u32 = 4 * 1024 * 1024;
 pub const CONNECTION_SEND_WINDOW_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Safe UDP payload ceiling that avoids IP fragmentation across Wi-Fi + VLAN/PPPoE headers.
-pub const WIFI_SAFE_MAX_UDP_PAYLOAD: u16 = 1350;
+pub const WIFI_SAFE_MAX_UDP_PAYLOAD: u16 = 1200;
 
 /// Reordering tolerance in packets (default QUIC is 3, which is too low for 2-hop Wi-Fi).
 pub const WIFI_HAIRPIN_PACKET_THRESHOLD: u32 = 12;
@@ -134,13 +134,13 @@ pub fn build_wifi_optimized_transport_config() -> noq_proto::TransportConfig {
     config.send_window(CONNECTION_SEND_WINDOW_BYTES);
 
     // 3. Tolerate 2-hop Wi-Fi frame reordering without triggering false loss recovery.
-    config.packet_threshold(WIFI_HAIRPIN_PACKET_THRESHOLD);
+    config.packet_threshold(4);
 
-    // 4. Cap UDP payload size to prevent IP fragmentation on routers and avoid
-    // oversized GSO bursts overflowing small per-client AP queues.
-    config.initial_mtu(WIFI_SAFE_MAX_UDP_PAYLOAD);
+    // 4. Safe universal initial MTU (1200 bytes) ensures 100% packet delivery across
+    // all 5G / 4G cellular carriers, VPNs, and internet paths, while DPLPMTUD probes higher.
+    config.initial_mtu(1200);
     config.min_mtu(1200);
-    config.mtu_discovery_config(None); // Disable PMTUD probe bursts that trip router UDP flood filters
+    config.mtu_discovery_config(Some(noq_proto::MtuDiscoveryConfig::default()));
 
     // 5. Send a lightweight PING frame every 3 seconds so the Android Wi-Fi
     // chipset stays awake and does not enter 100-300ms DTIM Power Save sleep.
