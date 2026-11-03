@@ -225,7 +225,7 @@ pub fn find_fallback_window() -> Option<Window> {
     let all = windows_and_minimized();
     let fg = unsafe { GetForegroundWindow() };
     if let Some(found) = all.iter().find(|w| w.hwnd == fg && w.program != "nectarlink-desktop.exe") {
-        if is_browser(&w.program) || is_media_app(&w.program) {
+        if is_browser(&found.program) || is_media_app(&found.program) {
             return Some(found.clone());
         }
     }
