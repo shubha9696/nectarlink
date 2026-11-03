@@ -2141,13 +2141,14 @@ Item {
                             height: parent.height
                             radius: Theme.radiusSm
                             color: soundModeRow.soundMode === 0 ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
-                            border.width: 1
+                            border.width: soundModeRow.soundMode === 0 ? 1.5 : 1
                             border.color: soundModeRow.soundMode === 0 ? Theme.primary : Theme.outlineVariant
 
                             Txt {
                                 anchors.centerIn: parent
                                 role: "label"
-                                color: soundModeRow.soundMode === 0 ? Theme.primaryContent : Theme.surfaceContent
+                                color: soundModeRow.soundMode === 0 ? (Theme.dark ? "#FFFFFF" : Theme.primary) : Theme.surfaceContent
+                                weight: soundModeRow.soundMode === 0 ? 600 : 400
                                 text: qsTr("PC only")
                             }
 
@@ -2168,13 +2169,14 @@ Item {
                             height: parent.height
                             radius: Theme.radiusSm
                             color: soundModeRow.soundMode === 2 ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
-                            border.width: 1
+                            border.width: soundModeRow.soundMode === 2 ? 1.5 : 1
                             border.color: soundModeRow.soundMode === 2 ? Theme.primary : Theme.outlineVariant
 
                             Txt {
                                 anchors.centerIn: parent
                                 role: "label"
-                                color: soundModeRow.soundMode === 2 ? Theme.primaryContent : Theme.surfaceContent
+                                color: soundModeRow.soundMode === 2 ? (Theme.dark ? "#FFFFFF" : Theme.primary) : Theme.surfaceContent
+                                weight: soundModeRow.soundMode === 2 ? 600 : 400
                                 text: qsTr("Phone only")
                             }
 
