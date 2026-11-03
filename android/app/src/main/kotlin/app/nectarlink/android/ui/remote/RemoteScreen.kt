@@ -1067,7 +1067,7 @@ internal fun VoiceTypingBar(
             }
         } else if (state is DictateState.Listening && (state as DictateState.Listening).partial.isEmpty()) {
             // Safety timeout: if listening never captures speech within 6s, auto-cancel
-            kotlinx.coroutines.delay(6000)
+            kotlinx.coroutines.delay(25000)
             if (state is DictateState.Listening && (state as DictateState.Listening).partial.isEmpty()) {
                 destroyRecognizer()
                 state = DictateState.Idle()
@@ -1079,26 +1079,16 @@ internal fun VoiceTypingBar(
         destroyRecognizer()
         currentPartial = ""
 
+        val googleComp = ComponentName(
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.voicesearch.serviceapi.GoogleRecognitionService",
+        )
         val sr = runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
-            ) {
-                SpeechRecognizer.createOnDeviceSpeechRecognizer(context.applicationContext)
-            } else {
-                null
-            }
+            SpeechRecognizer.createSpeechRecognizer(context, googleComp)
         }.getOrNull() ?: runCatching {
-            if (SpeechRecognizer.isRecognitionAvailable(context)) {
-                SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
-            } else {
-                null
-            }
+            SpeechRecognizer.createSpeechRecognizer(context.applicationContext, googleComp)
         }.getOrNull() ?: runCatching {
-            val comp = ComponentName(
-                "com.google.android.googlequicksearchbox",
-                "com.google.android.voicesearch.serviceapi.GoogleRecognitionService",
-            )
-            SpeechRecognizer.createSpeechRecognizer(context.applicationContext, comp)
+            SpeechRecognizer.createSpeechRecognizer(context)
         }.getOrNull() ?: runCatching {
             SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
         }.getOrNull()
@@ -1208,6 +1198,8 @@ internal fun VoiceTypingBar(
             val localeTag = Locale.getDefault().toLanguageTag()
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
+            putExtra("android.speech.extra.DICTATION_MODE", true)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1000L)
