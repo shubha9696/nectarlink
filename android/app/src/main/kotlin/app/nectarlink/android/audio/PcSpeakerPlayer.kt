@@ -374,8 +374,12 @@ class PcSpeakerPlayer(
                 attrBuilder
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    attrBuilder.setSpatializationBehavior(AudioAttributes.SPATIALIZATION_BEHAVIOR_SPATIALIZED_ALLOW)
+                if (Build.VERSION.SDK_INT >= 32) {
+                    try {
+                        AudioAttributes.Builder::class.java
+                            .getMethod("setSpatializationBehavior", Int::class.javaPrimitiveType)
+                            .invoke(attrBuilder, 0)
+                    } catch (_: Throwable) {}
                 }
             } else {
                 // Low Latency Mode: game / direct stream pipeline for instantaneous feedback

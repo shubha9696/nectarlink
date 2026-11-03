@@ -69,7 +69,7 @@ class AppDisplay(
                 createDisplay(curW, curH, curDpi, first.surface)
             }
             display = made
-            displayId = if (fullScreen) 0 else made.display.displayId
+            displayId = if (fullScreen) 0 else made?.display?.displayId ?: 0
             if (!fullScreen) {
                 hideIme(displayId)
             }
@@ -97,8 +97,26 @@ class AppDisplay(
                 codec = next.codec
                 surface = next.surface
                 codecForKeyframes = next.codec
-                made.resize(newW, newH, newDpi)
-                made.surface = next.surface
+                made?.resize(newW, newH, newDpi)
+                made?.surface = next.surface
+                surfaceControlToken?.let { token ->
+                    runCatching {
+                        val sc = Class.forName("android.view.SurfaceControl")
+                        sc.getMethod("openTransaction").invoke(null)
+                        try {
+                            sc.getMethod("setDisplaySurface", android.os.IBinder::class.java, Surface::class.java)
+                                .invoke(null, token, next.surface)
+                            val rectClass = android.graphics.Rect::class.java
+                            val r = android.graphics.Rect(0, 0, newW, newH)
+                            runCatching {
+                                sc.getMethod("setDisplayProjection", android.os.IBinder::class.java, Int::class.javaPrimitiveType, rectClass, rectClass)
+                                    .invoke(null, token, 0, r, r)
+                            }
+                        } finally {
+                            sc.getMethod("closeTransaction").invoke(null)
+                        }
+                    }
+                }
                 curW = newW
                 curH = newH
                 curDpi = newDpi

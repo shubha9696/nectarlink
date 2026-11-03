@@ -1652,7 +1652,15 @@ impl qobject::AppController {
         if hub.read(|s| s.toggles.get(&id).and_then(|t| t.hotspot).unwrap_or(false)) {
             return true;
         }
-        if hub.read(|s| s.devices.iter().find(|d| d.id == id).map(|d| d.cell_type == "Hotspot").unwrap_or(false)) {
+        if hub.read(|s| {
+            s.devices
+                .iter()
+                .find(|d| d.id == id)
+                .and_then(|d| d.battery.as_ref())
+                .and_then(|b| b.cell_type.as_deref())
+                .map(|ct| ct.eq_ignore_ascii_case("Hotspot"))
+                .unwrap_or(false)
+        }) {
             return true;
         }
         #[cfg(target_os = "windows")]
