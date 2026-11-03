@@ -2387,7 +2387,9 @@ mod imp {
         let max_bitrate = options.bitrate.clamp(400_000, 30_000_000);
         // Lowered when the link can't keep up (frames dropped to hold the delay down),
         // raised back once it has been clean for a while.
-        let is_relay = node.session(peer).is_some_and(|s| s.path() == nectarlink_core::ConnectionPath::Relay);
+        let is_relay = node.paired_devices().ok().and_then(|devs| {
+            devs.into_iter().find(|d| d.id == peer).map(|d| matches!(d.link, nectarlink_core::LinkState::Online { path: nectarlink_core::ConnectionPath::Relay, .. }))
+        }).unwrap_or(false);
         let mut bitrate = if is_relay {
             1_500_000.min(max_bitrate)
         } else {

@@ -3343,7 +3343,7 @@ private fun PcCard(
                             if (isCastingScreen) {
                                 app.nectarlink.android.mirror.MirrorService.stop(device.id)
                             } else {
-                                val castBitrate = if (device.path.name.equals("Relay", ignoreCase = true)) 2_500_000 else 8_000_000
+                                val castBitrate = 4_000_000
                                 val req = app.nectarlink.android.mirror.MirrorRequest(
                                     pcId = device.id,
                                     maxSize = 1920,
