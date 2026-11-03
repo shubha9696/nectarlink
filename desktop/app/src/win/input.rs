@@ -86,6 +86,17 @@ pub fn sync_input_desktop() -> bool {
     }
 
     if hdesk == 0 {
+        unsafe extern "system" {
+            fn OpenDesktopW(lpszDesktop: *const u16, dwFlags: u32, fInherit: i32, dwDesiredAccess: u32) -> isize;
+        }
+        let winlogon: Vec<u16> = "Winlogon\0".encode_utf16().collect();
+        hdesk = unsafe { OpenDesktopW(winlogon.as_ptr(), 0, 0, 0x01FF) };
+        if hdesk == 0 {
+            hdesk = unsafe { OpenDesktopW(winlogon.as_ptr(), 0, 0, 0x0001 | 0x0080 | 0x0040) };
+        }
+    }
+
+    if hdesk == 0 {
         return false;
     }
 

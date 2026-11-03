@@ -662,21 +662,45 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
 
 
 
-            // 3. Wake display and raise lock curtain cleanly with Space and Enter
-            press_key(0x20, 0x39); // VK_SPACE
-            std::thread::sleep(std::time::Duration::from_millis(80));
-            press_key(0x0D, 0x1C); // VK_RETURN
-            std::thread::sleep(std::time::Duration::from_millis(1400));
-
-            // 4. Re-acquire active input desktop after curtain transition
-            let hdesk2 = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
-            if hdesk2 != 0 {
-                unsafe { SetThreadDesktop(hdesk2); }
-                if hdesk != 0 && hdesk != hdesk2 {
-                    unsafe { CloseDesktop(hdesk); }
+            // 3. Check if already on Winlogon or lock curtain
+            let is_winlogon = if hdesk != 0 {
+                let mut buf = [0u8; 128];
+                let mut needed = 0u32;
+                let ok = unsafe {
+                    GetUserObjectInformationA(hdesk, 2 /* UOI_NAME */, buf.as_mut_ptr(), buf.len() as u32, &mut needed)
+                };
+                if ok != 0 {
+                    let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+                    let name = String::from_utf8_lossy(&buf[..len]);
+                    name.eq_ignore_ascii_case("winlogon")
+                } else {
+                    false
                 }
-                hdesk = hdesk2;
+            } else {
+                false
+            };
+
+            if !is_winlogon {
+                // Wake display and raise lock curtain cleanly with Space and Enter
+                press_key(0x20, 0x39); // VK_SPACE
+                std::thread::sleep(std::time::Duration::from_millis(80));
+                press_key(0x0D, 0x1C); // VK_RETURN
+                std::thread::sleep(std::time::Duration::from_millis(800));
+
+                // 4. Re-acquire active input desktop after curtain transition
+                let hdesk2 = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
+                if hdesk2 != 0 {
+                    unsafe { SetThreadDesktop(hdesk2); }
+                    if hdesk != 0 && hdesk != hdesk2 {
+                        unsafe { CloseDesktop(hdesk); }
+                    }
+                    hdesk = hdesk2;
+                }
             }
+
+            // Escape any existing error dialog
+            press_key(0x1B, 0x01); // VK_ESCAPE
+            std::thread::sleep(std::time::Duration::from_millis(50));
 
             // Click center-screen directly inside PIN box (x=50%, y=51%)
             unsafe {
@@ -684,18 +708,20 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 std::thread::sleep(std::time::Duration::from_millis(40));
                 mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTUP, 32768, 33400, 0, 0);
             }
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(50));
 
-
-
-            // 6. Clear any existing characters in the PIN field using 8 Backspaces
-
-            for _ in 0..8 {
-
+            // Select all (Ctrl+A) and backspace to guarantee empty field
+            unsafe {
+                keybd_event(0x11, 0x1D, 0, 0); // Ctrl down
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                press_key(0x41, 0x1E); // 'A'
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                keybd_event(0x11, 0x1D, 2, 0); // Ctrl up
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+            for _ in 0..4 {
                 press_key(0x08, 0x0E);
-
-                std::thread::sleep(std::time::Duration::from_millis(40));
-
+                std::thread::sleep(std::time::Duration::from_millis(20));
             }
 
             std::thread::sleep(std::time::Duration::from_millis(100));

