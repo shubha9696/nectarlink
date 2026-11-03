@@ -158,12 +158,24 @@ internal class PhonePlatform(
                 options.screenOff,
                 options.soundOnly,
             )
-            if (MirrorService.tryStartWithCachedConsent(context, request)) {
-                true
-            } else if (Elevated.running && MirrorService.startElevated(context, request)) {
-                true
+            if (options.soundOnly) {
+                if (Elevated.running && MirrorService.startElevated(context, request)) {
+                    true
+                } else if (MirrorService.tryStartWithCachedConsent(context, request)) {
+                    true
+                } else {
+                    MirrorService.startSoundOnly(context, request)
+                    onMirror(pcId, request)
+                    true
+                }
             } else {
-                onMirror(pcId, request)
+                if (Elevated.running && MirrorService.startElevated(context, request)) {
+                    true
+                } else if (MirrorService.tryStartWithCachedConsent(context, request)) {
+                    true
+                } else {
+                    onMirror(pcId, request)
+                }
             }
         }
 

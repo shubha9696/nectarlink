@@ -72,47 +72,48 @@ object MirrorRequests {
         )
     }
 
-    /** Shows the request; false if notifications are off for the app. */
+    /** Shows the request; attempts direct display and posts high-priority notification. */
     fun show(context: Context, request: MirrorRequest, pcName: String): Boolean {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            return false
-        }
         createChannel(context)
         val activityIntent = request.toIntent(Intent(context, MirrorConsentActivity::class.java))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         val open = PendingIntent.getActivity(
             context,
             request.pcId.hashCode(),
             activityIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(
-                context.getString(
-                    if (request.soundOnly) R.string.mirror_request_title_sound else R.string.mirror_request_title,
-                    pcName.ifEmpty { context.getString(R.string.your_pc) },
-                ),
-            )
-            .setContentText(
-                context.getString(if (request.soundOnly) R.string.mirror_request_text_sound else R.string.mirror_request_text),
-            )
-            .setContentIntent(open)
-            .setAutoCancel(true)
-            .setTimeoutAfter(REQUEST_TIMEOUT_MS)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
-        val posted = runCatching { NotificationManagerCompat.from(context).notify(TAG, request.pcId.hashCode(), notification) }.isSuccess
-        val am = context.getSystemService(android.app.ActivityManager::class.java)
-        val inForeground = am?.runningAppProcesses?.any {
-            it.pid == android.os.Process.myPid() &&
-                it.importance == android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
-        } == true
-        if (inForeground) {
-            runCatching { context.startActivity(activityIntent) }
+
+        // Try direct launch so the system consent dialog appears immediately:
+        runCatching { context.startActivity(activityIntent) }
+
+        val hasNotifPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasNotifPermission) {
+            val notification = NotificationCompat.Builder(context, CHANNEL)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(
+                    context.getString(
+                        if (request.soundOnly) R.string.mirror_request_title_sound else R.string.mirror_request_title,
+                        pcName.ifEmpty { context.getString(R.string.your_pc) },
+                    ),
+                )
+                .setContentText(
+                    context.getString(if (request.soundOnly) R.string.mirror_request_text_sound else R.string.mirror_request_text),
+                )
+                .setContentIntent(open)
+                .setFullScreenIntent(open, true)
+                .setAutoCancel(true)
+                .setTimeoutAfter(REQUEST_TIMEOUT_MS)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .build()
+            runCatching { NotificationManagerCompat.from(context).notify(TAG, request.pcId.hashCode(), notification) }
         }
-        return posted
+        return true
     }
 
     fun dismiss(context: Context, pcId: String) {
@@ -152,11 +153,6 @@ class MirrorConsentActivity : ComponentActivity() {
         val asked = request ?: return finish()
         MirrorRequests.dismiss(this, asked.pcId)
         if (savedInstanceState != null) return
-
-        if (MirrorService.tryStartWithCachedConsent(this, asked)) {
-            finish()
-            return
-        }
 
         if (asked.soundOnly && app.nectarlink.android.elevated.Elevated.running) {
             MirrorService.startElevated(this, asked)

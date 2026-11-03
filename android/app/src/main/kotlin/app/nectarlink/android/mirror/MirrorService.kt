@@ -365,7 +365,7 @@ class MirrorService : Service() {
     private suspend fun startSound(core: app.nectarlink.android.core.Core, pc: String) {
         // Sharing only the sound, there's nothing left once it's gone.
         val endSharing = { if (soundOnly) main.post { if (pcId == pc) stopSharing() } }
-        if (!SoundCapture.canCapture(this)) {
+        if (!SoundCapture.canCapture(this, projection)) {
             endSharing()
             return
         }
@@ -424,6 +424,7 @@ class MirrorService : Service() {
         sound = null
         projection?.let { runCatching { it.stop() } }
         projection = null
+        cachedConsent = null
         pcId = null
         if (current === this) current = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)

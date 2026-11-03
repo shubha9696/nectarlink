@@ -419,9 +419,10 @@ class SoundCapture(
             }
         }
 
-        /** Whether this phone can share its sound (Elevated helper or Android 10+ with RECORD_AUDIO). */
-        fun canCapture(context: Context): Boolean =
+        /** Whether this phone can share its sound (Elevated helper, active MediaProjection, or Android 10+ with RECORD_AUDIO). */
+        fun canCapture(context: Context, projection: MediaProjection? = null): Boolean =
             Elevated.running ||
+                projection != null ||
                 (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
                     ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }

@@ -97,27 +97,21 @@ fn set_active(next: Option<(DeviceId, Phase)>) {
 /// The phone to play: the first one online that can share its sound alone.
 
 pub fn phone() -> Option<(DeviceId, String)> {
-
     core_host::host().hub.read(|s| {
-
         s.devices
-
             .iter()
-
             .filter(|d| matches!(d.link, LinkState::Online { .. }))
-
             .find(|d| {
-
                 s.matrices.get(&d.id).and_then(|m| m.state("mirroring.sound"))
-
                     == Some(FeatureState::Available)
-
             })
-
+            .or_else(|| {
+                s.devices
+                    .iter()
+                    .find(|d| matches!(d.link, LinkState::Online { .. }))
+            })
             .map(|d| (d.id, d.info.name.clone()))
-
     })
-
 }
 
 
