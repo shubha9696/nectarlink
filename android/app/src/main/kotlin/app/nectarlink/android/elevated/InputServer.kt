@@ -385,7 +385,24 @@ object InputServer {
             .build()
 
         fun openRecorder(): android.media.AudioRecord? {
-            // 1. Try AudioAttributes.Builder.setInternalCapturePreset(REMOTE_SUBMIX = 8) via reflection.
+            // 1. Try AudioRecord.Builder with REMOTE_SUBMIX and ShellContext attribution (scrcpy mechanism)
+            runCatching {
+                val shellCtx = runCatching { ShellContext.get() }.getOrNull()
+                val recBuilder = android.media.AudioRecord.Builder()
+                    .setAudioSource(android.media.MediaRecorder.AudioSource.REMOTE_SUBMIX)
+                    .setAudioFormat(format)
+                    .setBufferSizeInBytes(minBuf)
+                if (shellCtx != null) {
+                    runCatching {
+                        val setCtx = recBuilder.javaClass.getMethod("setContext", Context::class.java)
+                        setCtx.invoke(recBuilder, shellCtx)
+                    }
+                }
+                val rec = recBuilder.build()
+                if (rec.state == android.media.AudioRecord.STATE_INITIALIZED) return rec
+                rec.release()
+            }
+            // 2. Try AudioAttributes.Builder.setInternalCapturePreset(REMOTE_SUBMIX = 8) via reflection.
             runCatching<Unit> {
                 val attrBuilder = android.media.AudioAttributes.Builder()
                 val setPreset = attrBuilder.javaClass.getMethod(

@@ -90,16 +90,6 @@ class AppWindows(
                 }
             }
         }
-        var socket = Elevated.openApp(pkg, width, height, dpi, options.bitrate.toInt(), options.fps.toInt())
-        if (socket == null && (Elevated.running || Elevated.paired() || Elevated.usesRoot())) {
-            Thread.sleep(400)
-            socket = Elevated.openApp(pkg, width, height, dpi, options.bitrate.toInt(), options.fps.toInt())
-        }
-        val liveSocket = socket ?: return false
-        val window = Window(pc, options.session, liveSocket, width, height, dpi, maxSize)
-        power[pc] = options.stayAwake to options.screenOff
-        windows.put(pc to options.session, window)?.let { runCatching { it.socket.close() } }
-        changed()
         if (options.audio && sound == null && openAudio != null) {
             scope.launch(Dispatchers.IO) {
                 val audioStream = runCatching { openAudio(pc) }.getOrElse {
@@ -113,6 +103,16 @@ class AppWindows(
                 }
             }
         }
+        var socket = Elevated.openApp(pkg, width, height, dpi, options.bitrate.toInt(), options.fps.toInt())
+        if (socket == null && (Elevated.running || Elevated.paired() || Elevated.usesRoot())) {
+            Thread.sleep(400)
+            socket = Elevated.openApp(pkg, width, height, dpi, options.bitrate.toInt(), options.fps.toInt())
+        }
+        val liveSocket = socket ?: return false
+        val window = Window(pc, options.session, liveSocket, width, height, dpi, maxSize)
+        power[pc] = options.stayAwake to options.screenOff
+        windows.put(pc to options.session, window)?.let { runCatching { it.socket.close() } }
+        changed()
         scope.launch(Dispatchers.IO) {
             val stream = runCatching { open(pc) }.getOrElse {
                 Log.w(TAG, "can't stream an app window", it)

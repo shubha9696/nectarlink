@@ -556,7 +556,28 @@ Window {
                             }
                         }
 
-                        // Option 2: Phone only
+                        // Option 2: Both
+                        Rectangle {
+                            width: bothText.implicitWidth + 8
+                            height: 16
+                            radius: 8
+                            color: audioToggleRow.currentMode === "both" ? Theme.primary : "transparent"
+                            Text {
+                                id: bothText
+                                anchors.centerIn: parent
+                                text: qsTr("Both")
+                                font.pixelSize: 9
+                                font.bold: audioToggleRow.currentMode === "both"
+                                color: audioToggleRow.currentMode === "both" ? "white" : Qt.rgba(1, 1, 1, 0.72)
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Mirror.setAudioMode(win.mirrorKey, "both")
+                            }
+                        }
+
+                        // Option 3: Phone only
                         Rectangle {
                             width: phoneText.implicitWidth + 8
                             height: 16

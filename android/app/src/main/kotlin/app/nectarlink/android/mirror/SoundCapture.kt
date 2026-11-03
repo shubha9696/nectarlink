@@ -9,6 +9,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
+import android.media.AudioTrack
 import android.media.projection.MediaProjection
 import android.os.Build
 import android.os.SystemClock
@@ -38,6 +39,7 @@ class SoundCapture(
     @Volatile private var running = false
     @Volatile private var elevatedSocket: Socket? = null
     @Volatile private var audioRecord: AudioRecord? = null
+    @Volatile private var localPlayerTrack: AudioTrack? = null
     private var thread: Thread? = null
 
     private fun closeElevatedSocket() {
@@ -46,7 +48,34 @@ class SoundCapture(
         s?.let { runCatching { it.close() } }
     }
 
+    private fun playLocal(packet: ByteArray) {
+        if (localPlayerTrack == null) {
+            runCatching {
+                val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+                localPlayerTrack = AudioTrack.Builder()
+                    .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                    .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
+                    .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
+                    .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                    .build().apply { play() }
+            }
+        }
+        localPlayerTrack?.write(packet, 0, packet.size, AudioTrack.WRITE_NON_BLOCKING)
+    }
+
+    private fun stopLocal() {
+        val track = localPlayerTrack
+        localPlayerTrack = null
+        track?.let {
+            runCatching { it.stop() }
+            runCatching { it.release() }
+        }
+    }
+
     internal fun onModeChanged(newMode: Int) {
+        if (newMode != 1) {
+            stopLocal()
+        }
         // When switching to mode 2 ("phone only"), immediately close the capture socket / stop AudioRecord.
         // This releases REMOTE_SUBMIX in InputServer, allowing Android OS to route all audio directly to
         // the phone's physical speakers.
@@ -190,14 +219,22 @@ class SoundCapture(
                 }
 
                 val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
-                if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) {
-                    running = false
-                    break
+                if (soundMode != 2) {
+                    if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) {
+                        running = false
+                        break
+                    }
+                }
+                if (soundMode == 1) {
+                    playLocal(packet)
+                } else {
+                    stopLocal()
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "AudioRecord sound capture stopped", e)
         } finally {
+            stopLocal()
             audioRecord = null
             activeCaptures.remove(this)
             runCatching { record.stop() }
@@ -260,9 +297,16 @@ class SoundCapture(
                         }
 
                         val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
-                        if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) {
-                            running = false
-                            break
+                        if (soundMode != 2) {
+                            if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) {
+                                running = false
+                                break
+                            }
+                        }
+                        if (soundMode == 1) {
+                            playLocal(packet)
+                        } else {
+                            stopLocal()
                         }
                     }
                 } catch (e: Exception) {
@@ -276,6 +320,7 @@ class SoundCapture(
         } catch (e: Exception) {
             Log.w(TAG, "Elevated sound capture stopped", e)
         } finally {
+            stopLocal()
             closeElevatedSocket()
             activeCaptures.remove(this)
             stream.end()
@@ -285,6 +330,7 @@ class SoundCapture(
 
     fun stop() {
         running = false
+        stopLocal()
         activeCaptures.remove(this)
         closeElevatedSocket()
         audioRecord?.let {
@@ -302,14 +348,19 @@ class SoundCapture(
         private const val CHANNELS = 2
         /** 10 ms of 16-bit stereo. */
         private const val PACKET_BYTES = RATE / 100 * CHANNELS * 2
-        // 0: PC only, 2: Phone only
+        // 0: PC only, 1: Both (PC & Phone), 2: Phone only
         @Volatile var soundMode: Int = 0
+
+        var dualPlayback: Boolean
+            get() = soundMode == 1
+            set(v) { soundMode = if (v) 1 else 0 }
 
         private val activeCaptures = CopyOnWriteArrayList<SoundCapture>()
 
         fun setMode(mode: String) {
             val newMode = when (mode.lowercase()) {
                 "sound_mode:phone", "phone" -> 2
+                "sound_mode:both", "both" -> 1
                 else -> 0 // pc
             }
             soundMode = newMode

@@ -2127,17 +2127,22 @@ Item {
                         }
                     }
 
-                    // Audio Output Mode Selection (PC only, Phone only)
+                    // Audio Output Mode Selection (PC only, Both, Phone only)
                     Row {
                         id: soundModeRow
                         width: parent.width
                         height: 34
-                        spacing: 8
+                        spacing: 6
                         visible: MediaList.phoneSoundState !== "off" || MediaList.phoneSoundName.length > 0
-                        property int soundMode: Mirror.audioMode(home.deviceId) === "phone" ? 2 : 0
+                        property int soundMode: {
+                            var m = Mirror.audioMode(home.deviceId);
+                            if (m === "phone") return 2;
+                            if (m === "both") return 1;
+                            return 0; // "pc"
+                        }
 
                         Rectangle {
-                            width: (parent.width - parent.spacing) / 2
+                            width: (parent.width - parent.spacing * 2) / 3
                             height: parent.height
                             radius: Theme.radiusSm
                             color: soundModeRow.soundMode === 0 ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
@@ -2159,13 +2164,41 @@ Item {
                                     soundModeRow.soundMode = 0
                                     Mirror.setAudioMode(home.deviceId, "pc")
                                     AppController.setPhoneToggle(home.deviceId, "audio_mode", "pc")
-                                    // AppController.setPhoneToggle(home.deviceId, "dual_sound", "pc")
+                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "pc")
                                 }
                             }
                         }
 
                         Rectangle {
-                            width: (parent.width - parent.spacing) / 2
+                            width: (parent.width - parent.spacing * 2) / 3
+                            height: parent.height
+                            radius: Theme.radiusSm
+                            color: soundModeRow.soundMode === 1 ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
+                            border.width: soundModeRow.soundMode === 1 ? 1.5 : 1
+                            border.color: soundModeRow.soundMode === 1 ? Theme.primary : Theme.outlineVariant
+
+                            Txt {
+                                anchors.centerIn: parent
+                                role: "label"
+                                color: soundModeRow.soundMode === 1 ? (Theme.dark ? "#FFFFFF" : Theme.primary) : Theme.surfaceContent
+                                weight: soundModeRow.soundMode === 1 ? 600 : 400
+                                text: qsTr("Both")
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    soundModeRow.soundMode = 1
+                                    Mirror.setAudioMode(home.deviceId, "both")
+                                    AppController.setPhoneToggle(home.deviceId, "audio_mode", "both")
+                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "both")
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: (parent.width - parent.spacing * 2) / 3
                             height: parent.height
                             radius: Theme.radiusSm
                             color: soundModeRow.soundMode === 2 ? Theme.primaryContainer : (Theme.graphite ? "transparent" : Theme.surfaceContainerHighest)
@@ -2187,7 +2220,7 @@ Item {
                                     soundModeRow.soundMode = 2
                                     Mirror.setAudioMode(home.deviceId, "phone")
                                     AppController.setPhoneToggle(home.deviceId, "audio_mode", "phone")
-                                    // AppController.setPhoneToggle(home.deviceId, "dual_sound", "phone")
+                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "phone")
                                 }
                             }
                         }
