@@ -40,6 +40,9 @@ class SoundCapture(
     @Volatile private var elevatedSocket: Socket? = null
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var localPlayerTrack: AudioTrack? = null
+    private val localQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(8)
+    @Volatile private var localRunning = false
+    private var localThread: Thread? = null
     private var thread: Thread? = null
 
     private fun closeElevatedSocket() {
@@ -48,22 +51,56 @@ class SoundCapture(
         s?.let { runCatching { it.close() } }
     }
 
-    private fun playLocal(packet: ByteArray) {
-        if (localPlayerTrack == null) {
-            runCatching {
+    private fun startLocalWorker() {
+        if (localThread != null && localRunning) return
+        localRunning = true
+        localThread = Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            try {
                 val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
-                localPlayerTrack = AudioTrack.Builder()
+                val track = AudioTrack.Builder()
                     .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
                     .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
                     .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
                     .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                    .build().apply { play() }
+                    .build()
+                localPlayerTrack = track
+                track.play()
+
+                while (localRunning && running) {
+                    val pkt = localQueue.poll(50, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
+                    track.write(pkt, 0, pkt.size)
+                }
+            } catch (_: InterruptedException) {
+            } catch (e: Exception) {
+                Log.w(TAG, "Local player error", e)
+            } finally {
+                val t = localPlayerTrack
+                localPlayerTrack = null
+                t?.runCatching { stop() }
+                t?.runCatching { release() }
             }
+        }, "sound-local-player").apply {
+            priority = Thread.MAX_PRIORITY
+            start()
         }
-        localPlayerTrack?.write(packet, 0, packet.size, AudioTrack.WRITE_NON_BLOCKING)
+    }
+
+    private fun playLocal(packet: ByteArray) {
+        if (!localRunning || localThread == null) {
+            startLocalWorker()
+        }
+        if (localQueue.remainingCapacity() == 0) {
+            localQueue.poll()
+        }
+        localQueue.offer(packet.copyOf())
     }
 
     private fun stopLocal() {
+        localRunning = false
+        localThread?.interrupt()
+        localThread = null
+        localQueue.clear()
         val track = localPlayerTrack
         localPlayerTrack = null
         track?.let {
@@ -93,17 +130,8 @@ class SoundCapture(
     fun start() {
         activeCaptures.add(this)
 
-        // 1. Prefer Elevated internal audio submix (InputServer REMOTE_SUBMIX):
-        // Zero permission prompts, zero MediaProjection dialogs, and NEVER captures mic!
-        if (Elevated.running) {
-            running = true
-            thread = Thread({ runElevated() }, "sound-capture-elevated").apply {
-                priority = Thread.MAX_PRIORITY
-                start()
-            }
-            return
-        }
-
+        // 1. Prefer MediaProjection AudioPlaybackCaptureConfiguration:
+        // Native Android 10+ crystal clear capture at 48kHz stereo, lossless!
         val proj = projection
         if (proj != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val record = runCatching {
@@ -135,6 +163,17 @@ class SoundCapture(
                 return
             }
             record?.runCatching { release() }
+        }
+
+        // 2. Fall back to Elevated internal audio submix (InputServer REMOTE_SUBMIX)
+        // when projection is null (e.g. standalone app windows without MediaProjection):
+        if (Elevated.running) {
+            running = true
+            thread = Thread({ runElevated() }, "sound-capture-elevated").apply {
+                priority = Thread.MAX_PRIORITY
+                start()
+            }
+            return
         }
 
         val ctx = context
@@ -322,6 +361,9 @@ class SoundCapture(
         } finally {
             stopLocal()
             closeElevatedSocket()
+            if (Elevated.running) {
+                Elevated.stopAudio()
+            }
             activeCaptures.remove(this)
             stream.end()
             onEnded()
@@ -333,11 +375,15 @@ class SoundCapture(
         stopLocal()
         activeCaptures.remove(this)
         closeElevatedSocket()
+        if (Elevated.running) {
+            Elevated.stopAudio()
+        }
         audioRecord?.let {
             runCatching { it.stop() }
             runCatching { it.release() }
         }
         audioRecord = null
+        stream.end()
         thread?.interrupt()
         thread = null
     }

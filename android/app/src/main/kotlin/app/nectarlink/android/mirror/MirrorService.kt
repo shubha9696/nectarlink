@@ -175,7 +175,10 @@ class MirrorService : Service() {
         )
         granted.registerCallback(object : MediaProjection.Callback() {
             // The user stopped it (from the status bar, or by locking).
-            override fun onStop() = main.post { stopSharing() }.let {}
+            override fun onStop() = main.post {
+                cachedConsent = null
+                stopSharing()
+            }.let {}
         }, main)
         if (soundOnly) {
             scope.launch { startSound(core, pc) }
@@ -403,10 +406,10 @@ class MirrorService : Service() {
     }
 
     private fun stopSharing() {
-        cachedConsent = null
         stayAwake = false
         screenOff = false
         soundOnly = false
+        elevatedStarting = false
         _session.value = MirrorSession()
         StreamPower.set(this, StreamPower.SCREEN, streaming = false)
         elevatedDisplayListener?.let {
@@ -526,7 +529,6 @@ class MirrorService : Service() {
         fun stop(pcId: String) {
             val service = current
             if (service == null) {
-                cachedConsent = null
                 _session.value = MirrorSession()
                 return
             }
@@ -537,7 +539,6 @@ class MirrorService : Service() {
         fun stopCurrent() {
             val service = current
             if (service == null) {
-                cachedConsent = null
                 _session.value = MirrorSession()
                 return
             }

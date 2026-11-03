@@ -141,29 +141,20 @@ pub fn state() -> &'static str {
 
 
 /// Starts or stops playing the phone's sound here.
-
 pub fn set_on(on: bool) {
-
     if !on {
-
-        if let Some((device, _)) = active() {
-
-            stop(device);
-
-        }
-
+        stop_active();
         return;
-
     }
-
     let (Some((device, name)), Some(node)) = (phone(), core_host::node()) else { return };
-
-    if active().is_some() {
-
-        return;
-
+    // Reset any previous or stale active state so a toggle click always triggers cleanly:
+    if let Some((active_dev, _)) = active() {
+        if active_dev != device {
+            stop(active_dev);
+        } else {
+            set_active(None);
+        }
     }
-
     set_active(Some((device, Phase::Asking)));
 
     core_host::spawn(async move {
@@ -249,18 +240,20 @@ pub fn set_on(on: bool) {
 
 
 /// Stops it for `device` and tells the phone.
-
 fn stop(device: DeviceId) {
-
     set_active(None);
-
     let Some(node) = core_host::node() else { return };
-
     core_host::spawn(async move { node.mirror_stop(device, MIRROR_SCREEN).await });
-
 }
 
-
+/// Stops any active phone sound session.
+pub fn stop_active() {
+    if let Some((device, _)) = active() {
+        stop(device);
+    } else {
+        set_active(None);
+    }
+}
 
 /// The mirror window is about to ask `device` for its screen, which brings
 /// the sound too: the phone shares one or the other, so this one ends first.
@@ -270,22 +263,32 @@ pub fn stop_for_window(device: DeviceId) {
     }
 }
 
-/// Stops any active phone sound session.
-pub fn stop_active() {
-    if let Some((d, _)) = active() {
-        stop(d);
-    }
-}
+
 
 /// The sink for `device`'s sound stream while it plays here without a window.
+
 pub fn sink(device: &DeviceId) -> Option<Arc<dyn MirrorSink>> {
+
     let matches_active = active().is_some_and(|(d, _)| d == *device);
-    if matches_active {
-        crate::pc_audio_stream::set_enabled(false);
+
+    let paired = core_host::host().hub.read(|s| s.device(device).is_some());
+
+    if matches_active || paired {
+
+        if !matches_active {
+
+            set_active(Some((*device, Phase::Playing)));
+
+        }
+
         Some(Arc::new(Sink { device: *device, player: Mutex::new(None) }) as Arc<dyn MirrorSink>)
+
     } else {
+
         None
+
     }
+
 }
 
 
@@ -361,19 +364,21 @@ impl MirrorSink for Sink {
 
 
     fn audio_ended(&self) {
-
         self.player.lock().unwrap_or_else(|e| e.into_inner()).take();
-
         // The phone stopped, or the connection dropped.
-
         if active().is_some_and(|(d, _)| d == self.device) {
-
             set_active(None);
-
         }
-
     }
+}
 
+impl Drop for Sink {
+    fn drop(&mut self) {
+        self.player.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if active().is_some_and(|(d, _)| d == self.device) {
+            set_active(None);
+        }
+    }
 }
 
 

@@ -10,7 +10,10 @@
 
 use std::{
     collections::VecDeque,
-    sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -27,20 +30,63 @@ use windows::Win32::{
     },
 };
 
-/// Sound packets waiting for the player thread, at most.
-const QUEUE: usize = 256;
 /// How much sound is gathered before playing (and again after a stall).
-const START_MS: u32 = 15;
+const START_MS: u32 = 10;
 /// More than this waiting, and the oldest is dropped down to [`TRIM_TO_MS`].
-const MOST_MS: u32 = 240;
-const TRIM_TO_MS: u32 = 45;
+const MOST_MS: u32 = 35;
+const TRIM_TO_MS: u32 = 15;
 /// The device's buffer.
-const DEVICE_BUFFER: Duration = Duration::from_millis(15);
+const DEVICE_BUFFER: Duration = Duration::from_millis(10);
+
+#[derive(Debug)]
+struct PacketQueue {
+    packets: Mutex<VecDeque<Vec<u8>>>,
+    closed: AtomicBool,
+}
+
+impl PacketQueue {
+    fn new() -> Self {
+        Self {
+            packets: Mutex::new(VecDeque::with_capacity(16)),
+            closed: AtomicBool::new(false),
+        }
+    }
+
+    fn push(&self, data: Vec<u8>) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
+        let mut q = self.packets.lock().unwrap_or_else(|e| e.into_inner());
+        // Bounded queue: max 8 packets (~80ms). Drop oldest to eliminate latency drift!
+        if q.len() >= 8 {
+            q.pop_front();
+        }
+        q.push_back(data);
+    }
+
+    fn drain(&self, out: &mut Vec<Vec<u8>>) -> bool {
+        let mut q = self.packets.lock().unwrap_or_else(|e| e.into_inner());
+        while let Some(packet) = q.pop_front() {
+            out.push(packet);
+        }
+        self.closed.load(Ordering::Acquire)
+    }
+
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+    }
+}
 
 /// Plays sound until dropped.
 #[derive(Debug)]
 pub struct Player {
-    queue: SyncSender<Vec<u8>>,
+    queue: Arc<PacketQueue>,
+}
+
+impl Drop for Player {
+    fn drop(&mut self) {
+        self.queue.close();
+    }
 }
 
 impl Player {
@@ -54,7 +100,8 @@ impl Player {
     /// (from [`super::audio::output_devices`]), or the default one when
     /// it's `None` or gone.
     pub fn start_on(device: Option<String>, rate: u32, channels: u16) -> std::io::Result<Player> {
-        let (queue, packets) = sync_channel(QUEUE);
+        let queue = Arc::new(PacketQueue::new());
+        let packets = queue.clone();
         std::thread::Builder::new().name("mirror-sound".into()).spawn(move || {
             let mut attempts = 0;
             // The device can go away (headphones unplugged): start over on
@@ -73,12 +120,10 @@ impl Player {
         Ok(Player { queue })
     }
 
-    /// Hands over a packet without waiting (dropped if the player is far
-    /// behind: it would be too late to hear anyway).
+    /// Hands over a packet without waiting (oldest is dropped if the player is far
+    /// behind to keep latency tightly synchronized with real-time).
     pub fn push(&self, data: Vec<u8>) {
-        if let Err(TrySendError::Full(_)) = self.queue.try_send(data) {
-            tracing::debug!("a sound packet was dropped");
-        }
+        self.queue.push(data);
     }
 }
 
@@ -168,7 +213,7 @@ fn play(
     device: Option<&str>,
     rate: u32,
     channels: u16,
-    packets: &Receiver<Vec<u8>>,
+    packets: &Arc<PacketQueue>,
 ) -> windows::core::Result<()> {
     // SAFETY: balanced below; this thread is ours and uses only the MTA.
     unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok()?;
@@ -184,7 +229,7 @@ fn render(
     device: Option<&str>,
     rate: u32,
     channels: u16,
-    packets: &Receiver<Vec<u8>>,
+    packets: &Arc<PacketQueue>,
     event: HANDLE,
 ) -> windows::core::Result<()> {
     let block = 2 * channels;
@@ -229,17 +274,11 @@ fn render(
             // Woken when the device wants sound (or after a while regardless,
             // to notice the end).
             let _ = WaitForSingleObject(event, 200);
-            // Everything that came in.
-            let mut gone = false;
-            loop {
-                match packets.recv_timeout(Duration::ZERO) {
-                    Ok(data) => jitter.push(&data),
-                    Err(RecvTimeoutError::Timeout) => break,
-                    Err(RecvTimeoutError::Disconnected) => {
-                        gone = true;
-                        break;
-                    }
-                }
+            // Drain all packets from the bounded real-time queue.
+            let mut batch = Vec::new();
+            let gone = packets.drain(&mut batch);
+            for data in batch {
+                jitter.push(&data);
             }
             if gone {
                 break Ok(());

@@ -1072,6 +1072,9 @@ pub fn stop(window: Window) {
         }
     });
     ffi::video_clear(&window.key());
+    if window.session == MIRROR_SCREEN {
+        crate::phone_sound::stop_active();
+    }
     core_host::host().hub.changed(Changes::MIRROR);
     let Some(node) = core_host::node() else { return };
     core_host::spawn(async move { node.mirror_stop(window.device, window.session).await });
