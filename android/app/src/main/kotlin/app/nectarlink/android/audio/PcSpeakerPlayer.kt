@@ -51,7 +51,7 @@ class PcSpeakerPlayer(
         lastChannels = safeChannels
 
         // Keep queue bounded: if we exceed MAX_QUEUED_PACKETS, drop oldest to avoid latency buildup
-        while (queue.size >= MAX_QUEUED_PACKETS - 1) {
+        while (queue.size >= MAX_QUEUED_PACKETS - 2) {
             queue.poll()
         }
         queue.offer(pcm)
@@ -135,10 +135,10 @@ class PcSpeakerPlayer(
                 val packet = queue.poll(20, TimeUnit.MILLISECONDS)
                 if (packet != null && packet.isNotEmpty()) {
                     consecutiveEmptyPolls = 0
+                    activeTrack.write(packet, 0, packet.size, AudioTrack.WRITE_BLOCKING)
                     if (activeTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
                         runCatching { activeTrack.play() }
                     }
-                    activeTrack.write(packet, 0, packet.size, AudioTrack.WRITE_BLOCKING)
                 } else {
                     consecutiveEmptyPolls++
                     if (consecutiveEmptyPolls > 50) { // ~1 second of silence
@@ -199,7 +199,7 @@ class PcSpeakerPlayer(
             }
 
             // Allocate at least 4x minimum buffer size for flawless, glitch-free hardware streaming
-            val bufferSize = maxOf(minBuf * 2, sampleRate * (channels * 2) * 80 / 1000)
+            val bufferSize = maxOf(minBuf * 3, sampleRate * (channels * 2) * 120 / 1000)
 
             AudioTrack.Builder()
                 .setAudioAttributes(attrBuilder.build())
@@ -228,7 +228,7 @@ class PcSpeakerPlayer(
         private const val TAG = "PcSpeakerPlayer"
         const val ACTIVE_WINDOW_MS = 3_000L
         private const val WATCHDOG_CHECK_INTERVAL_MS = 1_000L
-        private const val MAX_QUEUED_PACKETS = 8 // ~80ms buffer cap: tightly prevents audio delay drift
+        private const val MAX_QUEUED_PACKETS = 24 // ~240ms buffer window: completely prevents jitter underruns and crackles
 
         private val trackRecreateRequested = AtomicBoolean(false)
 

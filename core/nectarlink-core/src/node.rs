@@ -3941,7 +3941,8 @@ async fn bind_endpoint(
         .congestion_controller_factory(controller)
         .max_concurrent_multipath_paths(8)
         .max_remote_nat_traversal_addresses(32)
-        .server_handshake_migration(true)
+        .default_path_keep_alive_interval(KEEP_ALIVE_INTERVAL)
+        .default_path_max_idle_timeout(IDLE_TIMEOUT)
         .send_observed_address_reports(true)
         .receive_observed_address_reports(true)
         .build();

@@ -125,12 +125,10 @@ pub fn build_wifi_optimized_transport_config() -> noq_proto::TransportConfig {
 
     // 2. Expand flow-control windows so high-bandwidth local transfers never
     // stall waiting for window-update frames across 2-hop Wi-Fi jitter.
-    if let Ok(stream_win) = VarInt::try_from(FILE_STREAM_RECEIVE_WINDOW_BYTES) {
-        config.stream_receive_window(stream_win);
-    }
-    if let Ok(conn_win) = VarInt::try_from(CONNECTION_RECEIVE_WINDOW_BYTES) {
-        config.receive_window(conn_win);
-    }
+    let stream_win = VarInt::from_u32(FILE_STREAM_RECEIVE_WINDOW_BYTES as u32);
+    config.stream_receive_window(stream_win);
+    let conn_win = VarInt::from_u32(CONNECTION_RECEIVE_WINDOW_BYTES as u32);
+    config.receive_window(conn_win);
     config.send_window(CONNECTION_SEND_WINDOW_BYTES);
 
     // 3. Tolerate 2-hop Wi-Fi frame reordering without triggering false loss recovery.
