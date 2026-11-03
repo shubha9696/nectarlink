@@ -3440,10 +3440,14 @@ impl PhoneToggleSet {
                 | toggle_ids::HOTSPOT
                 | toggle_ids::PC_ACTIVE
                 | toggle_ids::PC_LOCKED
-                | toggle_ids::PC_BLUETOOTH,
+                | toggle_ids::PC_BLUETOOTH
+                | "dual_sound",
                 PhoneToggleValue::Bool(_),
             ) => true,
+            ("dual_sound", PhoneToggleValue::Mode(m)) => matches!(m.as_str(), "pc" | "phone" | "both"),
             (toggle_ids::VOLUME | toggle_ids::BRIGHTNESS, PhoneToggleValue::Level(n)) => *n <= 100,
+            ("mirror_bitrate" | "mirror_fps", PhoneToggleValue::Level(_)) => true,
+            ("mirror_bitrate" | "mirror_fps", PhoneToggleValue::Mode(_)) => true,
             (toggle_ids::RINGER, PhoneToggleValue::Mode(m)) => {
                 matches!(m.as_str(), ringer_modes::RING | ringer_modes::VIBRATE | ringer_modes::SILENT)
             }

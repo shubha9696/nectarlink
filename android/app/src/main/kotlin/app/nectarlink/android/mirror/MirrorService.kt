@@ -70,39 +70,51 @@ class MirrorService : Service() {
             stopSharing()
             return START_NOT_STICKY
         }
-        createChannel(this)
-        val initialType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0
-        runCatching {
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(""), initialType)
-        }.onFailure {
-            runCatching { ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(""), 0) }
-        }
         val pc = intent?.getStringExtra(EXTRA_PC)
         val isElevated = intent?.getBooleanExtra(EXTRA_ELEVATED, false) == true
         val soundOnly = intent?.getBooleanExtra(EXTRA_SOUND_ONLY, false) == true
         val consent = intent?.let { IntentCompat.getParcelableExtra(it, EXTRA_CONSENT, Intent::class.java) }
+        val result = intent?.getIntExtra(EXTRA_RESULT, android.app.Activity.RESULT_OK) ?: android.app.Activity.RESULT_OK
+
         if (pc == null || (!isElevated && !soundOnly && consent == null) || projection != null || elevatedSocket != null || elevatedStarting) {
             if (projection == null && elevatedSocket == null && !elevatedStarting) stopSharing()
             return START_NOT_STICKY
         }
+
+        createChannel(this)
         val core = (application as NectarlinkApplication).core
         val name = core.state.value.nameOf(pc).orEmpty()
-        createChannel(this)
         val maxSize = intent.getIntExtra(EXTRA_MAX_SIZE, 1920)
         val fps = intent.getIntExtra(EXTRA_FPS, 60)
-        val bitrate = intent.getIntExtra(EXTRA_BITRATE, 8_000_000)
+        val bitrate = intent.getIntExtra(EXTRA_BITRATE, 6_000_000)
         val audio = intent.getBooleanExtra(EXTRA_AUDIO, false)
         stayAwake = intent.getBooleanExtra(EXTRA_STAY_AWAKE, false)
         screenOff = intent.getBooleanExtra(EXTRA_SCREEN_OFF, false)
         this.soundOnly = soundOnly
 
-        if (isElevated || (soundOnly && consent == null)) {
-            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0
-            runCatching {
-                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), type)
-            }.onFailure {
-                runCatching { ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), 0) }
+        // In Android 14 (API 34): startForeground MUST be called with FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+        // BEFORE calling getMediaProjection(result, consent)!
+        val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (consent != null && !isElevated) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
             }
+        } else {
+            0
+        }
+
+        runCatching {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), fgsType)
+        }.onFailure { e ->
+            Log.w(TAG, "startForeground with type failed, falling back", e)
+            runCatching {
+                val fallbackType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE else 0
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), fallbackType)
+            }
+        }
+
+        if (isElevated || (soundOnly && consent == null)) {
             pcId = pc
             current = this
             _session.value = MirrorSession(
@@ -123,30 +135,21 @@ class MirrorService : Service() {
             return START_NOT_STICKY
         }
 
-        // Obtain MediaProjection first before startForeground (required on Android 14+)
+        // Now that startForeground(..., MEDIA_PROJECTION) is active, getMediaProjection succeeds!
         val manager = getSystemService(MediaProjectionManager::class.java)
         val granted = runCatching {
-            manager.getMediaProjection(intent.getIntExtra(EXTRA_RESULT, 0), consent!!)
-        }.getOrElse {
+            manager.getMediaProjection(result, consent!!)
+        }.onFailure {
+            Log.e(TAG, "getMediaProjection failed", it)
             cachedConsent = null
-            null
-        }
+        }.getOrNull()
+
         if (granted == null) {
             Log.w(TAG, "no screen capture granted")
             stopSharing()
             return START_NOT_STICKY
         }
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-        } else {
-            0
-        }
-        runCatching {
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), type)
-        }.onFailure { e ->
-            Log.w(TAG, "startForeground with type failed, falling back", e)
-            runCatching { ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(name), 0) }
-        }
+
         projection = granted
         pcId = pc
         current = this

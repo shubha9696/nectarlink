@@ -140,8 +140,10 @@ class MirrorConsentActivity : ComponentActivity() {
         val asked = request
         if (result.resultCode == Activity.RESULT_OK && data != null && asked != null) {
             MirrorService.start(this, asked, result.resultCode, data)
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ finish() }, 500)
+        } else {
+            finish()
         }
-        finish()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

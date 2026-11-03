@@ -276,10 +276,10 @@ class AppDisplay(
     private fun createDisplay(w: Int, h: Int, d: Int, surface: Surface): VirtualDisplay {
         var flags = PUBLIC or OWN_CONTENT_ONLY or SUPPORTS_TOUCH or ROTATES_WITH_CONTENT or DESTROY_CONTENT_ON_REMOVAL
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            flags = flags or TRUSTED or OWN_DISPLAY_GROUP or ALWAYS_UNLOCKED or TOUCH_FEEDBACK_DISABLED
+            flags = flags or TRUSTED or OWN_DISPLAY_GROUP or ALWAYS_UNLOCKED
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            flags = flags or OWN_FOCUS or DEVICE_DISPLAY_GROUP
+            flags = flags or OWN_FOCUS
         }
         val constructor = DisplayManager::class.java.getDeclaredConstructor(Context::class.java)
         constructor.isAccessible = true
@@ -312,7 +312,7 @@ class AppDisplay(
         // phones (Samsung's One UI answers "intent not resolved"), and nothing would open.
         val target = launcherActivity(pkg)?.let { arrayOf("-n", it) }
             ?: arrayOf("-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER", "-p", pkg)
-        val command = arrayOf("am", "start", "--display", display.toString(), "--windowingMode", "1") + target +
+        val command = arrayOf("am", "start", "--user", "0", "--display", display.toString(), "--windowingMode", "1") + target +
             arrayOf("-f", (FLAG_NEW_TASK or FLAG_MULTIPLE_TASK).toString())
         val process = Runtime.getRuntime().exec(command)
         val said = process.inputStream.bufferedReader().readText() + process.errorStream.bufferedReader().readText()
@@ -360,7 +360,7 @@ class AppDisplay(
     private fun watchActivities(display: Int) {
         Thread({
             try {
-                Thread.sleep(1_500)
+                Thread.sleep(3_500)
                 var seen = false
                 var emptyCount = 0
                 var ticks = 0
@@ -368,9 +368,9 @@ class AppDisplay(
                     if (hasActivityOnDisplay(display)) {
                         seen = true
                         emptyCount = 0
-                    } else if (seen || ticks >= 15) {
+                    } else if (seen || ticks >= 20) {
                         emptyCount++
-                        if (emptyCount >= 2) {
+                        if (emptyCount >= 8) {
                             System.err.println("the app on display $display closed")
                             running = false
                             break

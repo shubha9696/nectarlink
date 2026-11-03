@@ -81,8 +81,13 @@ class AppWindows(
 
         val maxSize = options.maxSize.toInt().coerceIn(320, 1920)
         val (width, height, dpi) = size(maxSize)
-        val socket = Elevated.openApp(pkg, width, height, dpi, options.bitrate.toInt(), options.fps.toInt()) ?: return false
-        val window = Window(pc, options.session, socket, width, height, dpi, maxSize)
+        var socket = Elevated.openApp(pkg, width, height, dpi, options.bitrate.toInt(), options.fps.toInt())
+        if (socket == null && (Elevated.running || Elevated.paired())) {
+            Thread.sleep(300)
+            socket = Elevated.openApp(pkg, width, height, dpi, options.bitrate.toInt(), options.fps.toInt())
+        }
+        val liveSocket = socket ?: return false
+        val window = Window(pc, options.session, liveSocket, width, height, dpi, maxSize)
         power[pc] = options.stayAwake to options.screenOff
         windows.put(pc to options.session, window)?.let { runCatching { it.socket.close() } }
         changed()

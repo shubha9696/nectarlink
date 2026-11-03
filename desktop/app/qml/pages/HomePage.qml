@@ -2148,7 +2148,7 @@ Item {
                                     soundModeRow.soundMode = 0
                                     Mirror.setAudioMode(home.deviceId, "pc")
                                     AppController.setPhoneToggle(home.deviceId, "audio_mode", "pc")
-                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "pc")
+                                    // AppController.setPhoneToggle(home.deviceId, "dual_sound", "pc")
                                 }
                             }
                         }
@@ -2175,7 +2175,7 @@ Item {
                                     soundModeRow.soundMode = 2
                                     Mirror.setAudioMode(home.deviceId, "phone")
                                     AppController.setPhoneToggle(home.deviceId, "audio_mode", "phone")
-                                    AppController.setPhoneToggle(home.deviceId, "dual_sound", "phone")
+                                    // AppController.setPhoneToggle(home.deviceId, "dual_sound", "phone")
                                 }
                             }
                         }

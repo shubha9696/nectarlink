@@ -13,7 +13,7 @@ Window {
         id: mirrorPrefs
         category: "MirrorQuality"
         property int fps: 60
-        property int bitrate: 8000000
+        property int bitrate: 6000000
     }
     required property string mirrorKey
     // This window's mirroring (see Mirror.windows).

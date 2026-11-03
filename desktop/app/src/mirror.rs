@@ -41,9 +41,9 @@ use crate::{
 
 /// What the PC asks for: the phone scales its screen to fit.
 const OPTIONS: MirrorStart = MirrorStart {
-    max_size: 2560,
-    fps: 120,
-    bitrate: 28_000_000,
+    max_size: 1920,
+    fps: 60,
+    bitrate: 6_000_000,
     audio: true,
     session: MIRROR_SCREEN,
     app: None,
@@ -274,7 +274,7 @@ pub fn set_muted(muted: bool) {
     core_host::host().hub.changed(Changes::MIRROR);
 }
 
-static QUALITY: Mutex<(u32, u32)> = Mutex::new((60, 8_000_000));
+static QUALITY: Mutex<(u32, u32)> = Mutex::new((60, 6_000_000));
 
 pub fn set_quality(window: Window, fps: u32, bitrate: u32) {
     {
