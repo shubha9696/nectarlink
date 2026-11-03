@@ -1842,21 +1842,24 @@ pub fn sink(device: &DeviceId, session: u32) -> Option<Arc<dyn MirrorSink>> {
     if session == MIRROR_SCREEN && crate::phone_sound::active().is_some_and(|(d, ph)| d == *device && ph == crate::phone_sound::Phase::Asking) {
         return crate::phone_sound::sink(device);
     }
-    if session == MIRROR_SCREEN {
-        let p = phase(&window);
-        if p.is_none() || p == Some(Phase::Asking) {
+    let p = phase(&window);
+    if p.is_none() || p == Some(Phase::Asking) || p == Some(Phase::Showing) {
+        if session == MIRROR_SCREEN {
             crate::phone_sound::stop_for_window(*device);
             crate::pc_audio_stream::set_enabled(false);
-
-            ffi::video_clear(&window.key());
-            state(|s| {
-                s.windows.insert(window, Shown { phase: Phase::Showing, app: None, pkg: None });
-            });
-            core_host::host().hub.changed(Changes::MIRROR);
-            return Some(Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>);
         }
+        ffi::video_clear(&window.key());
+        state(|s| {
+            if let Some(shown) = s.windows.get_mut(&window) {
+                shown.phase = Phase::Showing;
+            } else {
+                s.windows.insert(window, Shown { phase: Phase::Showing, app: None, pkg: None });
+            }
+        });
+        core_host::host().hub.changed(Changes::MIRROR);
+        return Some(Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>);
     }
-    matches!(phase(&window), Some(Phase::Showing))
+    matches!(p, Some(Phase::Showing))
         .then(|| Arc::new(Sink::new(window)) as Arc<dyn MirrorSink>)
         // No window: the phone's sound on its own, if it was asked for or offered.
         .or_else(|| if session == MIRROR_SCREEN { crate::phone_sound::sink(device) } else { None })
