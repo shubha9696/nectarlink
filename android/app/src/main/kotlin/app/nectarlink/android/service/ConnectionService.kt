@@ -332,9 +332,12 @@ class ConnectionService : LifecycleService() {
                 app.nectarlink.android.clipboard.SendActivity.sendFilesIntent(this, primaryDevId),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            val restartPcIntent = PendingIntent.getService(
+            val restartPcIntent = PendingIntent.getActivity(
                 this, 12,
-                Intent(this, ConnectionService::class.java).setAction("ACTION_RESTART_PC"),
+                Intent(this, app.nectarlink.android.ui.RestartConfirmActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    putExtra("pc_id", primaryDevId)
+                },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
 
