@@ -519,13 +519,13 @@ Window {
             Row {
                 id: audioModeToggle
                 visible: true
-                height: 28
+                height: 22
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
 
                 Rectangle {
-                    height: 28
-                    radius: 14
+                    height: 22
+                    radius: 11
                     color: Qt.rgba(255, 255, 255, 0.12)
                     border.width: 1
                     border.color: Qt.rgba(255, 255, 255, 0.18)
@@ -540,15 +540,15 @@ Window {
 
                         // Option 1: PC only
                         Rectangle {
-                            width: pcText.implicitWidth + 14
-                            height: 24
-                            radius: 12
+                            width: pcText.implicitWidth + 8
+                            height: 18
+                            radius: 9
                             color: audioToggleRow.currentMode === "pc" ? Theme.primary : "transparent"
                             Text {
                                 id: pcText
                                 anchors.centerIn: parent
                                 text: qsTr("PC")
-                                font.pixelSize: 11
+                                font.pixelSize: 10
                                 font.bold: audioToggleRow.currentMode === "pc"
                                 color: audioToggleRow.currentMode === "pc" ? "white" : Qt.rgba(1, 1, 1, 0.72)
                             }
@@ -561,15 +561,15 @@ Window {
 
                         // Option 2: Phone only
                         Rectangle {
-                            width: phoneText.implicitWidth + 14
-                            height: 24
-                            radius: 12
+                            width: phoneText.implicitWidth + 8
+                            height: 18
+                            radius: 9
                             color: audioToggleRow.currentMode === "phone" ? Theme.primary : "transparent"
                             Text {
                                 id: phoneText
                                 anchors.centerIn: parent
                                 text: qsTr("Phone")
-                                font.pixelSize: 11
+                                font.pixelSize: 10
                                 font.bold: audioToggleRow.currentMode === "phone"
                                 color: audioToggleRow.currentMode === "phone" ? "white" : Qt.rgba(1, 1, 1, 0.72)
                             }
@@ -579,8 +579,6 @@ Window {
                                 onClicked: Mirror.setAudioMode(win.mirrorKey, "phone")
                             }
                         }
-
-
                     }
                 }
             }
@@ -882,66 +880,5 @@ Window {
             }
         }
     }
-    // Floating bottom navigation bar: Back, Home, Recent apps
-    Rectangle {
-        id: bottomNavBar
-        anchors.bottom: parent.bottom
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottomMargin: 10
-        height: 36
-        radius: 18
-        color: Qt.rgba(0, 0, 0, 0.72)
-        border.width: 1
-        border.color: Qt.rgba(255, 255, 255, 0.16)
-        visible: win.phase === "showing"
-        width: navRow.implicitWidth + 16
 
-        Row {
-            id: navRow
-            anchors.centerIn: parent
-            spacing: 12
-
-            IconButton {
-                id: bottomBackBtn
-                width: 30
-                height: 30
-                iconSize: 16
-                iconPath: Icons.back
-                iconColor: "white"
-                label: qsTr("Back (Esc / Backspace / Right-click)")
-                onClicked: {
-                    video.forceActiveFocus()
-                    Mirror.press(win.mirrorKey, "back")
-                }
-            }
-
-            IconButton {
-                id: bottomHomeBtn
-                width: 30
-                height: 30
-                iconSize: 16
-                iconPath: Icons.home
-                iconColor: "white"
-                label: qsTr("Home (Middle-click)")
-                onClicked: {
-                    video.forceActiveFocus()
-                    Mirror.press(win.mirrorKey, "home")
-                }
-            }
-
-            IconButton {
-                id: bottomRecentsBtn
-                width: 30
-                height: 30
-                iconSize: 16
-                iconPath: Icons.apps
-                iconColor: "white"
-                label: qsTr("Recent apps")
-                onClicked: {
-                    video.forceActiveFocus()
-                    Mirror.press(win.mirrorKey, "app_switch")
-                }
-            }
-        }
-    }
 }
