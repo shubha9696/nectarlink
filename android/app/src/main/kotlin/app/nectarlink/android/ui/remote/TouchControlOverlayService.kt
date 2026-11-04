@@ -831,13 +831,13 @@ class TouchControlOverlayService : Service() {
         val surf = targetSurface ?: return
         if (pcId.isEmpty() || !surf.isValid) return
 
-        c.startPcMirror(pcId, maxSize = 720, fps = 30, bitrate = 1_500_000, watch = false)
+        c.startPcMirror(pcId, maxSize = 720, fps = 30, bitrate = 1_500_000, watch = null)
         c.requestPcMirrorKeyframe(pcId)
 
         decodeJob?.cancel()
         decodeJob = serviceScope.launch(Dispatchers.IO) {
             try {
-                val effectiveCodec = c.pcMirrorConfig.value.codec ?: "h264"
+                val effectiveCodec = c.pcMirrorConfig.value?.codec ?: "h264"
                 val mime = if (effectiveCodec == "h265" || effectiveCodec == "hevc") {
                     MediaFormat.MIMETYPE_VIDEO_HEVC
                 } else {
