@@ -40,7 +40,7 @@ class SoundCapture(
     @Volatile private var elevatedSocket: Socket? = null
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var localPlayerTrack: AudioTrack? = null
-    private val localQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(8)
+    private val localQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(16)
     @Volatile private var localRunning = false
     private var localThread: Thread? = null
     private var thread: Thread? = null
@@ -70,8 +70,13 @@ class SoundCapture(
                 val track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
                             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .apply {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
+                                }
+                            }
                             .build()
                     )
                     .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
@@ -83,7 +88,7 @@ class SoundCapture(
 
                 while (localRunning && running) {
                     val pkt = localQueue.poll(50, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
-                    track.write(pkt, 0, pkt.size)
+                    track.write(pkt, 0, pkt.size, AudioTrack.WRITE_BLOCKING)
                 }
             } catch (_: InterruptedException) {
             } catch (e: Exception) {

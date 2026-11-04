@@ -83,6 +83,11 @@ class PcSpeakerPlayer(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .apply {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
+                            }
+                        }
                         .build()
                 )
                 .setAudioFormat(
