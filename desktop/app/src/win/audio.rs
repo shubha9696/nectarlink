@@ -310,15 +310,13 @@ pub const BYTES_PER_FRAME: usize = 4;
 pub const CHUNK_BYTES: usize = 1_920;
 
 pub struct DolbyStudioDsp {
-    // Psychoacoustic bass filter state
-    lp_l: f32,
-    lp_r: f32,
-    hp_sub_l: f32,
-    hp_sub_r: f32,
-    // Mid/Side spatial widener filter state
-    side_hp_l: f32,
-    side_hp_r: f32,
-    // High-frequency clarity / dialogue presence state
+    // Stereo low-shelf warmth filter state (~120 Hz)
+    bass_l: f32,
+    bass_r: f32,
+    // Mid/Side spatial widener filter state (~300 Hz)
+    side_l: f32,
+    side_r: f32,
+    // High-frequency clarity / dialogue presence state (~6 kHz)
     air_l: f32,
     air_r: f32,
 }
@@ -326,12 +324,10 @@ pub struct DolbyStudioDsp {
 impl DolbyStudioDsp {
     pub fn new() -> Self {
         Self {
-            lp_l: 0.0,
-            lp_r: 0.0,
-            hp_sub_l: 0.0,
-            hp_sub_r: 0.0,
-            side_hp_l: 0.0,
-            side_hp_r: 0.0,
+            bass_l: 0.0,
+            bass_r: 0.0,
+            side_l: 0.0,
+            side_r: 0.0,
             air_l: 0.0,
             air_r: 0.0,
         }
@@ -343,20 +339,18 @@ impl DolbyStudioDsp {
             return;
         }
 
-        // DSP Filter coefficients tuned specifically for smartphone stereo micro-speakers:
-        // 1. Sub-bass extractor cutoff (~160 Hz at 48kHz): alpha ~= 2*pi*160/48000 ~= 0.021
-        const BASS_ALPHA: f32 = 0.021;
-        // 2. High-pass sub-rumble blocker (~100 Hz): alpha ~= 0.013
-        const SUB_CUT_ALPHA: f32 = 0.013;
-        // 3. Side-channel spatial filter (~220 Hz): alpha ~= 0.028
-        const SIDE_HP_ALPHA: f32 = 0.028;
-        // 4. Dialogue & Air clarity filter (~5.5 kHz): alpha ~= 0.52
-        const AIR_ALPHA: f32 = 0.52;
+        // Clean, studio-grade linear acoustic filters designed for transparent, distortion-free fidelity:
+        // 1. Bass cutoff (~120 Hz at 48kHz): alpha = 2*pi*120/48000 ~= 0.0157
+        const BASS_ALPHA: f32 = 0.0157;
+        // 2. Side-channel spatial filter (~300 Hz): alpha = 2*pi*300/48000 ~= 0.0392
+        const SIDE_ALPHA: f32 = 0.0392;
+        // 3. Dialogue & Air clarity filter (~6 kHz): alpha = 2*pi*6000/48000 ~= 0.55
+        const AIR_ALPHA: f32 = 0.55;
 
-        const STEREO_EXPAND: f32 = 1.45; // Expands Side channel by +3.2 dB for wide 3D soundstage
-        const BASS_HARMONICS: f32 = 0.40; // MaxxBass-style phantom fundamental harmonics
-        const AIR_BOOST: f32 = 0.22; // Dialogue presence and acoustic sheen (+1.8 dB)
-        const PRE_SCALE: f32 = 0.90; // Clean headroom factor
+        const STEREO_EXPAND: f32 = 1.25; // Expands Side channel cleanly for wide 3D soundstage
+        const BASS_BOOST: f32 = 0.30; // +2.5 dB warm, punchy, distortion-free low-end
+        const AIR_BOOST: f32 = 0.20; // +1.6 dB dialogue presence and acoustic sheen
+        const PRE_SCALE: f32 = 0.88; // Clean headroom factor to prevent clipping
 
         for frame in buf.chunks_exact_mut(4) {
             let l_raw = i16::from_le_bytes([frame[0], frame[1]]) as f32 / 32768.0;
@@ -367,53 +361,40 @@ impl DolbyStudioDsp {
 
             // 1. Dolby 3D Stereo Expansion via Mid/Side Processing
             let mid = 0.5 * (l + r);
-            let raw_side = 0.5 * (l - r);
+            let side = 0.5 * (l - r);
 
-            // Filter out low bass from Side to avoid stereo phase cancellation
-            self.side_hp_l += SIDE_HP_ALPHA * (raw_side - self.side_hp_l);
-            let side_high = raw_side - self.side_hp_l;
-            let side_enhanced = raw_side + side_high * (STEREO_EXPAND - 1.0);
+            // Filter out low bass from Side so low bass stays mono and punchy
+            self.side_l += SIDE_ALPHA * (side - self.side_l);
+            let side_high = side - self.side_l;
+            let enhanced_side = side + side_high * (STEREO_EXPAND - 1.0);
 
-            l = mid + side_enhanced;
-            r = mid - side_enhanced;
+            l = mid + enhanced_side;
+            r = mid - enhanced_side;
 
-            // 2. Psychoacoustic Phantom Bass Harmonics
-            // Extract sub-bass energy (< 160 Hz)
-            self.lp_l += BASS_ALPHA * (l_raw - self.lp_l);
-            self.lp_r += BASS_ALPHA * (r_raw - self.lp_r);
+            // 2. Clean, Non-Distorting Bass Warmth & Punch
+            self.bass_l += BASS_ALPHA * (l_raw - self.bass_l);
+            self.bass_r += BASS_ALPHA * (r_raw - self.bass_r);
+            l += self.bass_l * BASS_BOOST;
+            r += self.bass_r * BASS_BOOST;
 
-            // Strip inaudible sub-rumble (< 100 Hz) that causes phone speaker voice coils to bottom out
-            self.hp_sub_l += SUB_CUT_ALPHA * (self.lp_l - self.hp_sub_l);
-            self.hp_sub_r += SUB_CUT_ALPHA * (self.lp_r - self.hp_sub_r);
-            let bass_l = self.lp_l - self.hp_sub_l;
-            let bass_r = self.lp_r - self.hp_sub_r;
-
-            // Non-linear harmonic generation: produces 2nd and 3rd harmonics in the phone speaker's
-            // sweet resonant band (150 Hz - 320 Hz) so the ear perceives deep, punchy, room-filling bass!
-            let harm_l = (bass_l * bass_l.abs() * 1.5 + bass_l.powi(3) * 0.8) * BASS_HARMONICS;
-            let harm_r = (bass_r * bass_r.abs() * 1.5 + bass_r.powi(3) * 0.8) * BASS_HARMONICS;
-
-            l += harm_l;
-            r += harm_r;
-
-            // 3. Dialogue & Air Clarity Boost (> 5.5 kHz)
+            // 3. Dialogue & High-End Air Clarity
             self.air_l += AIR_ALPHA * (l - self.air_l);
             self.air_r += AIR_ALPHA * (r - self.air_r);
-            let treble_l = l - self.air_l;
-            let treble_r = r - self.air_r;
-            l += treble_l * AIR_BOOST;
-            r += treble_r * AIR_BOOST;
+            let air_diff_l = l - self.air_l;
+            let air_diff_r = r - self.air_r;
+            l += air_diff_l * AIR_BOOST;
+            r += air_diff_r * AIR_BOOST;
 
             // 4. Soft-Knee Transparent Peak Limiter (0% clipping, transparent dynamics)
-            let l_out = if l.abs() > 0.82 {
+            let l_out = if l.abs() > 0.85 {
                 let s = l.signum();
-                s * (0.82 + (l.abs() - 0.82).tanh() * 0.16)
+                s * (0.85 + (l.abs() - 0.85).tanh() * 0.14)
             } else {
                 l
             };
-            let r_out = if r.abs() > 0.82 {
+            let r_out = if r.abs() > 0.85 {
                 let s = r.signum();
-                s * (0.82 + (r.abs() - 0.82).tanh() * 0.16)
+                s * (0.85 + (r.abs() - 0.85).tanh() * 0.14)
             } else {
                 r
             };

@@ -296,7 +296,7 @@ mod imp {
         }
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let studio_quality = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(is_exact_quality()));
-        let (tx, rx) = tokio::sync::mpsc::channel::<bytes::Bytes>(4);
+        let (tx, rx) = tokio::sync::mpsc::channel::<bytes::Bytes>(16);
 
         let stop_clone = stop.clone();
         let studio_clone = studio_quality.clone();

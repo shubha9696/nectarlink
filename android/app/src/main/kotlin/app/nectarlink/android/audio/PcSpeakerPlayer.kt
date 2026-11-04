@@ -273,13 +273,12 @@ class PcSpeakerPlayer(
     private fun updateTrackBuffer(track: AudioTrack, exact: Boolean, sampleRate: Int) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             runCatching {
-                val targetFrames = if (exact) {
-                    // ~30 ms buffer in Dolby mode for rock-solid stability and full rich audio
-                    sampleRate * 30 / 1000
-                } else {
-                    // ~8 ms buffer in Low Latency mode for true 0 ms real-time sync
-                    (sampleRate * 8 / 1000).coerceAtLeast(192)
-                }
+                val minFrames = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_STEREO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                ) / 4
+                val targetFrames = if (exact) minFrames * 2 else minFrames
                 track.setBufferSizeInFrames(minOf(track.bufferCapacityInFrames, targetFrames))
             }
         }
@@ -297,7 +296,7 @@ class PcSpeakerPlayer(
                 AudioFormat.ENCODING_PCM_16BIT,
             ).coerceAtLeast(1920)
 
-            val bufSize = if (isExact) maxOf(minBuf, sampleRate * 4 * 40 / 1000) else minBuf
+            val bufSize = minBuf * 2
 
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
@@ -396,10 +395,10 @@ class PcSpeakerPlayer(
 
     fun enqueueFrame(pcm: ByteArray) {
         if (!active.get()) return
-        // Bounded queue: 2 packets in Low Latency (20ms ceiling), 4 packets in Dolby Studio (40ms ceiling)
-        val maxQueue = if (exactQuality) 4 else 2
+        // Bounded queue: 6 packets in Low Latency (~60ms ceiling), 10 packets in Dolby Studio (~100ms ceiling)
+        val maxQueue = if (exactQuality) 10 else 6
         while (packetQueue.size >= maxQueue) {
-            packetQueue.poll() // Discard stale frames to permanently eliminate latency creep!
+            packetQueue.poll() // Discard oldest only when network backs up, preventing underflow and cracking!
         }
         packetQueue.offer(pcm)
     }

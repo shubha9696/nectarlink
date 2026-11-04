@@ -40,7 +40,7 @@ class SoundCapture(
     @Volatile private var elevatedSocket: Socket? = null
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var localPlayerTrack: AudioTrack? = null
-    private val localQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>(2)
+    private val localQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>(8)
     @Volatile private var localRunning = false
     private var localThread: Thread? = null
     private var thread: Thread? = null
@@ -77,15 +77,17 @@ class SoundCapture(
                     it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
                 }
 
-                // CRITICAL FIX: Use USAGE_ALARM to strictly bypass Android Audio Policy's REMOTE_SUBMIX routing.
-                // If USAGE_MEDIA is used, Android routes localPlayerTrack right back into REMOTE_SUBMIX, creating
-                // an infinite digital feedback loop (metallic beep tone and loud clipping/cracking).
-                // USAGE_ALARM plays directly to the physical speaker with full 20Hz-20kHz fidelity and is never captured by REMOTE_SUBMIX!
+                // High-fidelity media playback with ALLOW_CAPTURE_BY_NONE to prevent feedback
                 val track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ALARM)
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
                             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .apply {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
+                                }
+                            }
                             .build()
                     )
                     .setAudioFormat(
@@ -105,8 +107,8 @@ class SoundCapture(
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     runCatching {
-                        val lowFrames = (RATE * 8 / 1000).coerceAtLeast(192)
-                        track.setBufferSizeInFrames(minOf(track.bufferCapacityInFrames, lowFrames))
+                        val minFrames = minBuf / 4
+                        track.setBufferSizeInFrames(minOf(track.bufferCapacityInFrames, minFrames))
                     }
                 }
 
@@ -148,8 +150,8 @@ class SoundCapture(
         // Previously, the shared packet buffer was passed without copyOf(), causing the capture thread
         // to overwrite bytes while the playback thread was reading them, resulting in massive sample tearing and cracking!
         val copy = packet.copyOf()
-        while (localQueue.size >= 2) {
-            localQueue.poll() // Bounded to 2 packets to eliminate latency drift
+        while (localQueue.size >= 8) {
+            localQueue.poll() // Bounded to 8 packets (~80ms) to eliminate latency drift while preventing underflow
         }
         localQueue.offer(copy)
 

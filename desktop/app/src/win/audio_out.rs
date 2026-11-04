@@ -31,12 +31,12 @@ use windows::Win32::{
 };
 
 /// How much sound is gathered before playing (and again after a stall).
-const START_MS: u32 = 0; // Play immediately upon arrival for true 0 ms latency!
+const START_MS: u32 = 10;
 /// More than this waiting, and the oldest is dropped down to [`TRIM_TO_MS`].
-const MOST_MS: u32 = 18;
-const TRIM_TO_MS: u32 = 6;
+const MOST_MS: u32 = 50;
+const TRIM_TO_MS: u32 = 20;
 /// The device's buffer.
-const DEVICE_BUFFER: Duration = Duration::from_millis(5);
+const DEVICE_BUFFER: Duration = Duration::from_millis(10);
 
 #[derive(Debug)]
 struct PacketQueue {
@@ -47,7 +47,7 @@ struct PacketQueue {
 impl PacketQueue {
     fn new() -> Self {
         Self {
-            packets: Mutex::new(VecDeque::with_capacity(16)),
+            packets: Mutex::new(VecDeque::with_capacity(32)),
             closed: AtomicBool::new(false),
         }
     }
@@ -57,9 +57,9 @@ impl PacketQueue {
             return;
         }
         let mut q = self.packets.lock().unwrap_or_else(|e| e.into_inner());
-        // Strict real-time queue: max 2 packets (~20ms).
-        // Drops oldest packet when full to permanently eliminate latency drift over time!
-        if q.len() >= 2 {
+        // Bounded real-time queue: max 8 packets (~80ms).
+        // Drops oldest packet only when full to permanently eliminate latency drift while preventing underflow!
+        if q.len() >= 8 {
             q.pop_front();
         }
         q.push_back(data);
