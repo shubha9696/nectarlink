@@ -177,9 +177,7 @@ class MirrorConsentActivity : ComponentActivity() {
             return
         }
 
-        val wantsSound = (asked.audio || asked.soundOnly) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
-        if (wantsSound) sound.launch(Manifest.permission.RECORD_AUDIO) else askForScreen()
+        askForScreen()
     }
 
     private fun askForScreen() {

@@ -114,7 +114,7 @@ class MirrorService : Service() {
             }
         }
 
-        if (isElevated || (soundOnly && consent == null)) {
+        if (isElevated) {
             pcId = pc
             current = this
             _session.value = MirrorSession(

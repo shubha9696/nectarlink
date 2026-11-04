@@ -142,7 +142,9 @@ internal class ScreenEncoder(
             }
             if (keyframeWanted) {
                 keyframeWanted = false
-                codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) })
+                runCatching {
+                    codec.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) })
+                }
             }
             val index = codec.dequeueOutputBuffer(info, WAIT_US)
             if (index < 0) continue
@@ -182,25 +184,29 @@ internal class ScreenEncoder(
 
     private fun createEncoder(name: String, size: Size): Encoder {
         val mime = mimeForCodec(name)
-        val format = MediaFormat.createVideoFormat(mime, size.width, size.height).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-            setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
-            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
-            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
-            setInteger(MediaFormat.KEY_PRIORITY, 0)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setInteger(MediaFormat.KEY_LATENCY, 1)
-            // What the PC assumes when it turns the picture into RGB.
-            setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT709)
-            setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_LIMITED)
-            setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_SDR_VIDEO)
-        }
         val codec = MediaCodec.createEncoderByType(mime)
         var surface: Surface? = null
         try {
-            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            val format = MediaFormat.createVideoFormat(mime, size.width, size.height).apply {
+                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+                setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+                setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+                setInteger(MediaFormat.KEY_PRIORITY, 0)
+            }
+            try {
+                codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            } catch (cfgErr: Exception) {
+                Log.w(TAG, "Standard format configuration failed, retrying basic format", cfgErr)
+                val basicFormat = MediaFormat.createVideoFormat(mime, size.width, size.height).apply {
+                    setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+                    setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+                    setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+                    setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+                }
+                codec.configure(basicFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            }
             surface = codec.createInputSurface()
             codec.start()
             return Encoder(name, codec, surface)

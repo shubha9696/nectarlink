@@ -7,7 +7,7 @@ import android.media.AudioTrack
 import android.os.Build
 import android.os.Process
 import android.util.Log
-import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,16 +16,18 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Plays live PCM-16LE audio streamed from PC loopback (`pc.audio.relay`).
- * Uses the proven, crackle-free bounded-queue architecture matching SoundCapture:
+ * Uses a smooth, crackle-free jitter buffer matching the PC's audio_out architecture:
  *
- * - Direct native AudioTrack in WRITE_BLOCKING mode clocked by the hardware audio DAC.
- * - Bounded queue (max 8 packets, ~80ms) drops oldest on congestion, eliminating latency drift.
- * - Bit-perfect 48kHz lossless stereo output without DSP artifacts or buffer underflows.
+ * - Pre-buffers 40ms in Exact/Studio mode (20ms in 0ms mode) before AudioTrack playout,
+ *   absorbing network jitter without buffer underruns.
+ * - When Wi-Fi congestion creates a backlog, trims excess packets and applies a 2ms
+ *   smooth fade-in ramp to eliminate DC offsets, pops, and clicks completely.
+ * - Native AudioTrack in WRITE_BLOCKING mode clocked by hardware DAC.
  */
 class PcSpeakerPlayer(
     private val activity: ActivityWindow = ActivityWindow(ACTIVE_WINDOW_MS),
 ) {
-    private val queue = ArrayBlockingQueue<ByteArray>(MAX_QUEUED_PACKETS)
+    private val queue = LinkedBlockingDeque<ByteArray>(MAX_QUEUED_PACKETS)
     private val workerRunning = AtomicBoolean(false)
     private val watchdogRunning = AtomicBoolean(false)
     @Volatile private var watchdogThread: Thread? = null
@@ -36,6 +38,7 @@ class PcSpeakerPlayer(
     @Volatile private var stopRequested = false
     @Volatile private var lastSampleRate = 48_000
     @Volatile private var lastChannels = 2
+    @Volatile private var needsFadeIn = false
 
     fun playFrame(sampleRate: Int, channels: Int, pcm: ByteArray) {
         if (pcm.isEmpty() || sampleRate <= 0 || channels <= 0) return
@@ -50,11 +53,19 @@ class PcSpeakerPlayer(
         lastSampleRate = safeRate
         lastChannels = safeChannels
 
-        // Keep queue bounded: if we exceed MAX_QUEUED_PACKETS, drop oldest to avoid latency buildup
-        while (queue.size >= MAX_QUEUED_PACKETS - 2) {
-            queue.poll()
+        val exact = exactQuality
+        val maxPackets = if (exact) MAX_PACKETS_EXACT else MAX_PACKETS_LOW_LATENCY
+        val trimTarget = if (exact) TRIM_TARGET_EXACT else TRIM_TARGET_LOW_LATENCY
+
+        synchronized(queue) {
+            if (queue.size >= maxPackets) {
+                while (queue.size > trimTarget) {
+                    queue.pollFirst()
+                }
+                needsFadeIn = true
+            }
+            queue.offerLast(pcm)
         }
-        queue.offer(pcm)
 
         stopRequested = false
         if (workerRunning.compareAndSet(false, true)) {
@@ -69,7 +80,7 @@ class PcSpeakerPlayer(
         activity.reset()
         _playing.value = false
         stopRequested = true
-        queue.clear()
+        synchronized(queue) { queue.clear() }
         watchdogThread?.interrupt()
     }
 
@@ -90,7 +101,7 @@ class PcSpeakerPlayer(
                 if (!activity.isActive()) {
                     _playing.value = false
                     stopRequested = true
-                    queue.clear()
+                    synchronized(queue) { queue.clear() }
                     break
                 }
             }
@@ -108,6 +119,7 @@ class PcSpeakerPlayer(
         var currentChannels = 0
         var currentExact = exactQuality
         var consecutiveEmptyPolls = 0
+        var waitingForPrebuffer = true
 
         try {
             while (!stopRequested) {
@@ -128,20 +140,50 @@ class PcSpeakerPlayer(
                     currentChannels = channels
                     currentExact = exact
                     consecutiveEmptyPolls = 0
+                    waitingForPrebuffer = true
                 }
 
                 val activeTrack = track ?: break
 
-                val packet = queue.poll(20, TimeUnit.MILLISECONDS)
+                val prebufferTarget = if (exact) PREBUFFER_PACKETS_EXACT else PREBUFFER_PACKETS_LOW_LATENCY
+
+                if (waitingForPrebuffer) {
+                    val currentCount = synchronized(queue) { queue.size }
+                    if (currentCount < prebufferTarget) {
+                        try {
+                            Thread.sleep(5)
+                        } catch (_: InterruptedException) {
+                            break
+                        }
+                        consecutiveEmptyPolls++
+                        if (consecutiveEmptyPolls > 200 && !activity.isActive()) {
+                            break
+                        }
+                        continue
+                    }
+                    waitingForPrebuffer = false
+                    consecutiveEmptyPolls = 0
+                }
+
+                val packet = synchronized(queue) { queue.pollFirst() }
                 if (packet != null && packet.isNotEmpty()) {
                     consecutiveEmptyPolls = 0
-                    activeTrack.write(packet, 0, packet.size, AudioTrack.WRITE_BLOCKING)
+
+                    if (needsFadeIn) {
+                        needsFadeIn = false
+                        applyFadeIn(packet, channels)
+                    }
+
                     if (activeTrack.playState != AudioTrack.PLAYSTATE_PLAYING) {
                         runCatching { activeTrack.play() }
                     }
+                    activeTrack.write(packet, 0, packet.size, AudioTrack.WRITE_BLOCKING)
                 } else {
                     consecutiveEmptyPolls++
-                    if (consecutiveEmptyPolls > 50) { // ~1 second of silence
+                    // Queue starved: re-enable pre-buffering to avoid repetitive DAC underruns
+                    waitingForPrebuffer = true
+
+                    if (consecutiveEmptyPolls > 40) { // ~400ms of silence
                         if (activeTrack.playState == AudioTrack.PLAYSTATE_PLAYING) {
                             runCatching {
                                 activeTrack.pause()
@@ -151,6 +193,11 @@ class PcSpeakerPlayer(
                         if (consecutiveEmptyPolls > 150 && !activity.isActive()) {
                             break // Exit thread on sustained inactivity
                         }
+                    }
+                    try {
+                        Thread.sleep(5)
+                    } catch (_: InterruptedException) {
+                        break
                     }
                 }
             }
@@ -199,7 +246,7 @@ class PcSpeakerPlayer(
             }
 
             // Allocate at least 4x minimum buffer size for flawless, glitch-free hardware streaming
-            val bufferSize = maxOf(minBuf * 3, sampleRate * (channels * 2) * 120 / 1000)
+            val bufferSize = maxOf(minBuf * 4, sampleRate * (channels * 2) * 120 / 1000)
 
             AudioTrack.Builder()
                 .setAudioAttributes(attrBuilder.build())
@@ -224,11 +271,41 @@ class PcSpeakerPlayer(
         runCatching { track.release() }
     }
 
+    private fun applyFadeIn(pcm: ByteArray, channels: Int) {
+        val frameBytes = channels * 2
+        val rampFrames = minOf(96, pcm.size / frameBytes) // 2 ms smooth ramp at 48kHz
+        if (rampFrames <= 0) return
+        for (i in 0 until rampFrames) {
+            val factor = i.toFloat() / rampFrames.toFloat()
+            val offset = i * frameBytes
+            for (ch in 0 until channels) {
+                val bytePos = offset + ch * 2
+                if (bytePos + 1 < pcm.size) {
+                    val sample = (pcm[bytePos].toInt() and 0xFF) or (pcm[bytePos + 1].toInt() shl 8)
+                    val s16 = sample.toShort()
+                    val faded = (s16 * factor).toInt().coerceIn(-32768, 32767).toShort()
+                    pcm[bytePos] = (faded.toInt() and 0xFF).toByte()
+                    pcm[bytePos + 1] = ((faded.toInt() shr 8) and 0xFF).toByte()
+                }
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "PcSpeakerPlayer"
         const val ACTIVE_WINDOW_MS = 3_000L
         private const val WATCHDOG_CHECK_INTERVAL_MS = 1_000L
-        private const val MAX_QUEUED_PACKETS = 24 // ~240ms buffer window: completely prevents jitter underruns and crackles
+        private const val MAX_QUEUED_PACKETS = 32
+
+        // Exact / Studio Quality: 40ms pre-buffering, 120ms max buffer, trimmed to 40ms
+        private const val PREBUFFER_PACKETS_EXACT = 4
+        private const val MAX_PACKETS_EXACT = 12
+        private const val TRIM_TARGET_EXACT = 4
+
+        // Ultra-low Latency (0 ms): 20ms pre-buffering, 60ms max buffer, trimmed to 20ms
+        private const val PREBUFFER_PACKETS_LOW_LATENCY = 2
+        private const val MAX_PACKETS_LOW_LATENCY = 6
+        private const val TRIM_TARGET_LOW_LATENCY = 2
 
         private val trackRecreateRequested = AtomicBoolean(false)
 

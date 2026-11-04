@@ -59,9 +59,15 @@ class SoundCapture(
             try {
                 val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
                 val track = AudioTrack.Builder()
-                    .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
+                            .build()
+                    )
                     .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
-                    .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
+                    .setBufferSizeInBytes(maxOf(minBuf * 2, PACKET_BYTES * 4))
                     .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                     .build()
                 localPlayerTrack = track
@@ -176,32 +182,7 @@ class SoundCapture(
             return
         }
 
-        val ctx = context
-        if (ctx != null && ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            val record = runCatching {
-                val format = AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(RATE)
-                    .setChannelMask(AudioFormat.CHANNEL_IN_STEREO)
-                    .build()
-                val minimum = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT)
-                AudioRecord.Builder()
-                    .setAudioSource(android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION)
-                    .setAudioFormat(format)
-                    .setBufferSizeInBytes(maxOf(minimum, PACKET_BYTES * 8))
-                    .build()
-            }.getOrNull()
-
-            if (record != null && record.state == AudioRecord.STATE_INITIALIZED) {
-                running = true
-                thread = Thread({ runRecord(record) }, "sound-capture-mic").apply {
-                    priority = Thread.MAX_PRIORITY
-                    start()
-                }
-                return
-            }
-            record?.runCatching { release() }
-        }
+        // Never fall back to recording microphone: internal audio playback requires MediaProjection or Elevated.
 
         Log.w(TAG, "no sound capture available")
         activeCaptures.remove(this)
