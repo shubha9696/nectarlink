@@ -2396,18 +2396,7 @@ mod imp {
         let is_internet = node.paired_devices().ok().and_then(|devs| {
             devs.into_iter().find(|d| d.id == peer).map(|d| match d.link {
                 nectarlink_core::LinkState::Online { path, rtt_ms } => {
-                    path == nectarlink_core::ConnectionPath::Relay
-                        || rtt_ms > 15
-                        || match path {
-                            nectarlink_core::ConnectionPath::Direct(addr) => {
-                                let ip = addr.ip();
-                                !ip.is_loopback() && match ip {
-                                    std::net::IpAddr::V4(v4) => !v4.is_private(),
-                                    std::net::IpAddr::V6(v6) => !v6.is_loopback(),
-                                }
-                            }
-                            _ => false,
-                        }
+                    path == nectarlink_core::ConnectionPath::Relay || rtt_ms > 15
                 }
                 _ => false,
             })
