@@ -300,7 +300,7 @@ mod imp {
         });
 
         let send_node = node.clone();
-        let send_task = core_host::spawn(async move {
+        core_host::spawn(async move {
             let stream_res = send_node.open_pc_audio_stream(peer).await;
             if let Ok(stream) = stream_res {
                 let _ = nectarlink_core::speaker::send_pc_audio_stream(stream, rx).await;
@@ -317,7 +317,6 @@ mod imp {
 
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         let _ = wasapi_thread.join();
-        send_task.abort();
         Ok(())
     }
 
