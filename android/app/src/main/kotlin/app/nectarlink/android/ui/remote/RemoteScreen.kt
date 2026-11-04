@@ -1229,7 +1229,7 @@ internal fun VoiceTypingBar(
 
     fun stopRecognition() {
         runCatching {
-            app.nectarlink.android.mic.MicService.stop(context, pcId, fromUser = true)
+            app.nectarlink.android.mic.MicService.stopFromUser(context)
         }
         val sr = recognizer
         if (sr != null) {
