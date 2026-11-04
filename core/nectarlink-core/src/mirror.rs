@@ -337,17 +337,27 @@ pub(crate) async fn receive_pc_audio(
     mut recv: RecvStream,
 ) {
     let _ = send.finish();
-    while let Ok(Some(packet)) = read_video_packet(&mut recv).await {
-        if packet.data.len() > 5 {
-            let sample_rate = u32::from_le_bytes([packet.data[0], packet.data[1], packet.data[2], packet.data[3]]);
-            let channels = packet.data[4];
-            let pcm = packet.data[5..].to_vec();
-            shared.emit(NodeEvent::PcAudioFrame {
-                device: peer,
-                sample_rate,
-                channels,
-                pcm,
-            });
+    // Check if this stream uses the dedicated speaker protocol (Option 1)
+    let mut header = [0u8; 6];
+    if recv.read_exact(&mut header).await.is_ok() {
+        if header[0] == 0x80 && header[1] == 0xBB {
+            let sample_rate = 48_000u32;
+            let channels = 2u8;
+            let mut len_buf = [0u8; 2];
+            while recv.read_exact(&mut len_buf).await.is_ok() {
+                let frame_len = u16::from_le_bytes(len_buf) as usize;
+                let mut pcm = vec![0u8; frame_len];
+                if recv.read_exact(&mut pcm).await.is_err() {
+                    break;
+                }
+                shared.emit(NodeEvent::PcAudioFrame {
+                    device: peer,
+                    sample_rate,
+                    channels,
+                    pcm,
+                });
+            }
+            return;
         }
     }
 }

@@ -294,318 +294,35 @@ mod imp {
             std::thread::sleep(Duration::from_millis(500));
             return Ok(());
         };
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let studio_quality = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(is_exact_quality()));
+        let (tx, rx) = tokio::sync::mpsc::channel::<bytes::Bytes>(64);
 
-        let monitor = resolve_default_monitor_source();
-        let rate: u32 = 48_000;
-        let channels: usize = 2;
-
-        let mut child = Command::new("parec")
-            .args([
-                "--raw",
-                "--format=float32le",
-                "--rate=48000",
-                "--channels=2",
-                "--latency-msec=10",
-                &format!("--device={monitor}"),
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .or_else(|_| {
-                let pw_args = pw_record_loopback_args(&monitor);
-                Command::new("pw-record").args(&pw_args).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()
-            })
-            .map_err(|e| format!("failed to spawn parec/pw-record: {e}"))?;
-
-        let Some(mut stdout) = child.stdout.take() else {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("loopback recorder stdout unavailable".into());
-        };
-
-        let mut enhancer = AudioEncoder::new(rate);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(128);
-        let send_node = node.clone();
-        core_host::spawn(async move {
-            while let Some((r, ch, pcm)) = rx.recv().await {
-                for chunk in pcm.chunks(1920) {
-                    if send_node.send_pc_audio_pcm(&peer, r, ch, chunk.to_vec()).await.is_err() {
-                        return;
-                    }
-                }
-            }
+        let stop_clone = stop.clone();
+        let studio_clone = studio_quality.clone();
+        let wasapi_thread = std::thread::spawn(move || {
+            let _ = crate::win::audio::run_wasapi_loopback(tx, stop_clone, studio_clone);
         });
 
-        // 480 stereo f32 frames = 10 ms = 3840 bytes.
-        let frames_per_read = 480usize;
-        let mut raw_buf = vec![0u8; frames_per_read * channels * 4];
-        let mut floats = vec![0.0_f32; frames_per_read * channels];
-        let mut silence_tail_packets: u32 = 0;
+        let send_node = node.clone();
+        let send_task = core_host::spawn(async move {
+            let stream_res = send_node.open_pc_audio_stream(peer).await;
+            if let Ok(stream) = stream_res {
+                let _ = nectarlink_core::speaker::send_pc_audio_stream(stream, rx).await;
+            }
+        });
 
         while is_enabled() {
             if target() != wanted && target().is_some_and(|t| peers.contains(&t)) {
                 break;
             }
-            if stdout.read_exact(&mut raw_buf).is_err() {
-                break;
-            }
-            for (dst, &chunk) in floats.iter_mut().zip(raw_buf.as_chunks::<4>().0) {
-                *dst = f32::from_le_bytes(chunk);
-            }
-            let has_signal = floats.iter().any(|&s| s.is_finite() && s.abs() > 1e-5);
-            let pcm_bytes = if has_signal {
-                silence_tail_packets = 50;
-                enhancer.encode_stereo_f32(&floats, channels, is_exact_quality())
-            } else if silence_tail_packets > 0 {
-                silence_tail_packets -= 1;
-                vec![0u8; frames_per_read * 4]
-            } else {
-                Vec::new()
-            };
-
-            if !pcm_bytes.is_empty()
-                && matches!(
-                    tx.try_send((rate, 2, pcm_bytes)),
-                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_))
-                )
-            {
-                break;
-            }
+            studio_quality.store(is_exact_quality(), std::sync::atomic::Ordering::Relaxed);
+            std::thread::sleep(Duration::from_millis(100));
         }
 
-        let _ = child.kill();
-        let _ = child.wait();
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    unsafe extern "system" {
-        fn timeBeginPeriod(u_period: u32) -> u32;
-        fn timeEndPeriod(u_period: u32) -> u32;
-    }
-
-    #[cfg(windows)]
-    fn run_loopback_worker() {
-        // SAFETY: Initialize COM and elevate thread priority for low-latency audio capture.
-        unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
-            let _ = timeBeginPeriod(1);
-        }
-
-        while is_enabled() {
-            if let Err(e) = capture_and_stream_once() {
-                tracing::debug!(error = %e, "PC audio loopback stream cycle ended");
-                std::thread::sleep(Duration::from_millis(500));
-            }
-        }
-
-        unsafe {
-            let _ = timeEndPeriod(1);
-        }
-    }
-
-    #[cfg(windows)]
-    fn capture_and_stream_once() -> Result<(), String> {
-        let node = core_host::node().ok_or_else(|| "core node not running".to_owned())?;
-        let peers: Vec<_> = node
-            .paired_devices()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|d| matches!(d.link, nectarlink_core::LinkState::Online { .. }))
-            .map(|d| d.id)
-            .collect();
-        let wanted = *TARGET.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(peer) = super::pick_target(wanted, &peers) else {
-            std::thread::sleep(Duration::from_millis(500));
-            return Ok(());
-        };
-
-        // SAFETY: WASAPI loopback initialization on the default render endpoint.
-        let (client, capture, rate, channels, bits_per_sample, is_float, capture_event, event_active) = unsafe {
-            let enumerator: IMMDeviceEnumerator =
-                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).map_err(|e| e.to_string())?;
-            let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole).map_err(|e| e.to_string())?;
-            let client: IAudioClient = device.Activate(CLSCTX_ALL, None).map_err(|e| e.to_string())?;
-            let mix_ptr: *mut WAVEFORMATEX = client.GetMixFormat().map_err(|e| e.to_string())?;
-            if mix_ptr.is_null() {
-                return Err("GetMixFormat returned null".into());
-            }
-            let mix = *mix_ptr;
-            let rate = mix.nSamplesPerSec.clamp(8_000, 96_000);
-            let channels = mix.nChannels.max(1) as usize;
-            let bits = mix.wBitsPerSample;
-            let mut is_float = mix.wFormatTag == 3; // WAVE_FORMAT_IEEE_FLOAT
-            if mix.wFormatTag == 0xFFFE && mix.cbSize >= 22 { // WAVE_FORMAT_EXTENSIBLE
-                let ext_ptr = mix_ptr as *const u8;
-                // SubFormat GUID is at offset 24
-                let subformat_bytes = std::slice::from_raw_parts(ext_ptr.add(24), 16);
-                // KSDATAFORMAT_SUBTYPE_IEEE_FLOAT: {00000003-0000-0010-8000-00aa00389b71}
-                let float_subformat = [3u8, 0, 0, 0, 0, 0, 16, 0, 128, 0, 0, 170, 0, 56, 155, 113];
-                if subformat_bytes == float_subformat {
-                    is_float = true;
-                }
-            }
-            // Low-latency event-driven loopback (15 ms buffer = 150_000 in 100-ns units).
-            let event = CreateEventW(None, false, false, None).map_err(|e| e.to_string())?;
-            let init_res = client.Initialize(
-                AUDCLNT_SHAREMODE_SHARED,
-                AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-                150_000,
-                0,
-                mix_ptr,
-                None,
-            );
-            let event_active = if init_res.is_ok() && client.SetEventHandle(event).is_ok() {
-                true
-            } else {
-                // Fallback to polling mode
-                let _ = client.Initialize(
-                    AUDCLNT_SHAREMODE_SHARED,
-                    AUDCLNT_STREAMFLAGS_LOOPBACK,
-                    150_000,
-                    0,
-                    mix_ptr,
-                    None,
-                );
-                false
-            };
-            CoTaskMemFree(Some(mix_ptr.cast()));
-            let capture: IAudioCaptureClient = client.GetService().map_err(|e| e.to_string())?;
-            client.Start().map_err(|e| e.to_string())?;
-            tracing::info!(rate, channels, bits, is_float, event_active, "WASAPI loopback capture initialized");
-            (client, capture, rate, channels, bits, is_float, event, event_active)
-        };
-
-        let mut enhancer = AudioEncoder::new(rate);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(128);
-        let send_node = node.clone();
-        core_host::spawn(async move {
-            let mut stream_opt: Option<iroh::endpoint::SendStream> = None;
-            let mut last_exact = is_exact_quality();
-            let mut time_us = 0u64;
-
-            while let Some((r, ch, pcm)) = rx.recv().await {
-                let exact = is_exact_quality();
-                if exact != last_exact {
-                    last_exact = exact;
-                    stream_opt = None; // Switch transport mode cleanly
-                }
-
-                if exact {
-                    // Mode 1: Studio / Dolby Audio Quality:
-                    // Dedicated QUIC stream matching Phone-to-PC mirror sound protocol
-                    if stream_opt.is_none() {
-                        stream_opt = send_node.open_pc_audio_stream(peer).await.ok();
-                    }
-
-                    if let Some(ref mut st) = stream_opt {
-                        // Standard 10ms (1920 bytes) framed packets
-                        for chunk in pcm.chunks(1920) {
-                            time_us = time_us.wrapping_add(10_000);
-                            let mut payload = Vec::with_capacity(5 + chunk.len());
-                            payload.extend_from_slice(&r.to_le_bytes());
-                            payload.push(ch);
-                            payload.extend_from_slice(chunk);
-                            if let Ok(hdr) = nectarlink_protocol::video_packet_header(
-                                nectarlink_protocol::PacketKind::Frame,
-                                time_us,
-                                payload.len(),
-                            ) {
-                                if st.write_all(&hdr).await.is_err() || st.write_all(&payload).await.is_err() {
-                                    stream_opt = None;
-                                    break;
-                                }
-                            }
-                        }
-                        continue;
-                    }
-                }
-
-                // Mode 2: Ultra-low Latency (0 ms):
-                // 5ms sub-MTU packets (960 bytes) sent directly via zero-HOL native QUIC datagrams
-                for chunk in pcm.chunks(960) {
-                    if send_node.send_pc_audio_pcm(&peer, r, ch, chunk.to_vec()).await.is_err() {
-                        return;
-                    }
-                }
-            }
-        });
-
-        // Keep sending zero-filled PCM for ~500 ms after audible audio stops so brief
-        // pauses between words or beats never starve the phone's AudioTrack ringbuffer.
-        let mut silence_tail_packets: u32 = 0;
-
-        'capture: while is_enabled() {
-            if event_active {
-                let _ = unsafe { WaitForSingleObject(capture_event, 20) };
-            } else {
-                std::thread::sleep(Duration::from_millis(3));
-            }
-            // Another phone asked for the sound (it watches the PC's playback):
-            // start over for that one.
-            if target() != wanted && target().is_some_and(|t| peers.contains(&t)) {
-                break 'capture;
-            }
-            // SAFETY: Drain available capture packets from `IAudioCaptureClient`.
-            unsafe {
-                loop {
-                    let Ok(packet_frames) = capture.GetNextPacketSize() else { break };
-                    if packet_frames == 0 {
-                        break;
-                    }
-                    let mut data_ptr: *mut u8 = std::ptr::null_mut();
-                    let mut frames_to_read: u32 = 0;
-                    let mut flags: u32 = 0;
-                    if capture.GetBuffer(&mut data_ptr, &mut frames_to_read, &mut flags, None, None).is_err()
-                    {
-                        break;
-                    }
-                    let silent = (flags & (AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)) != 0 || data_ptr.is_null();
-                    let frames = frames_to_read as usize;
-                    let pcm_bytes = if silent {
-                        if silence_tail_packets > 0 {
-                            silence_tail_packets = silence_tail_packets.saturating_sub(1);
-                            vec![0u8; frames * 4]
-                        } else {
-                            Vec::new()
-                        }
-                    } else {
-                        silence_tail_packets = 200; // keep ~1 second of continuity during brief pauses
-                        if is_float && bits_per_sample == 32 {
-                            let floats = std::slice::from_raw_parts(data_ptr.cast::<f32>(), frames * channels);
-                            enhancer.encode_stereo_f32(floats, channels, is_exact_quality())
-                        } else if bits_per_sample == 32 {
-                            let i32s = std::slice::from_raw_parts(data_ptr.cast::<i32>(), frames * channels);
-                            enhancer.encode_stereo_i32(i32s, channels, is_exact_quality())
-                        } else if bits_per_sample == 24 {
-                            let raw_bytes = std::slice::from_raw_parts(data_ptr, frames * channels * 3);
-                            enhancer.encode_stereo_i24(raw_bytes, channels, is_exact_quality())
-                        } else if bits_per_sample == 16 {
-                            let i16s = std::slice::from_raw_parts(data_ptr.cast::<i16>(), frames * channels);
-                            enhancer.encode_stereo_i16(i16s, channels, is_exact_quality())
-                        } else {
-                            Vec::new()
-                        }
-                    };
-                    let _ = capture.ReleaseBuffer(frames_to_read);
-
-                    if !pcm_bytes.is_empty()
-                        && matches!(
-                            tx.try_send((rate, 2, pcm_bytes)),
-                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_))
-                        )
-                    {
-                        break 'capture;
-                    }
-                }
-            }
-        }
-
-        // SAFETY: Stop the WASAPI client before dropping.
-        unsafe {
-            let _ = client.Stop();
-        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = wasapi_thread.join();
+        send_task.abort();
         Ok(())
     }
 

@@ -303,6 +303,126 @@ fn watch_thread(changed: fn()) {
     }
 }
 
+pub const SAMPLE_RATE: u32 = 48_000;
+pub const CHANNELS: u16 = 2;
+pub const BITS_PER_SAMPLE: u16 = 16;
+pub const BYTES_PER_FRAME: usize = 4;
+pub const CHUNK_BYTES: usize = 3_840;
+
+pub struct StudioDsp {
+    lp_l: f32,
+    lp_r: f32,
+}
+
+impl StudioDsp {
+    pub fn new() -> Self {
+        Self { lp_l: 0.0, lp_r: 0.0 }
+    }
+
+    #[inline]
+    pub fn process_frame(&mut self, buf: &mut [u8], enabled: bool) {
+        if !enabled {
+            return;
+        }
+        const ALPHA: f32 = 0.015;
+        const BASS_GAIN: f32 = 0.45;
+        const PRE_ATTEN: f32 = 0.65;
+
+        for frame in buf.chunks_exact_mut(4) {
+            let l_in = i16::from_le_bytes([frame[0], frame[1]]) as f32 / 32768.0;
+            let r_in = i16::from_le_bytes([frame[2], frame[3]]) as f32 / 32768.0;
+
+            self.lp_l += ALPHA * (l_in - self.lp_l);
+            self.lp_r += ALPHA * (r_in - self.lp_r);
+
+            let l_out = ((l_in * PRE_ATTEN) + (self.lp_l * BASS_GAIN)).tanh();
+            let r_out = ((r_in * PRE_ATTEN) + (self.lp_r * BASS_GAIN)).tanh();
+
+            let l_i16 = (l_out.clamp(-1.0, 1.0) * 32767.0) as i16;
+            let r_i16 = (r_out.clamp(-1.0, 1.0) * 32767.0) as i16;
+
+            frame[0..2].copy_from_slice(&l_i16.to_le_bytes());
+            frame[2..4].copy_from_slice(&r_i16.to_le_bytes());
+        }
+    }
+}
+
+pub fn run_wasapi_loopback(
+    tx: tokio::sync::mpsc::Sender<bytes::Bytes>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    studio_quality: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> windows::core::Result<()> {
+    use std::sync::atomic::Ordering;
+    use windows::Win32::Media::Audio::*;
+    use windows::Win32::System::Com::*;
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+        let endpoint = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+        let client: IAudioClient = endpoint.Activate(CLSCTX_ALL, None)?;
+
+        let wfx = WAVEFORMATEX {
+            wFormatTag: WAVE_FORMAT_PCM as u16,
+            nChannels: CHANNELS,
+            nSamplesPerSec: SAMPLE_RATE,
+            nAvgBytesPerSec: SAMPLE_RATE * (BYTES_PER_FRAME as u32),
+            nBlockAlign: BYTES_PER_FRAME as u16,
+            wBitsPerSample: BITS_PER_SAMPLE,
+            cbSize: 0,
+        };
+
+        let flags = AUDCLNT_STREAMFLAGS_LOOPBACK
+            | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
+            | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
+
+        client.Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 1_000_000, 0, &wfx, None)?;
+        let capture: IAudioCaptureClient = client.GetService()?;
+        client.Start()?;
+
+        let mut staging: Vec<u8> = Vec::with_capacity(CHUNK_BYTES * 2);
+        let mut dsp = StudioDsp::new();
+
+        while !stop.load(Ordering::Relaxed) {
+            let mut packet_frames = capture.GetNextPacketSize()?;
+            if packet_frames == 0 {
+                std::thread::sleep(std::time::Duration::from_millis(4));
+                continue;
+            }
+
+            while packet_frames > 0 {
+                let mut data_ptr = std::ptr::null_mut();
+                let mut num_frames = 0u32;
+                let mut dw_flags = 0u32;
+
+                capture.GetBuffer(&mut data_ptr, &mut num_frames, &mut dw_flags, None, None)?;
+                let byte_len = (num_frames as usize) * BYTES_PER_FRAME;
+
+                if (dw_flags & (AUDCLNT_BUFFERFLAGS_SILENT.0 as u32)) != 0 || data_ptr.is_null() {
+                    staging.extend(std::iter::repeat(0u8).take(byte_len));
+                } else {
+                    let raw = std::slice::from_raw_parts(data_ptr as *const u8, byte_len);
+                    staging.extend_from_slice(raw);
+                }
+
+                capture.ReleaseBuffer(num_frames)?;
+
+                while staging.len() >= CHUNK_BYTES {
+                    let mut chunk: Vec<u8> = staging.drain(..CHUNK_BYTES).collect();
+                    dsp.process_frame(&mut chunk, studio_quality.load(Ordering::Relaxed));
+                    let _ = tx.try_send(bytes::Bytes::from(chunk));
+                }
+
+                packet_frames = capture.GetNextPacketSize()?;
+            }
+        }
+
+        client.Stop()?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
