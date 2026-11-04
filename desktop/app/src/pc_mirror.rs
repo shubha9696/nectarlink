@@ -1592,13 +1592,7 @@ mod imp {
                     SRCCOPY,
                 ).as_bool()
             };
-            if !ok {
-                // Wake display if monitor went into power-save/sleep mode
-                windows::Win32::UI::WindowsAndMessaging::mouse_event(
-                    windows::Win32::UI::WindowsAndMessaging::MOUSEEVENTF_MOVE,
-                    0, 0, 0, 0
-                );
-            }
+
 
             // Draw the mouse cursor at its scaled position so the phone user sees where they point.
             let mut ci = CURSORINFO {
@@ -2402,11 +2396,7 @@ mod imp {
         let is_internet = node.paired_devices().ok().and_then(|devs| {
             devs.into_iter().find(|d| d.id == peer).map(|d| match d.link {
                 nectarlink_core::LinkState::Online { path, rtt_ms } => {
-                    path == nectarlink_core::ConnectionPath::Relay
-                        || rtt_ms > 25
-                        || node.session(&peer).is_some_and(|s| {
-                            s.remote_ip_addrs().iter().any(|a| !nectarlink_core::is_lan_ip(a.ip()))
-                        })
+                    path == nectarlink_core::ConnectionPath::Relay || rtt_ms > 25
                 }
                 _ => false,
             })

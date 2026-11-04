@@ -36,7 +36,7 @@ mod tests {
 #[cfg(any(windows, target_os = "linux"))]
 mod imp {
 
-    #![allow(unsafe_code)]
+    #![allow(unsafe_code, unused_imports)]
 
     use std::{
         sync::atomic::{AtomicBool, Ordering},

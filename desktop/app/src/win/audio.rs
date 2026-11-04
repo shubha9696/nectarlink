@@ -350,7 +350,7 @@ impl StudioDsp {
 pub fn run_wasapi_loopback(
     tx: tokio::sync::mpsc::Sender<bytes::Bytes>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    studio_quality: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    _studio_quality: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> windows::core::Result<()> {
     use std::sync::atomic::Ordering;
     use windows::Win32::Media::Audio::*;
