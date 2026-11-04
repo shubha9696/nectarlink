@@ -1155,34 +1155,24 @@ internal fun VoiceTypingBar(
     }
 
     fun createBestRecognizer(): SpeechRecognizer? {
-        // 1. On Android 13+ (API 33+), prefer on-device speech recognizer if available
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            runCatching {
-                if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
-                    val onDevice = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-                    if (onDevice != null) return onDevice
-                }
-            }
-        }
-
-        // 2. Query available RecognitionService providers to prefer Google Speech Services
         val pm = context.packageManager
         val resolveInfos = runCatching {
             pm.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
         }.getOrDefault(emptyList())
 
-        val googleService = resolveInfos.firstOrNull {
+        // Prefer Google Speech Recognition Service or primary system provider
+        val preferredService = resolveInfos.firstOrNull {
             val pkg = it.serviceInfo.packageName.lowercase()
             pkg.contains("googlequicksearchbox") || pkg == "com.google.android.tts" || pkg == "com.google.android.as"
-        }
+        } ?: resolveInfos.firstOrNull()
 
-        if (googleService != null) {
-            val comp = ComponentName(googleService.serviceInfo.packageName, googleService.serviceInfo.name)
+        if (preferredService != null) {
+            val comp = ComponentName(preferredService.serviceInfo.packageName, preferredService.serviceInfo.name)
             val sr = runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
             if (sr != null) return sr
         }
 
-        // 3. Fall back to system default SpeechRecognizer
+        // Fall back to default system SpeechRecognizer
         return runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
             ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
     }
@@ -1302,9 +1292,7 @@ internal fun VoiceTypingBar(
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            val localeTag = Locale.getDefault().toLanguageTag()
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
         }
 
         recognizer = sr
