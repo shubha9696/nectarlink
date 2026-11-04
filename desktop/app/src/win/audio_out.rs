@@ -31,12 +31,12 @@ use windows::Win32::{
 };
 
 /// How much sound is gathered before playing (and again after a stall).
-const START_MS: u32 = 25;
+const START_MS: u32 = 5;
 /// More than this waiting, and the oldest is dropped down to [`TRIM_TO_MS`].
-const MOST_MS: u32 = 120;
-const TRIM_TO_MS: u32 = 35;
+const MOST_MS: u32 = 25;
+const TRIM_TO_MS: u32 = 10;
 /// The device's buffer.
-const DEVICE_BUFFER: Duration = Duration::from_millis(10);
+const DEVICE_BUFFER: Duration = Duration::from_millis(5);
 
 #[derive(Debug)]
 struct PacketQueue {
@@ -58,7 +58,7 @@ impl PacketQueue {
         }
         let mut q = self.packets.lock().unwrap_or_else(|e| e.into_inner());
         // Bounded queue: max 24 packets (~240ms). Drop oldest to eliminate latency drift!
-        if q.len() >= 24 {
+        if q.len() >= 6 {
             q.pop_front();
         }
         q.push_back(data);
@@ -166,7 +166,7 @@ impl Jitter {
             let drop = (self.bytes.len() - keep) / self.frame * self.frame;
             self.bytes.drain(..drop);
             self.trimmed += drop;
-            let fade_frames = (self.per_ms * 2).min(self.bytes.len() / self.frame);
+            let fade_frames = (self.per_ms * 1 / self.frame).min(self.bytes.len() / self.frame);
             for f in 0..fade_frames {
                 let factor = f as f32 / fade_frames as f32;
                 for ch in 0..(self.frame / 2) {
@@ -202,7 +202,7 @@ impl Jitter {
 
                 // Smoothly fade in if resuming from silence/underrun to eliminate initial click/crack
                 if self.last_silent {
-                    let fade_frames = (self.per_ms * 2 / self.frame).min(n / self.frame);
+                    let fade_frames = (self.per_ms * 1 / self.frame).min(n / self.frame);
                     for f in 0..fade_frames {
                         let factor = f as f32 / fade_frames as f32;
                         for ch in 0..(self.frame / 2) {
@@ -221,7 +221,7 @@ impl Jitter {
             if n < out.len() {
                 // Ran dry momentarily: fade out the tail before zeros to eliminate popping
                 if n > 0 {
-                    let fade_frames = (self.per_ms * 2 / self.frame).min(n / self.frame);
+                    let fade_frames = (self.per_ms * 1 / self.frame).min(n / self.frame);
                     let start_fade_byte = n - fade_frames * self.frame;
                     for f in 0..fade_frames {
                         let factor = 1.0 - (f as f32 / fade_frames as f32);

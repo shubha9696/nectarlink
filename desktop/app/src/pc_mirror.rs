@@ -2396,21 +2396,33 @@ mod imp {
         let is_internet = node.paired_devices().ok().and_then(|devs| {
             devs.into_iter().find(|d| d.id == peer).map(|d| match d.link {
                 nectarlink_core::LinkState::Online { path, rtt_ms } => {
-                    path == nectarlink_core::ConnectionPath::Relay || rtt_ms > 25
+                    path == nectarlink_core::ConnectionPath::Relay
+                        || rtt_ms > 15
+                        || match path {
+                            nectarlink_core::ConnectionPath::Direct(addr) => {
+                                let ip = addr.ip();
+                                !ip.is_loopback() && match ip {
+                                    std::net::IpAddr::V4(v4) => !v4.is_private(),
+                                    std::net::IpAddr::V6(v6) => !v6.is_loopback(),
+                                }
+                            }
+                            _ => false,
+                        }
                 }
                 _ => false,
             })
         }).unwrap_or(false);
 
-        let fps = if is_internet { options.fps.clamp(10, 30) } else { options.fps.clamp(10, 120) };
+        let max_size = if is_internet { options.max_size.min(960) } else { options.max_size };
+        let fps = if is_internet { options.fps.clamp(15, 30) } else { options.fps.clamp(10, 120) };
         let max_bitrate = if is_internet {
-            options.bitrate.clamp(150_000, 1_500_000)
+            options.bitrate.clamp(150_000, 1_200_000)
         } else {
             options.bitrate.clamp(400_000, 30_000_000)
         };
         let min_bitrate = if is_internet { 150_000 } else { MIN_BITRATE };
         let mut bitrate = if is_internet {
-            800_000.min(max_bitrate)
+            500_000.min(max_bitrate)
         } else {
             max_bitrate
         };
@@ -2492,7 +2504,7 @@ mod imp {
             if crate::win::input::sync_input_desktop() {
                 force_keyframe.store(true, Ordering::SeqCst);
                 let (src_w, src_h) = primary_screen_dimensions();
-                let dims = target_dimensions(src_w, src_h, options.max_size);
+                let dims = target_dimensions(src_w, src_h, max_size);
                 if stream_dims != Some(dims) {
                     stream_dims = Some(dims);
                     encoder = None;
@@ -2503,7 +2515,7 @@ mod imp {
                 Some(dims) => dims,
                 None => {
                     let (src_w, src_h) = primary_screen_dimensions();
-                    let dims = target_dimensions(src_w, src_h, options.max_size);
+                    let dims = target_dimensions(src_w, src_h, max_size);
                     stream_dims = Some(dims);
                     dims
                 }
@@ -2517,7 +2529,7 @@ mod imp {
             let need_reinit = encoder.is_none()
                 || (requested_kf
                     && !keyframe_in_place
-                    && last_reinit.elapsed() >= Duration::from_millis(1400));
+                    && last_reinit.elapsed() >= Duration::from_millis(if is_internet { 5000 } else { 1400 }));
 
             if need_reinit {
                 match new_pc_encoder_with_fallback(&mut codec, dst_w, dst_h, fps, bitrate) {
@@ -2571,7 +2583,7 @@ mod imp {
                                     stats.dropped += 1;
                                     last_drop = Some(Instant::now());
                                     // Rate limit keyframe generation to avoid congestion collapse on slow links
-                                    if last_keyframe_request.elapsed() >= Duration::from_millis(1500) {
+                                    if last_keyframe_request.elapsed() >= Duration::from_millis(if is_internet { 4000 } else { 1500 }) {
                                         force_keyframe.store(true, Ordering::SeqCst);
                                         last_keyframe_request = Instant::now();
                                     }

@@ -26,13 +26,16 @@ import kotlinx.coroutines.flow.asStateFlow
 class AudioJitterBuffer(
     private val sampleRate: Int = 48_000,
     private val channels: Int = 2,
+    startMs: Int = START_MS,
+    mostMs: Int = MOST_MS,
+    trimToMs: Int = TRIM_TO_MS,
 ) {
     private val bytesPerFrame = channels * 2 // 4 bytes per stereo frame
     private val perMs = bytesPerFrame * sampleRate / 1000 // 192 bytes/ms
 
-    private val startBytes = perMs * START_MS // 10 ms = 1,920 bytes
-    private val mostBytes = perMs * MOST_MS // 35 ms = 6,720 bytes
-    private val trimToBytes = perMs * TRIM_TO_MS // 15 ms = 2,880 bytes
+    private var startBytes = perMs * startMs
+    private var mostBytes = perMs * mostMs
+    private var trimToBytes = perMs * trimToMs
 
     private val lock = Any()
     private var buffer = ByteArray(mostBytes * 3)
@@ -46,6 +49,31 @@ class AudioJitterBuffer(
         const val START_MS = 10
         const val MOST_MS = 35
         const val TRIM_TO_MS = 15
+    }
+
+    fun configure(startMs: Int, mostMs: Int, trimToMs: Int) {
+        synchronized(lock) {
+            this.startBytes = perMs * startMs
+            this.mostBytes = perMs * mostMs
+            this.trimToBytes = perMs * trimToMs
+            val minCap = this.mostBytes * 3
+            if (buffer.size < minCap) {
+                val newBuf = ByteArray(minCap)
+                if (count > 0) {
+                    val toCopy = minOf(count, newBuf.size)
+                    val part1 = minOf(toCopy, buffer.size - head)
+                    System.arraycopy(buffer, head, newBuf, 0, part1)
+                    val part2 = toCopy - part1
+                    if (part2 > 0) {
+                        System.arraycopy(buffer, 0, newBuf, part1, part2)
+                    }
+                    head = 0
+                    tail = toCopy
+                    count = toCopy
+                }
+                buffer = newBuf
+            }
+        }
     }
 
     fun push(data: ByteArray) {
@@ -79,7 +107,7 @@ class AudioJitterBuffer(
             }
             count += data.size
 
-            // If audio accumulated beyond MOST_MS (35 ms), trim down to TRIM_TO_MS (15 ms)
+            // If audio accumulated beyond mostBytes, trim down to trimToBytes
             if (count > mostBytes) {
                 val keep = trimToBytes
                 val drop = (count - keep) / bytesPerFrame * bytesPerFrame
@@ -193,7 +221,7 @@ class PcSpeakerPlayer(
     private val activity: ActivityWindow = ActivityWindow(ACTIVE_WINDOW_MS),
 ) {
     private val active = AtomicBoolean(false)
-    private val packetQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>(MAX_QUEUE_PACKETS)
+    private var jitterBuffer: AudioJitterBuffer? = null
     private var playbackThread: Thread? = null
     @Volatile private var audioTrack: AudioTrack? = null
 
@@ -204,7 +232,6 @@ class PcSpeakerPlayer(
 
     fun start(stream: InputStream) {
         if (active.getAndSet(true)) return
-        packetQueue.clear()
         _playing.value = true
         activity.markActive()
 
@@ -243,11 +270,21 @@ class PcSpeakerPlayer(
         playbackThread?.let { runCatching { it.interrupt() } }
         val t = Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+            val isExact = exactQuality
+            val startMs = if (isExact) 25 else 5
+            val mostMs = if (isExact) 70 else 20
+            val trimToMs = if (isExact) 25 else 8
+
+            val jitter = AudioJitterBuffer(sampleRate, 2, startMs, mostMs, trimToMs)
+            jitterBuffer = jitter
+
             val minBuf = AudioTrack.getMinBufferSize(
                 sampleRate,
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT,
             ).coerceAtLeast(1920)
+
+            val bufSize = if (isExact) maxOf(minBuf, sampleRate * 4 * 40 / 1000) else minBuf
 
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
@@ -268,23 +305,31 @@ class PcSpeakerPlayer(
                         .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                         .build()
                 )
-                .setBufferSizeInBytes(minBuf)
+                .setBufferSizeInBytes(bufSize)
                 .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
 
             audioTrack = track
+            if (!isExact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                runCatching {
+                    val lowLatencyFrames = (sampleRate * 20 / 1000).coerceAtLeast(480)
+                    track.setBufferSizeInFrames(minOf(track.bufferCapacityInFrames, lowLatencyFrames))
+                }
+            }
+            val chunk = ByteArray(1920) // 10 ms at 48000 Hz stereo 16-bit
             try {
                 track.play()
 
                 while (active.get()) {
-                    val pcm = packetQueue.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
-                    track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+                    jitter.fill(chunk)
+                    track.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING)
                 }
             } catch (_: InterruptedException) {
             } catch (e: Exception) {
                 android.util.Log.w(TAG, "AudioTrack playback error", e)
             } finally {
+                jitterBuffer = null
                 audioTrack = null
                 runCatching {
                     track.stop()
@@ -307,11 +352,9 @@ class PcSpeakerPlayer(
         val rate = sampleRate.coerceIn(8_000, 96_000)
         if (active.compareAndSet(false, true)) {
             currentSampleRate = rate
-            packetQueue.clear()
             startPlaybackThread(rate)
         } else if (currentSampleRate != rate) {
             currentSampleRate = rate
-            packetQueue.clear()
             startPlaybackThread(rate)
         }
         enqueueFrame(pcm)
@@ -319,18 +362,22 @@ class PcSpeakerPlayer(
 
     fun enqueueFrame(pcm: ByteArray) {
         if (!active.get()) return
-        // Bounded queue: drop oldest when more than 4 packets accumulate to maintain tight <= 40ms real-time sync with 0 drift.
-        while (packetQueue.size >= 4) {
-            packetQueue.poll()
-        }
-        packetQueue.offer(pcm)
+        jitterBuffer?.push(pcm)
+    }
+
+    fun updateQuality(exact: Boolean) {
+        exactQuality = exact
+        val startMs = if (exact) 25 else 5
+        val mostMs = if (exact) 70 else 20
+        val trimToMs = if (exact) 25 else 8
+        jitterBuffer?.configure(startMs, mostMs, trimToMs)
     }
 
     fun stop() {
         active.set(false)
         _playing.value = false
         activity.reset()
-        packetQueue.clear()
+        jitterBuffer?.clear()
         playbackThread?.interrupt()
         playbackThread = null
         audioTrack?.let {

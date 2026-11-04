@@ -13,8 +13,10 @@ pub async fn send_pc_audio_stream(
 
     while let Some(frame) = rx.recv().await {
         let len = (frame.len() as u16).to_le_bytes();
-        stream.write_all(&len).await?;
-        stream.write_all(&frame).await?;
+        let mut packet = Vec::with_capacity(2 + frame.len());
+        packet.extend_from_slice(&len);
+        packet.extend_from_slice(&frame);
+        stream.write_all(&packet).await?;
     }
 
     stream.finish()?;

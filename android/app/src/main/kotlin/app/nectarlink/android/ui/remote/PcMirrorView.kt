@@ -769,10 +769,12 @@ fun PcMirrorView(
 
                         // Keyframe retry watchdog until the first frame is rendered on screen (allows cellular internet WAN time to arrive).
                         val watchdogJob = launch {
-                            delay(2500L)
+                            delay(5000L)
+                            var interval = 5000L
                             while (isActive && !renderedLocal.get()) {
                                 core.requestPcMirrorKeyframe(pcId)
-                                delay(2500L)
+                                delay(interval)
+                                interval = (interval * 1.5f).toLong().coerceAtMost(15000L)
                             }
                         }
 

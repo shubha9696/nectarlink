@@ -128,7 +128,7 @@ class SoundCapture(
         if (!localRunning || localThread == null) {
             startLocalWorker()
         }
-        while (localQueue.size >= 2) {
+        while (localQueue.size >= 4) {
             localQueue.poll()
         }
         localQueue.offer(packet)
@@ -274,6 +274,11 @@ class SoundCapture(
 
                 val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
                 if (soundMode != 2) {
+                    if (soundMode == 1) {
+                        playLocal(packet)
+                    } else {
+                        stopLocal()
+                    }
                     if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) {
                         running = false
                         break

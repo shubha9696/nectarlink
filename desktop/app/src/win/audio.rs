@@ -373,22 +373,27 @@ pub fn run_wasapi_loopback(
             cbSize: 0,
         };
 
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::{CreateEventW, GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_TIME_CRITICAL, WaitForSingleObject};
+
+        let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+        let event = CreateEventW(None, false, false, None)?;
+
         let flags = AUDCLNT_STREAMFLAGS_LOOPBACK
+            | AUDCLNT_STREAMFLAGS_EVENTCALLBACK
             | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
             | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
 
         client.Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 100_000, 0, &wfx, None)?;
+        client.SetEventHandle(event)?;
         let capture: IAudioCaptureClient = client.GetService()?;
         client.Start()?;
 
         let mut staging: Vec<u8> = Vec::with_capacity(CHUNK_BYTES * 2);
 
         while !stop.load(Ordering::Relaxed) {
+            let _ = WaitForSingleObject(event, 10);
             let mut packet_frames = capture.GetNextPacketSize()?;
-            if packet_frames == 0 {
-                std::thread::sleep(std::time::Duration::from_millis(2));
-                continue;
-            }
 
             while packet_frames > 0 {
                 let mut data_ptr = std::ptr::null_mut();
@@ -417,6 +422,7 @@ pub fn run_wasapi_loopback(
         }
 
         client.Stop()?;
+        let _ = CloseHandle(event);
     }
     Ok(())
 }
