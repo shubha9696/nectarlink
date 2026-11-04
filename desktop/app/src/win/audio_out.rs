@@ -31,12 +31,12 @@ use windows::Win32::{
 };
 
 /// How much sound is gathered before playing (and again after a stall).
-const START_MS: u32 = 10;
+const START_MS: u32 = 25;
 /// More than this waiting, and the oldest is dropped down to [`TRIM_TO_MS`].
-const MOST_MS: u32 = 50;
-const TRIM_TO_MS: u32 = 20;
+const MOST_MS: u32 = 100;
+const TRIM_TO_MS: u32 = 40;
 /// The device's buffer.
-const DEVICE_BUFFER: Duration = Duration::from_millis(10);
+const DEVICE_BUFFER: Duration = Duration::from_millis(20);
 
 #[derive(Debug)]
 struct PacketQueue {
@@ -57,9 +57,9 @@ impl PacketQueue {
             return;
         }
         let mut q = self.packets.lock().unwrap_or_else(|e| e.into_inner());
-        // Bounded real-time queue: max 8 packets (~80ms).
+        // Bounded real-time queue: max 16 packets (~160ms).
         // Drops oldest packet only when full to permanently eliminate latency drift while preventing underflow!
-        if q.len() >= 8 {
+        if q.len() >= 16 {
             q.pop_front();
         }
         q.push_back(data);
@@ -238,6 +238,7 @@ impl Jitter {
                 }
                 if self.bytes.is_empty() {
                     self.stalls += 1;
+                    self.waiting = true;
                 }
                 self.last_silent = true;
             }

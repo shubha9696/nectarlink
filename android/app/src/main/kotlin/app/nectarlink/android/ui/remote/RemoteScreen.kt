@@ -1122,14 +1122,10 @@ internal fun VoiceTypingBar(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
             }
-            if (intent.resolveActivity(context.packageManager) != null) {
-                speechLauncher.launch(intent)
-                state = DictateState.Listening(partial = "Listening...")
-            } else {
-                state = DictateState.Error(DictateError.NoSpeech)
-            }
+            speechLauncher.launch(intent)
+            state = DictateState.Listening(partial = "Listening...")
         }.onFailure {
-            state = DictateState.Error(DictateError.NoSpeech)
+            state = DictateState.Error(DictateError.NoRecognizer)
         }
     }
 
@@ -1184,11 +1180,7 @@ internal fun VoiceTypingBar(
 
         val sr = createBestRecognizer()
         if (sr == null) {
-            if (Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).resolveActivity(context.packageManager) != null) {
-                launchSystemSpeechDialog()
-            } else {
-                state = DictateState.Error(DictateError.NoRecognizer)
-            }
+            launchSystemSpeechDialog()
             return
         }
 
@@ -1273,6 +1265,15 @@ internal fun VoiceTypingBar(
                         return
                     }
                 }
+                // If inline SpeechRecognizer failed to initialize or bind service, immediately launch system dialog!
+                if (error == SpeechRecognizer.ERROR_CLIENT ||
+                    error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
+                    error == SpeechRecognizer.ERROR_SERVER ||
+                    error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED
+                ) {
+                    launchSystemSpeechDialog()
+                    return
+                }
                 state = when (error) {
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
                         DictateState.Error(DictateError.PermissionNeeded)
@@ -1304,21 +1305,18 @@ internal fun VoiceTypingBar(
 
         if (!started) {
             destroyRecognizer()
-            if (Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).resolveActivity(context.packageManager) != null) {
-                launchSystemSpeechDialog()
-            } else {
-                state = DictateState.Error(DictateError.NoSpeech)
-            }
+            launchSystemSpeechDialog()
             return
         }
 
-        // Safety watchdog: Give the speech service up to 6s to initialize its acoustic models
+        // Safety watchdog: Give the speech service up to 2.5s to initialize its acoustic models & mic.
+        // If it hangs silently without activating the microphone, fall back to the system speech dialog immediately!
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
-            delay(6000)
+            delay(2500)
             if (!isReadyForSpeech && recognizer != null) {
                 destroyRecognizer()
-                state = DictateState.Error(DictateError.NoSpeech)
+                launchSystemSpeechDialog()
             }
         }
     }

@@ -278,7 +278,8 @@ class PcSpeakerPlayer(
                     AudioFormat.CHANNEL_OUT_STEREO,
                     AudioFormat.ENCODING_PCM_16BIT,
                 ) / 4
-                val targetFrames = if (exact) minFrames * 2 else minFrames
+                // 1.5x for Low Latency (~18ms, FastMixer active, 0 underrun), 3x for Dolby Studio (~40ms, full headroom)
+                val targetFrames = if (exact) minFrames * 3 else (minFrames * 3) / 2
                 track.setBufferSizeInFrames(minOf(track.bufferCapacityInFrames, targetFrames))
             }
         }
@@ -395,8 +396,8 @@ class PcSpeakerPlayer(
 
     fun enqueueFrame(pcm: ByteArray) {
         if (!active.get()) return
-        // Bounded queue: 6 packets in Low Latency (~60ms ceiling), 10 packets in Dolby Studio (~100ms ceiling)
-        val maxQueue = if (exactQuality) 10 else 6
+        // Bounded queue: 4 packets in Low Latency (~40ms ceiling), 8 packets in Dolby Studio (~80ms ceiling)
+        val maxQueue = if (exactQuality) 8 else 4
         while (packetQueue.size >= maxQueue) {
             packetQueue.poll() // Discard oldest only when network backs up, preventing underflow and cracking!
         }

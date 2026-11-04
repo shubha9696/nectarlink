@@ -69,13 +69,6 @@ class SoundCapture(
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             try {
                 val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(PACKET_BYTES * 2)
-                val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
-                val speakerDevice = am?.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)?.firstOrNull {
-                    it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ||
-                    it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                    it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                    it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-                }
 
                 // High-fidelity media playback with ALLOW_CAPTURE_BY_NONE to prevent feedback
                 val track = AudioTrack.Builder()
@@ -97,20 +90,10 @@ class SoundCapture(
                             .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                             .build()
                     )
-                    .setBufferSizeInBytes(minBuf)
+                    .setBufferSizeInBytes(minBuf * 2)
                     .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                     .setTransferMode(AudioTrack.MODE_STREAM)
                     .build()
-
-                if (speakerDevice != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    track.preferredDevice = speakerDevice
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    runCatching {
-                        val minFrames = minBuf / 4
-                        track.setBufferSizeInFrames(minOf(track.bufferCapacityInFrames, minFrames))
-                    }
-                }
 
                 track.setVolume(1.0f)
 
@@ -119,6 +102,13 @@ class SoundCapture(
 
                 while (localRunning && running) {
                     val chunk = localQueue.poll(25, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
+                    // Clean +2.5 dB loudness boost with soft limiting for rich, loud phone speaker volume in Both mode
+                    for (i in 0 until chunk.size step 2) {
+                        val s = ((chunk[i].toInt() and 0xFF) or (chunk[i + 1].toInt() shl 8)).toShort()
+                        val boosted = (s.toFloat() * 1.35f).coerceIn(-32767f, 32767f).toInt().toShort()
+                        chunk[i] = (boosted.toInt() and 0xFF).toByte()
+                        chunk[i + 1] = ((boosted.toInt() shr 8) and 0xFF).toByte()
+                    }
                     track.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING)
                 }
             } catch (_: InterruptedException) {
