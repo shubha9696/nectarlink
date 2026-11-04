@@ -1220,17 +1220,10 @@ internal fun VoiceTypingBar(
             state = DictateState.Error(DictateError.PermissionNeeded)
             return
         }
-        runCatching {
-            app.nectarlink.android.mic.MicService.start(context, pcId)
-        }
-        core.remoteKey(pcId, "h", listOf("win"), onStatus)
         startInlineSpeechRecognizer()
     }
 
     fun stopRecognition() {
-        runCatching {
-            app.nectarlink.android.mic.MicService.stopFromUser(context)
-        }
         val sr = recognizer
         if (sr != null) {
             // Tell SpeechRecognizer to stop listening to microphone and transcribe recorded audio!

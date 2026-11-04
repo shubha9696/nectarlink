@@ -261,22 +261,17 @@ mod imp {
         format_monitor_source_name(default_sink.as_deref())
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(windows)]
     fn run_loopback_worker() {
         while is_enabled() {
             if let Err(e) = capture_and_stream_once() {
                 tracing::debug!(error = %e, "PC audio loopback stream cycle ended");
-                for _ in 0..30 {
-                    if !is_enabled() {
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
+                std::thread::sleep(Duration::from_millis(500));
             }
         }
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(windows)]
     fn capture_and_stream_once() -> Result<(), String> {
         use std::io::Read;
         use std::process::{Command, Stdio};
@@ -325,6 +320,9 @@ mod imp {
         send_task.abort();
         Ok(())
     }
+
+    #[cfg(not(windows))]
+    fn run_loopback_worker() {}
 
     #[cfg(test)]
     mod tests {
