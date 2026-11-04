@@ -281,6 +281,10 @@ class InputService : AccessibilityService() {
                 app.nectarlink.android.mirror.SoundCapture.setMode("pc")
                 return
             }
+            "sound_mode:both" -> {
+                app.nectarlink.android.mirror.SoundCapture.setMode("both")
+                return
+            }
             "sound_mode:phone" -> {
                 app.nectarlink.android.mirror.SoundCapture.setMode("phone")
                 return

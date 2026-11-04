@@ -58,6 +58,7 @@ mod imp {
     };
 
     use crate::core_host;
+    use tokio::io::AsyncWriteExt;
 
     static ENABLED: AtomicBool = AtomicBool::new(false);
     static WORKER_RUNNING: AtomicBool = AtomicBool::new(false);

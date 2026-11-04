@@ -44,6 +44,55 @@ class SoundCapture(
     @Volatile private var localRunning = false
     private var localThread: Thread? = null
     private var thread: Thread? = null
+    private var originalVolume: Int? = null
+    private var isMutedByUs: Boolean = false
+
+    private fun applyVolumeForMode(mode: Int) {
+        val ctx = context ?: return
+        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
+        if (mode == 0) { // PC only: mute phone speaker so sound only plays on PC
+            if (originalVolume == null) {
+                originalVolume = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            }
+            if (!isMutedByUs) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, 0)
+                } else {
+                    am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, 0, 0)
+                }
+                isMutedByUs = true
+            }
+        } else { // Both (mode 1) or Phone only (mode 2): unmute phone speaker
+            if (isMutedByUs) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
+                }
+                originalVolume?.let { orig ->
+                    if (am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0 && orig > 0) {
+                        am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, orig, 0)
+                    }
+                }
+                isMutedByUs = false
+            }
+        }
+    }
+
+    private fun restoreVolume() {
+        if (isMutedByUs) {
+            val ctx = context ?: return
+            val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
+            }
+            originalVolume?.let { orig ->
+                if (am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0 && orig > 0) {
+                    am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, orig, 0)
+                }
+            }
+            isMutedByUs = false
+        }
+        originalVolume = null
+    }
 
     private fun closeElevatedSocket() {
         val s = elevatedSocket
@@ -116,6 +165,7 @@ class SoundCapture(
     }
 
     internal fun onModeChanged(newMode: Int) {
+        applyVolumeForMode(newMode)
         if (newMode != 1) {
             stopLocal()
         }
@@ -192,6 +242,7 @@ class SoundCapture(
 
     private fun runRecord(record: AudioRecord) {
         audioRecord = record
+        applyVolumeForMode(soundMode)
         try {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             val packet = ByteArray(PACKET_BYTES)
@@ -245,16 +296,12 @@ class SoundCapture(
                         break
                     }
                 }
-                if (soundMode == 1) {
-                    playLocal(packet)
-                } else {
-                    stopLocal()
-                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "AudioRecord sound capture stopped", e)
         } finally {
             stopLocal()
+            restoreVolume()
             audioRecord = null
             activeCaptures.remove(this)
             runCatching { record.stop() }
@@ -354,6 +401,7 @@ class SoundCapture(
     fun stop() {
         running = false
         stopLocal()
+        restoreVolume()
         activeCaptures.remove(this)
         closeElevatedSocket()
         if (Elevated.running) {
