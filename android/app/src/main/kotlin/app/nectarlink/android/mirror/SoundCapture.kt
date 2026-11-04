@@ -112,13 +112,7 @@ class SoundCapture(
                     }
                 }
 
-                // Match user's current STREAM_MUSIC media volume
-                if (am != null) {
-                    val musicVol = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat()
-                    val maxMusic = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).toFloat().coerceAtLeast(1f)
-                    val ratio = (musicVol / maxMusic).coerceIn(0f, 1f)
-                    track.setVolume(ratio)
-                }
+                track.setVolume(1.0f)
 
                 localPlayerTrack = track
                 track.play()
@@ -154,19 +148,6 @@ class SoundCapture(
             localQueue.poll() // Bounded to 8 packets (~80ms) to eliminate latency drift while preventing underflow
         }
         localQueue.offer(copy)
-
-        // Periodically sync volume to STREAM_MUSIC changes
-        volumeCheckCounter++
-        if (volumeCheckCounter >= 50) {
-            volumeCheckCounter = 0
-            val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
-            if (am != null) {
-                val musicVol = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat()
-                val maxMusic = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).toFloat().coerceAtLeast(1f)
-                val ratio = (musicVol / maxMusic).coerceIn(0f, 1f)
-                localPlayerTrack?.setVolume(ratio)
-            }
-        }
     }
 
     private fun stopLocal() {
