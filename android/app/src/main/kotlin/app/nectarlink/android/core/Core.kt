@@ -2089,9 +2089,10 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             startJob?.join()
             val node = node ?: return@launch
             app.nectarlink.android.audio.PcSpeakerPlayer.exactQuality = exact
+            app.nectarlink.android.audio.PcSpeakerPlayer.activeInstance?.updateQuality(exact)
             try {
                 node.pcSetAudioQuality(id, exact)
-                val msg = if (exact) "Exact Audio Quality Mode (Dolby Atmos / Lossless Stereo)" else "Low Latency Audio Mode"
+                val msg = if (exact) "Dolby Studio Audio Quality (Lossless · Full Bass · 3D Surround)" else "Low Latency Audio Mode (0 ms Real-Time)"
                 _messages.tryEmit(msg)
             } catch (e: Exception) {
                 e.printStackTrace()

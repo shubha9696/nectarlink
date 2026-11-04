@@ -1122,10 +1122,14 @@ internal fun VoiceTypingBar(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
             }
-            speechLauncher.launch(intent)
-            state = DictateState.Listening(partial = "Listening...")
+            if (intent.resolveActivity(context.packageManager) != null) {
+                speechLauncher.launch(intent)
+                state = DictateState.Listening(partial = "Listening...")
+            } else {
+                state = DictateState.Error(DictateError.NoSpeech)
+            }
         }.onFailure {
-            state = DictateState.Error(DictateError.NoRecognizer)
+            state = DictateState.Error(DictateError.NoSpeech)
         }
     }
 
@@ -1136,14 +1140,12 @@ internal fun VoiceTypingBar(
                 state = DictateState.Idle()
             }
         } else if (state is DictateState.Typing && (state as DictateState.Typing).text == "Transcribing...") {
-            // Safety timeout: if recognition service hangs during transcription, auto-reset
             delay(3000)
             if (state is DictateState.Typing && (state as DictateState.Typing).text == "Transcribing...") {
                 destroyRecognizer()
                 state = DictateState.Idle()
             }
         } else if (state is DictateState.Listening && (state as DictateState.Listening).partial.isEmpty()) {
-            // Safety timeout: if listening never captures speech within 25s, auto-cancel
             delay(25000)
             if (state is DictateState.Listening && (state as DictateState.Listening).partial.isEmpty()) {
                 destroyRecognizer()
@@ -1152,18 +1154,18 @@ internal fun VoiceTypingBar(
         }
     }
 
-    fun startInlineSpeechRecognizer() {
-        destroyRecognizer()
-        currentPartial = ""
-        isReadyForSpeech = false
-
-        // Check if speech recognizer service is available at all
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            launchSystemSpeechDialog()
-            return
+    fun createBestRecognizer(): SpeechRecognizer? {
+        // 1. On Android 13+ (API 33+), prefer on-device speech recognizer if available
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching {
+                if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+                    val onDevice = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                    if (onDevice != null) return onDevice
+                }
+            }
         }
 
-        // Query available RecognitionService providers to prefer Google Speech Services over broken OEM implementations
+        // 2. Query available RecognitionService providers to prefer Google Speech Services
         val pm = context.packageManager
         val resolveInfos = runCatching {
             pm.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
@@ -1171,18 +1173,32 @@ internal fun VoiceTypingBar(
 
         val googleService = resolveInfos.firstOrNull {
             val pkg = it.serviceInfo.packageName.lowercase()
-            pkg.contains("googlequicksearchbox") || pkg == "com.google.android.tts"
+            pkg.contains("googlequicksearchbox") || pkg == "com.google.android.tts" || pkg == "com.google.android.as"
         }
 
-        val sr = (if (googleService != null) {
+        if (googleService != null) {
             val comp = ComponentName(googleService.serviceInfo.packageName, googleService.serviceInfo.name)
-            runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
-        } else null)
-            ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
-            ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
+            val sr = runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
+            if (sr != null) return sr
+        }
 
+        // 3. Fall back to system default SpeechRecognizer
+        return runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
+            ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
+    }
+
+    fun startInlineSpeechRecognizer() {
+        destroyRecognizer()
+        currentPartial = ""
+        isReadyForSpeech = false
+
+        val sr = createBestRecognizer()
         if (sr == null) {
-            launchSystemSpeechDialog()
+            if (Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).resolveActivity(context.packageManager) != null) {
+                launchSystemSpeechDialog()
+            } else {
+                state = DictateState.Error(DictateError.NoRecognizer)
+            }
             return
         }
 
@@ -1190,7 +1206,7 @@ internal fun VoiceTypingBar(
             override fun onReadyForSpeech(params: Bundle?) {
                 isReadyForSpeech = true
                 watchdogJob?.cancel()
-                state = DictateState.Listening(partial = currentPartial)
+                state = DictateState.Listening(partial = currentPartial.ifEmpty { "Listening..." })
             }
 
             override fun onBeginningOfSpeech() {
@@ -1267,19 +1283,14 @@ internal fun VoiceTypingBar(
                         return
                     }
                 }
-                if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
-                    state = DictateState.Error(DictateError.PermissionNeeded)
-                } else if (!isReadyForSpeech) {
-                    // Speech recognizer failed to start microphone; seamless fallback to system dialog!
-                    launchSystemSpeechDialog()
-                } else {
-                    state = when (error) {
-                        SpeechRecognizer.ERROR_NO_MATCH,
-                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
-                            DictateState.Error(DictateError.NoSpeech)
-                        else ->
-                            DictateState.Error(DictateError.Failed)
-                    }
+                state = when (error) {
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
+                        DictateState.Error(DictateError.PermissionNeeded)
+                    SpeechRecognizer.ERROR_NO_MATCH,
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
+                        DictateState.Error(DictateError.NoSpeech)
+                    else ->
+                        DictateState.Error(DictateError.NoSpeech)
                 }
             }
 
@@ -1297,7 +1308,7 @@ internal fun VoiceTypingBar(
         }
 
         recognizer = sr
-        state = DictateState.Listening(partial = "Starting mic...")
+        state = DictateState.Listening(partial = "Listening...")
         val started = runCatching {
             sr.startListening(intent)
             true
@@ -1305,18 +1316,21 @@ internal fun VoiceTypingBar(
 
         if (!started) {
             destroyRecognizer()
-            launchSystemSpeechDialog()
+            if (Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).resolveActivity(context.packageManager) != null) {
+                launchSystemSpeechDialog()
+            } else {
+                state = DictateState.Error(DictateError.NoSpeech)
+            }
             return
         }
 
-        // Watchdog: If onReadyForSpeech is not received within 1500ms (e.g. OEM background mic restriction),
-        // fallback to system speech dialog to guarantee the microphone activates.
+        // Safety watchdog: Give the speech service up to 6s to initialize its acoustic models
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
-            delay(1500)
+            delay(6000)
             if (!isReadyForSpeech && recognizer != null) {
                 destroyRecognizer()
-                launchSystemSpeechDialog()
+                state = DictateState.Error(DictateError.NoSpeech)
             }
         }
     }

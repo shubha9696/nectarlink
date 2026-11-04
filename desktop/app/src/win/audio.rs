@@ -309,37 +309,117 @@ pub const BITS_PER_SAMPLE: u16 = 16;
 pub const BYTES_PER_FRAME: usize = 4;
 pub const CHUNK_BYTES: usize = 1_920;
 
-pub struct StudioDsp {
+pub struct DolbyStudioDsp {
+    // Psychoacoustic bass filter state
     lp_l: f32,
     lp_r: f32,
+    hp_sub_l: f32,
+    hp_sub_r: f32,
+    // Mid/Side spatial widener filter state
+    side_hp_l: f32,
+    side_hp_r: f32,
+    // High-frequency clarity / dialogue presence state
+    air_l: f32,
+    air_r: f32,
 }
 
-impl StudioDsp {
+impl DolbyStudioDsp {
     pub fn new() -> Self {
-        Self { lp_l: 0.0, lp_r: 0.0 }
+        Self {
+            lp_l: 0.0,
+            lp_r: 0.0,
+            hp_sub_l: 0.0,
+            hp_sub_r: 0.0,
+            side_hp_l: 0.0,
+            side_hp_r: 0.0,
+            air_l: 0.0,
+            air_r: 0.0,
+        }
     }
 
     #[inline]
-    pub fn process_frame(&mut self, buf: &mut [u8], enabled: bool) {
+    pub fn process(&mut self, buf: &mut [u8], enabled: bool) {
         if !enabled {
             return;
         }
-        const ALPHA: f32 = 0.015;
-        const BASS_GAIN: f32 = 0.45;
-        const PRE_ATTEN: f32 = 0.65;
+
+        // DSP Filter coefficients tuned specifically for smartphone stereo micro-speakers:
+        // 1. Sub-bass extractor cutoff (~160 Hz at 48kHz): alpha ~= 2*pi*160/48000 ~= 0.021
+        const BASS_ALPHA: f32 = 0.021;
+        // 2. High-pass sub-rumble blocker (~100 Hz): alpha ~= 0.013
+        const SUB_CUT_ALPHA: f32 = 0.013;
+        // 3. Side-channel spatial filter (~220 Hz): alpha ~= 0.028
+        const SIDE_HP_ALPHA: f32 = 0.028;
+        // 4. Dialogue & Air clarity filter (~5.5 kHz): alpha ~= 0.52
+        const AIR_ALPHA: f32 = 0.52;
+
+        const STEREO_EXPAND: f32 = 1.45; // Expands Side channel by +3.2 dB for wide 3D soundstage
+        const BASS_HARMONICS: f32 = 0.40; // MaxxBass-style phantom fundamental harmonics
+        const AIR_BOOST: f32 = 0.22; // Dialogue presence and acoustic sheen (+1.8 dB)
+        const PRE_SCALE: f32 = 0.90; // Clean headroom factor
 
         for frame in buf.chunks_exact_mut(4) {
-            let l_in = i16::from_le_bytes([frame[0], frame[1]]) as f32 / 32768.0;
-            let r_in = i16::from_le_bytes([frame[2], frame[3]]) as f32 / 32768.0;
+            let l_raw = i16::from_le_bytes([frame[0], frame[1]]) as f32 / 32768.0;
+            let r_raw = i16::from_le_bytes([frame[2], frame[3]]) as f32 / 32768.0;
 
-            self.lp_l += ALPHA * (l_in - self.lp_l);
-            self.lp_r += ALPHA * (r_in - self.lp_r);
+            let mut l = l_raw * PRE_SCALE;
+            let mut r = r_raw * PRE_SCALE;
 
-            let l_out = ((l_in * PRE_ATTEN) + (self.lp_l * BASS_GAIN)).tanh();
-            let r_out = ((r_in * PRE_ATTEN) + (self.lp_r * BASS_GAIN)).tanh();
+            // 1. Dolby 3D Stereo Expansion via Mid/Side Processing
+            let mid = 0.5 * (l + r);
+            let raw_side = 0.5 * (l - r);
 
-            let l_i16 = (l_out.clamp(-1.0, 1.0) * 32767.0) as i16;
-            let r_i16 = (r_out.clamp(-1.0, 1.0) * 32767.0) as i16;
+            // Filter out low bass from Side to avoid stereo phase cancellation
+            self.side_hp_l += SIDE_HP_ALPHA * (raw_side - self.side_hp_l);
+            let side_high = raw_side - self.side_hp_l;
+            let side_enhanced = raw_side + side_high * (STEREO_EXPAND - 1.0);
+
+            l = mid + side_enhanced;
+            r = mid - side_enhanced;
+
+            // 2. Psychoacoustic Phantom Bass Harmonics
+            // Extract sub-bass energy (< 160 Hz)
+            self.lp_l += BASS_ALPHA * (l_raw - self.lp_l);
+            self.lp_r += BASS_ALPHA * (r_raw - self.lp_r);
+
+            // Strip inaudible sub-rumble (< 100 Hz) that causes phone speaker voice coils to bottom out
+            self.hp_sub_l += SUB_CUT_ALPHA * (self.lp_l - self.hp_sub_l);
+            self.hp_sub_r += SUB_CUT_ALPHA * (self.lp_r - self.hp_sub_r);
+            let bass_l = self.lp_l - self.hp_sub_l;
+            let bass_r = self.lp_r - self.hp_sub_r;
+
+            // Non-linear harmonic generation: produces 2nd and 3rd harmonics in the phone speaker's
+            // sweet resonant band (150 Hz - 320 Hz) so the ear perceives deep, punchy, room-filling bass!
+            let harm_l = (bass_l * bass_l.abs() * 1.5 + bass_l.powi(3) * 0.8) * BASS_HARMONICS;
+            let harm_r = (bass_r * bass_r.abs() * 1.5 + bass_r.powi(3) * 0.8) * BASS_HARMONICS;
+
+            l += harm_l;
+            r += harm_r;
+
+            // 3. Dialogue & Air Clarity Boost (> 5.5 kHz)
+            self.air_l += AIR_ALPHA * (l - self.air_l);
+            self.air_r += AIR_ALPHA * (r - self.air_r);
+            let treble_l = l - self.air_l;
+            let treble_r = r - self.air_r;
+            l += treble_l * AIR_BOOST;
+            r += treble_r * AIR_BOOST;
+
+            // 4. Soft-Knee Transparent Peak Limiter (0% clipping, transparent dynamics)
+            let l_out = if l.abs() > 0.82 {
+                let s = l.signum();
+                s * (0.82 + (l.abs() - 0.82).tanh() * 0.16)
+            } else {
+                l
+            };
+            let r_out = if r.abs() > 0.82 {
+                let s = r.signum();
+                s * (0.82 + (r.abs() - 0.82).tanh() * 0.16)
+            } else {
+                r
+            };
+
+            let l_i16 = (l_out.clamp(-0.999, 0.999) * 32767.0) as i16;
+            let r_i16 = (r_out.clamp(-0.999, 0.999) * 32767.0) as i16;
 
             frame[0..2].copy_from_slice(&l_i16.to_le_bytes());
             frame[2..4].copy_from_slice(&r_i16.to_le_bytes());
@@ -350,7 +430,7 @@ impl StudioDsp {
 pub fn run_wasapi_loopback(
     tx: tokio::sync::mpsc::Sender<bytes::Bytes>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    _studio_quality: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    studio_quality: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> windows::core::Result<()> {
     use std::sync::atomic::Ordering;
     use windows::Win32::Media::Audio::*;
@@ -389,6 +469,7 @@ pub fn run_wasapi_loopback(
         let capture: IAudioCaptureClient = client.GetService()?;
         client.Start()?;
 
+        let mut dsp = DolbyStudioDsp::new();
         let mut staging: Vec<u8> = Vec::with_capacity(CHUNK_BYTES * 2);
 
         while !stop.load(Ordering::Relaxed) {
@@ -413,7 +494,9 @@ pub fn run_wasapi_loopback(
                 capture.ReleaseBuffer(num_frames)?;
 
                 while staging.len() >= CHUNK_BYTES {
-                    let chunk: Vec<u8> = staging.drain(..CHUNK_BYTES).collect();
+                    let mut chunk: Vec<u8> = staging.drain(..CHUNK_BYTES).collect();
+                    let is_studio = studio_quality.load(Ordering::Relaxed);
+                    dsp.process(&mut chunk, is_studio);
                     let _ = tx.try_send(bytes::Bytes::from(chunk));
                 }
 

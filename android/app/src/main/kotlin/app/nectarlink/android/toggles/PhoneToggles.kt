@@ -419,6 +419,7 @@ class PhoneToggles(
                         else -> return false
                     }
                     app.nectarlink.android.audio.PcSpeakerPlayer.exactQuality = exact
+                    app.nectarlink.android.audio.PcSpeakerPlayer.activeInstance?.updateQuality(exact)
                     true
                 }
                 else -> false

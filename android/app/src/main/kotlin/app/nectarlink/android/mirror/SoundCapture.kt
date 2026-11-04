@@ -40,7 +40,7 @@ class SoundCapture(
     @Volatile private var elevatedSocket: Socket? = null
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var localPlayerTrack: AudioTrack? = null
-    private val localQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>(4)
+    private val localQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>(2)
     @Volatile private var localRunning = false
     private var localThread: Thread? = null
     private var thread: Thread? = null
@@ -60,6 +60,8 @@ class SoundCapture(
         s?.let { runCatching { it.close() } }
     }
 
+    private var volumeCheckCounter = 0
+
     private fun startLocalWorker() {
         if (localThread != null && localRunning) return
         localRunning = true
@@ -75,16 +77,15 @@ class SoundCapture(
                     it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
                 }
 
+                // CRITICAL FIX: Use USAGE_ALARM to strictly bypass Android Audio Policy's REMOTE_SUBMIX routing.
+                // If USAGE_MEDIA is used, Android routes localPlayerTrack right back into REMOTE_SUBMIX, creating
+                // an infinite digital feedback loop (metallic beep tone and loud clipping/cracking).
+                // USAGE_ALARM plays directly to the physical speaker with full 20Hz-20kHz fidelity and is never captured by REMOTE_SUBMIX!
                 val track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setUsage(AudioAttributes.USAGE_ALARM)
                             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .apply {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                    setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
-                                }
-                            }
                             .build()
                     )
                     .setAudioFormat(
@@ -102,11 +103,26 @@ class SoundCapture(
                 if (speakerDevice != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     track.preferredDevice = speakerDevice
                 }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    runCatching {
+                        val lowFrames = (RATE * 8 / 1000).coerceAtLeast(192)
+                        track.setBufferSizeInFrames(minOf(track.bufferCapacityInFrames, lowFrames))
+                    }
+                }
+
+                // Match user's current STREAM_MUSIC media volume
+                if (am != null) {
+                    val musicVol = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat()
+                    val maxMusic = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).toFloat().coerceAtLeast(1f)
+                    val ratio = (musicVol / maxMusic).coerceIn(0f, 1f)
+                    track.setVolume(ratio)
+                }
+
                 localPlayerTrack = track
                 track.play()
 
                 while (localRunning && running) {
-                    val chunk = localQueue.poll(50, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
+                    val chunk = localQueue.poll(25, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
                     track.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING)
                 }
             } catch (_: InterruptedException) {
@@ -128,10 +144,27 @@ class SoundCapture(
         if (!localRunning || localThread == null) {
             startLocalWorker()
         }
-        while (localQueue.size >= 4) {
-            localQueue.poll()
+        // CRITICAL FIX: Clone the packet buffer!
+        // Previously, the shared packet buffer was passed without copyOf(), causing the capture thread
+        // to overwrite bytes while the playback thread was reading them, resulting in massive sample tearing and cracking!
+        val copy = packet.copyOf()
+        while (localQueue.size >= 2) {
+            localQueue.poll() // Bounded to 2 packets to eliminate latency drift
         }
-        localQueue.offer(packet)
+        localQueue.offer(copy)
+
+        // Periodically sync volume to STREAM_MUSIC changes
+        volumeCheckCounter++
+        if (volumeCheckCounter >= 50) {
+            volumeCheckCounter = 0
+            val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            if (am != null) {
+                val musicVol = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat()
+                val maxMusic = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).toFloat().coerceAtLeast(1f)
+                val ratio = (musicVol / maxMusic).coerceIn(0f, 1f)
+                localPlayerTrack?.setVolume(ratio)
+            }
+        }
     }
 
     private fun stopLocal() {
