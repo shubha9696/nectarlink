@@ -20,7 +20,7 @@ class PcSpeakerPlayer(
     private val activity: ActivityWindow = ActivityWindow(ACTIVE_WINDOW_MS),
 ) {
     private val active = AtomicBoolean(false)
-    private val queue = ArrayBlockingQueue<ByteArray>(16)
+    private val queue = ArrayBlockingQueue<ByteArray>(4)
 
     private val _playing = MutableStateFlow(false)
     val playing: StateFlow<Boolean> = _playing.asStateFlow()
@@ -76,7 +76,7 @@ class PcSpeakerPlayer(
                 sampleRate,
                 AudioFormat.CHANNEL_OUT_STEREO,
                 AudioFormat.ENCODING_PCM_16BIT,
-            ).coerceAtLeast(3840)
+            ).coerceAtLeast(1920)
 
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
@@ -97,19 +97,19 @@ class PcSpeakerPlayer(
                         .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
                         .build()
                 )
-                .setBufferSizeInBytes(minBuf * 4)
-                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
+                .setBufferSizeInBytes(minBuf)
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
 
             try {
-                while (active.get() && queue.size < 3) {
-                    Thread.sleep(4)
+                while (active.get() && queue.isEmpty()) {
+                    Thread.sleep(2)
                 }
                 track.play()
 
                 while (active.get()) {
-                    val frame = queue.poll(100, TimeUnit.MILLISECONDS) ?: continue
+                    val frame = queue.poll(50, TimeUnit.MILLISECONDS) ?: continue
                     track.write(frame, 0, frame.size, AudioTrack.WRITE_BLOCKING)
                 }
             } finally {

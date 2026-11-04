@@ -40,7 +40,7 @@ class SoundCapture(
     @Volatile private var elevatedSocket: Socket? = null
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var localPlayerTrack: AudioTrack? = null
-    private val localQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(16)
+    private val localQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(4)
     @Volatile private var localRunning = false
     private var localThread: Thread? = null
     private var thread: Thread? = null
@@ -80,7 +80,7 @@ class SoundCapture(
                             .build()
                     )
                     .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
-                    .setBufferSizeInBytes(maxOf(minBuf * 4, PACKET_BYTES * 8))
+                    .setBufferSizeInBytes(minBuf)
                     .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                     .build()
                 localPlayerTrack = track

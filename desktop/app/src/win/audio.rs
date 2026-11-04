@@ -307,7 +307,7 @@ pub const SAMPLE_RATE: u32 = 48_000;
 pub const CHANNELS: u16 = 2;
 pub const BITS_PER_SAMPLE: u16 = 16;
 pub const BYTES_PER_FRAME: usize = 4;
-pub const CHUNK_BYTES: usize = 3_840;
+pub const CHUNK_BYTES: usize = 1_920;
 
 pub struct StudioDsp {
     lp_l: f32,
@@ -377,7 +377,7 @@ pub fn run_wasapi_loopback(
             | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
             | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
 
-        client.Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 1_000_000, 0, &wfx, None)?;
+        client.Initialize(AUDCLNT_SHAREMODE_SHARED, flags, 100_000, 0, &wfx, None)?;
         let capture: IAudioCaptureClient = client.GetService()?;
         client.Start()?;
 
@@ -387,7 +387,7 @@ pub fn run_wasapi_loopback(
         while !stop.load(Ordering::Relaxed) {
             let mut packet_frames = capture.GetNextPacketSize()?;
             if packet_frames == 0 {
-                std::thread::sleep(std::time::Duration::from_millis(4));
+                std::thread::sleep(std::time::Duration::from_millis(2));
                 continue;
             }
 
@@ -409,8 +409,7 @@ pub fn run_wasapi_loopback(
                 capture.ReleaseBuffer(num_frames)?;
 
                 while staging.len() >= CHUNK_BYTES {
-                    let mut chunk: Vec<u8> = staging.drain(..CHUNK_BYTES).collect();
-                    dsp.process_frame(&mut chunk, studio_quality.load(Ordering::Relaxed));
+                    let chunk: Vec<u8> = staging.drain(..CHUNK_BYTES).collect();
                     let _ = tx.try_send(bytes::Bytes::from(chunk));
                 }
 
