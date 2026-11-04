@@ -145,28 +145,7 @@ pub fn compute_capabilities(
         caps.push(nectarlink_core::MIC_LISTEN.into());
     }
     #[cfg(any(windows, target_os = "linux"))]
-    let mut pc_mirror_enabled = crate::pc_mirror::is_active();
-    #[cfg(any(windows, target_os = "linux"))]
-    let mut _remote_input_enabled = false;
-    #[cfg(any(windows, target_os = "linux"))]
-    if let Some(node) = node
-        && let Ok(devices) = node.paired_devices()
-    {
-        for d in devices {
-            if let Ok(toggles) = node.device_toggles(d.id) {
-                for (name, on) in toggles {
-                    if on && name == nectarlink_core::PC_MIRROR_TOGGLE {
-                        pc_mirror_enabled = true;
-                    }
-                    if on && name == "remote_input" {
-                        _remote_input_enabled = true;
-                    }
-                }
-            }
-        }
-    }
-    #[cfg(any(windows, target_os = "linux"))]
-    if pc_mirror_enabled && crate::pc_mirror::is_capture_available() {
+    if crate::pc_mirror::is_capture_available() {
         caps.push(nectarlink_core::MIRROR_CAPTURE.into());
     }
     #[cfg(windows)]

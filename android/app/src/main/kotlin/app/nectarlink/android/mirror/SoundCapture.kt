@@ -44,54 +44,14 @@ class SoundCapture(
     @Volatile private var localRunning = false
     private var localThread: Thread? = null
     private var thread: Thread? = null
-    private var originalVolume: Int? = null
-    private var isMutedByUs: Boolean = false
 
     private fun applyVolumeForMode(mode: Int) {
-        val ctx = context ?: return
-        val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
-        if (mode == 0) { // PC only: mute phone speaker so sound only plays on PC
-            if (originalVolume == null) {
-                originalVolume = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-            }
-            if (!isMutedByUs) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, 0)
-                } else {
-                    am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, 0, 0)
-                }
-                isMutedByUs = true
-            }
-        } else { // Both (mode 1) or Phone only (mode 2): unmute phone speaker
-            if (isMutedByUs) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
-                }
-                originalVolume?.let { orig ->
-                    if (am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0 && orig > 0) {
-                        am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, orig, 0)
-                    }
-                }
-                isMutedByUs = false
-            }
-        }
+        // No-op: Never mute STREAM_MUSIC, as doing so silences application output
+        // before audio capture, causing both PC and phone to receive silence.
+        // In Elevated mode, REMOTE_SUBMIX naturally silences phone speakers for PC only.
     }
 
     private fun restoreVolume() {
-        if (isMutedByUs) {
-            val ctx = context ?: return
-            val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
-            }
-            originalVolume?.let { orig ->
-                if (am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0 && orig > 0) {
-                    am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, orig, 0)
-                }
-            }
-            isMutedByUs = false
-        }
-        originalVolume = null
     }
 
     private fun closeElevatedSocket() {
@@ -110,9 +70,8 @@ class SoundCapture(
                 val track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
+                            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                             .build()
                     )
                     .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())

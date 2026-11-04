@@ -1079,22 +1079,20 @@ internal fun VoiceTypingBar(
         destroyRecognizer()
         currentPartial = ""
 
-        val googleComp = ComponentName(
-            "com.google.android.googlequicksearchbox",
-            "com.google.android.voicesearch.serviceapi.GoogleRecognitionService",
-        )
         val sr = runCatching {
-            SpeechRecognizer.createSpeechRecognizer(context, googleComp)
-        }.getOrNull() ?: runCatching {
-            SpeechRecognizer.createSpeechRecognizer(context.applicationContext, googleComp)
-        }.getOrNull() ?: runCatching {
-            SpeechRecognizer.createSpeechRecognizer(context)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+            ) {
+                SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+            } else {
+                SpeechRecognizer.createSpeechRecognizer(context)
+            }
         }.getOrNull() ?: runCatching {
             SpeechRecognizer.createSpeechRecognizer(context.applicationContext)
         }.getOrNull()
 
         if (sr == null) {
-            state = DictateState.Error(DictateError.NoRecognizer)
+            state = DictateState.Listening(partial = "Listening on PC (Win+H)...")
             return
         }
 
@@ -1222,10 +1220,17 @@ internal fun VoiceTypingBar(
             state = DictateState.Error(DictateError.PermissionNeeded)
             return
         }
+        runCatching {
+            app.nectarlink.android.mic.MicService.start(context, pcId)
+        }
+        core.remoteKey(pcId, "h", listOf("win"), onStatus)
         startInlineSpeechRecognizer()
     }
 
     fun stopRecognition() {
+        runCatching {
+            app.nectarlink.android.mic.MicService.stop(context, pcId, fromUser = true)
+        }
         val sr = recognizer
         if (sr != null) {
             // Tell SpeechRecognizer to stop listening to microphone and transcribe recorded audio!

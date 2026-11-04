@@ -43,8 +43,12 @@ fn is_local_desktop(shared: &Shared) -> bool {
 }
 
 fn pc_mirror_allowed(shared: &Shared, peer: &DeviceId) -> bool {
+    if let Ok(Some(toggle)) = shared.store.toggle(peer, PC_MIRROR_TOGGLE) {
+        return toggle;
+    }
     shared.toggle_on(peer, PC_MIRROR_TOGGLE)
         || shared.pc_mirror_sessions.lock().unwrap_or_else(|e| e.into_inner()).contains(peer)
+        || shared.store.is_paired(peer).unwrap_or(false)
 }
 /// Packets waiting to go out, at most. Beyond this the network is behind:
 /// sending more would only add delay. 8 packets provides smooth routing over mobile relays.
