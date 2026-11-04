@@ -1494,6 +1494,9 @@ pub(crate) async fn accept_stream(
         Some(h) if h.svc == mirror::SERVICE && h.op == mirror::OP_AUDIO && h.v == mirror::VERSION => {
             crate::mirror::receive_audio(shared, session.peer, send, recv).await;
         }
+        Some(h) if h.svc == "pc_audio" && h.op == "stream" && h.v == 1 => {
+            crate::mirror::receive_pc_audio(shared, session.peer, send, recv).await;
+        }
         Some(h)
             if h.svc == nectarlink_protocol::messages::media_watch::SERVICE
                 && h.op == nectarlink_protocol::messages::media_watch::OP_FILE

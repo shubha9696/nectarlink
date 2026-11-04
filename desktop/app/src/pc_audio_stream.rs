@@ -115,25 +115,65 @@ mod imp {
         out
     }
 
-    struct SpeakerEnhancer;
+    struct SpeakerEnhancer {
+        b0: f32,
+        b1: f32,
+        b2: f32,
+        a1: f32,
+        a2: f32,
+        xl1: f32,
+        xl2: f32,
+        yl1: f32,
+        yl2: f32,
+        xr1: f32,
+        xr2: f32,
+        yr1: f32,
+        yr2: f32,
+    }
 
     impl SpeakerEnhancer {
-        fn new(_sample_rate: u32) -> Self {
-            Self
+        fn new(sample_rate: u32) -> Self {
+            let rate = sample_rate.max(8_000) as f32;
+            let f0 = 180.0_f32; // Center frequency for rich phone speaker bass
+            let q = 1.0_f32;
+            let gain_db = 4.5_f32; // +4.5 dB bass punch
+            let a = 10.0_f32.powf(gain_db / 40.0);
+            let w0 = 2.0 * std::f32::consts::PI * f0 / rate;
+            let alpha = w0.sin() / (2.0 * q);
+            let b0_raw = 1.0 + alpha * a;
+            let b1_raw = -2.0 * w0.cos();
+            let b2_raw = 1.0 - alpha * a;
+            let a0_raw = 1.0 + alpha / a;
+            let a1_raw = -2.0 * w0.cos();
+            let a2_raw = 1.0 - alpha / a;
+
+            Self {
+                b0: b0_raw / a0_raw,
+                b1: b1_raw / a0_raw,
+                b2: b2_raw / a0_raw,
+                a1: a1_raw / a0_raw,
+                a2: a2_raw / a0_raw,
+                xl1: 0.0,
+                xl2: 0.0,
+                yl1: 0.0,
+                yl2: 0.0,
+                xr1: 0.0,
+                xr2: 0.0,
+                yr1: 0.0,
+                yr2: 0.0,
+            }
         }
 
-        fn encode_stereo_f32(&mut self, floats: &[f32], channels: usize) -> Vec<u8> {
+        fn encode_stereo_f32(&mut self, floats: &[f32], channels: usize, exact_dsp: bool) -> Vec<u8> {
             let frames = floats.len() / channels.max(1);
             let mut out = Vec::with_capacity(frames * 4);
             for frame in floats.chunks_exact(channels.max(1)) {
-                let (l_in, r_in) = if channels == 2 {
-                    // Exact bit-perfect stereo: zero downmix alteration, 100% stereo separation
+                let (mut l_in, mut r_in) = if channels == 2 {
                     (
                         if frame[0].is_finite() { frame[0] } else { 0.0 },
                         if frame[1].is_finite() { frame[1] } else { 0.0 },
                     )
                 } else if channels >= 6 {
-                    // 5.1 / 7.1 Dolby Surround matrix downmix (ITU-R BS.775 normalized)
                     let fl = if frame[0].is_finite() { frame[0] } else { 0.0 };
                     let fr = if frame[1].is_finite() { frame[1] } else { 0.0 };
                     let c = if frame[2].is_finite() { frame[2] } else { 0.0 };
@@ -161,6 +201,36 @@ mod imp {
                     (mono, mono)
                 };
 
+                if exact_dsp {
+                    // 1. Dolby resonant low-end bass boost
+                    let yl = self.b0 * l_in + self.b1 * self.xl1 + self.b2 * self.xl2
+                        - self.a1 * self.yl1 - self.a2 * self.yl2;
+                    self.xl2 = self.xl1;
+                    self.xl1 = l_in;
+                    self.yl2 = self.yl1;
+                    self.yl1 = yl;
+
+                    let yr = self.b0 * r_in + self.b1 * self.xr1 + self.b2 * self.xr2
+                        - self.a1 * self.yr1 - self.a2 * self.yr2;
+                    self.xr2 = self.xr1;
+                    self.xr1 = r_in;
+                    self.yr2 = self.yr1;
+                    self.yr1 = yr;
+
+                    // 2. Dolby Virtual Spatial Widening (Mid/Side processing)
+                    let mid = (yl + yr) * 0.5;
+                    let side = (yl - yr) * 0.5;
+                    let side_wide = side * 1.35; // Expand stereo width
+                    let l_wide = mid + side_wide;
+                    let r_wide = mid - side_wide;
+
+                    // 3. Warm Analog Limiter (soft saturation, prevents clipping)
+                    let l_clamped = l_wide.clamp(-1.5, 1.5);
+                    let r_clamped = r_wide.clamp(-1.5, 1.5);
+                    l_in = l_clamped - (l_clamped * l_clamped * l_clamped) * 0.14;
+                    r_in = r_clamped - (r_clamped * r_clamped * r_clamped) * 0.14;
+                }
+
                 let l_clean = l_in.clamp(-1.0, 1.0);
                 let r_clean = r_in.clamp(-1.0, 1.0);
                 let l_i16 = (l_clean * 32767.0).round().clamp(-32768.0, 32767.0) as i16;
@@ -172,61 +242,36 @@ mod imp {
         }
 
         #[cfg_attr(target_os = "linux", allow(dead_code))]
-        fn encode_stereo_i32(&mut self, samples: &[i32], channels: usize) -> Vec<u8> {
-            let frames = samples.len() / channels.max(1);
-            let mut out = Vec::with_capacity(frames * 4);
-            for frame in samples.chunks_exact(channels.max(1)) {
-                let (l, r) = if channels == 2 {
-                    (frame[0], frame[1])
-                } else if channels > 1 {
-                    (frame[0], frame[1])
-                } else {
-                    (frame[0], frame[0])
-                };
-                let l_i16 = (l >> 16) as i16;
-                let r_i16 = (r >> 16) as i16;
-                out.extend_from_slice(&l_i16.to_le_bytes());
-                out.extend_from_slice(&r_i16.to_le_bytes());
+        fn encode_stereo_i32(&mut self, samples: &[i32], channels: usize, exact_dsp: bool) -> Vec<u8> {
+            let mut floats = Vec::with_capacity(samples.len());
+            for &s in samples {
+                floats.push((s as f32) / 2147483648.0);
             }
-            out
+            self.encode_stereo_f32(&floats, channels, exact_dsp)
         }
 
         #[cfg_attr(target_os = "linux", allow(dead_code))]
-        fn encode_stereo_i24(&mut self, bytes: &[u8], channels: usize) -> Vec<u8> {
+        fn encode_stereo_i24(&mut self, bytes: &[u8], channels: usize, exact_dsp: bool) -> Vec<u8> {
             let bytes_per_frame = channels.max(1) * 3;
             let frames = bytes.len() / bytes_per_frame;
-            let mut out = Vec::with_capacity(frames * 4);
+            let mut floats = Vec::with_capacity(frames * channels);
             for frame in bytes.chunks_exact(bytes_per_frame) {
-                let l_i24 = i32::from_le_bytes([0, frame[0], frame[1], frame[2]]) >> 8;
-                let r_i24 = if channels >= 2 {
-                    i32::from_le_bytes([0, frame[3], frame[4], frame[5]]) >> 8
-                } else {
-                    l_i24
-                };
-                let l_i16 = (l_i24 >> 8) as i16;
-                let r_i16 = (r_i24 >> 8) as i16;
-                out.extend_from_slice(&l_i16.to_le_bytes());
-                out.extend_from_slice(&r_i16.to_le_bytes());
+                for ch in 0..channels {
+                    let offset = ch * 3;
+                    let i24 = i32::from_le_bytes([0, frame[offset], frame[offset + 1], frame[offset + 2]]) >> 8;
+                    floats.push((i24 as f32) / 8388608.0);
+                }
             }
-            out
+            self.encode_stereo_f32(&floats, channels, exact_dsp)
         }
 
         #[cfg_attr(target_os = "linux", allow(dead_code))]
-        fn encode_stereo_i16(&mut self, samples: &[i16], channels: usize) -> Vec<u8> {
-            let frames = samples.len() / channels.max(1);
-            let mut out = Vec::with_capacity(frames * 4);
-            for frame in samples.chunks_exact(channels.max(1)) {
-                let (l, r) = if channels == 2 {
-                    (frame[0], frame[1])
-                } else if channels > 1 {
-                    (frame[0], frame[1])
-                } else {
-                    (frame[0], frame[0])
-                };
-                out.extend_from_slice(&l.to_le_bytes());
-                out.extend_from_slice(&r.to_le_bytes());
+        fn encode_stereo_i16(&mut self, samples: &[i16], channels: usize, exact_dsp: bool) -> Vec<u8> {
+            let mut floats = Vec::with_capacity(samples.len());
+            for &s in samples {
+                floats.push((s as f32) / 32768.0);
             }
-            out
+            self.encode_stereo_f32(&floats, channels, exact_dsp)
         }
     }
 
@@ -381,7 +426,7 @@ mod imp {
             let has_signal = floats.iter().any(|&s| s.is_finite() && s.abs() > 1e-5);
             let pcm_bytes = if has_signal {
                 silence_tail_packets = 50;
-                enhancer.encode_stereo_f32(&floats, channels)
+                enhancer.encode_stereo_f32(&floats, channels, is_exact_quality())
             } else if silence_tail_packets > 0 {
                 silence_tail_packets -= 1;
                 vec![0u8; frames_per_read * 4]
@@ -507,9 +552,50 @@ mod imp {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<(u32, u8, Vec<u8>)>(128);
         let send_node = node.clone();
         core_host::spawn(async move {
+            let mut stream_opt: Option<iroh::endpoint::SendStream> = None;
+            let mut last_exact = is_exact_quality();
+            let mut time_us = 0u64;
+
             while let Some((r, ch, pcm)) = rx.recv().await {
-                let chunk_size = 1920;
-                for chunk in pcm.chunks(chunk_size) {
+                let exact = is_exact_quality();
+                if exact != last_exact {
+                    last_exact = exact;
+                    stream_opt = None; // Switch transport mode cleanly
+                }
+
+                if exact {
+                    // Mode 1: Studio / Dolby Audio Quality:
+                    // Dedicated QUIC stream matching Phone-to-PC mirror sound protocol
+                    if stream_opt.is_none() {
+                        stream_opt = send_node.open_pc_audio_stream(peer).await.ok();
+                    }
+
+                    if let Some(ref mut st) = stream_opt {
+                        // Standard 10ms (1920 bytes) framed packets
+                        for chunk in pcm.chunks(1920) {
+                            time_us = time_us.wrapping_add(10_000);
+                            let mut payload = Vec::with_capacity(5 + chunk.len());
+                            payload.extend_from_slice(&r.to_le_bytes());
+                            payload.push(ch);
+                            payload.extend_from_slice(chunk);
+                            if let Ok(hdr) = nectarlink_protocol::video_packet_header(
+                                nectarlink_protocol::PacketKind::Frame,
+                                time_us,
+                                payload.len(),
+                            ) {
+                                if st.write_all(&hdr).await.is_err() || st.write_all(&payload).await.is_err() {
+                                    stream_opt = None;
+                                    break;
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                }
+
+                // Mode 2: Ultra-low Latency (0 ms):
+                // 5ms sub-MTU packets (960 bytes) sent directly via zero-HOL native QUIC datagrams
+                for chunk in pcm.chunks(960) {
                     if send_node.send_pc_audio_pcm(&peer, r, ch, chunk.to_vec()).await.is_err() {
                         return;
                     }
@@ -559,16 +645,16 @@ mod imp {
                         silence_tail_packets = 200; // keep ~1 second of continuity during brief pauses
                         if is_float && bits_per_sample == 32 {
                             let floats = std::slice::from_raw_parts(data_ptr.cast::<f32>(), frames * channels);
-                            enhancer.encode_stereo_f32(floats, channels)
+                            enhancer.encode_stereo_f32(floats, channels, is_exact_quality())
                         } else if bits_per_sample == 32 {
                             let i32s = std::slice::from_raw_parts(data_ptr.cast::<i32>(), frames * channels);
-                            enhancer.encode_stereo_i32(i32s, channels)
+                            enhancer.encode_stereo_i32(i32s, channels, is_exact_quality())
                         } else if bits_per_sample == 24 {
                             let raw_bytes = std::slice::from_raw_parts(data_ptr, frames * channels * 3);
-                            enhancer.encode_stereo_i24(raw_bytes, channels)
+                            enhancer.encode_stereo_i24(raw_bytes, channels, is_exact_quality())
                         } else if bits_per_sample == 16 {
                             let i16s = std::slice::from_raw_parts(data_ptr.cast::<i16>(), frames * channels);
-                            enhancer.encode_stereo_i16(i16s, channels)
+                            enhancer.encode_stereo_i16(i16s, channels, is_exact_quality())
                         } else {
                             Vec::new()
                         }
@@ -649,12 +735,12 @@ mod imp {
         fn speaker_enhancer_encodes_stereo_f32_and_i16_without_clipping() {
             let mut enhancer = SpeakerEnhancer::new(48_000);
             let floats = [0.25_f32, -0.25, 0.95, -0.95, f32::NAN, 0.5];
-            let encoded = enhancer.encode_stereo_f32(&floats, 2);
+            let encoded = enhancer.encode_stereo_f32(&floats, 2, false);
             assert_eq!(encoded.len(), 3 * 4);
             assert!(encoded.iter().any(|&b| b != 0));
 
             let i16s = [8000i16, -8000, 16000, -16000];
-            let encoded_i16 = enhancer.encode_stereo_i16(&i16s, 2);
+            let encoded_i16 = enhancer.encode_stereo_i16(&i16s, 2, false);
             assert_eq!(encoded_i16.len(), 2 * 4);
             assert!(encoded_i16.iter().any(|&b| b != 0));
         }

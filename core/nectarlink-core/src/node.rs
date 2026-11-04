@@ -2598,6 +2598,20 @@ impl Node {
                 session.try_send_realtime(env)
     }
 
+    /// Opens a dedicated QUIC bidirectional audio stream for high-quality Studio / Dolby sound.
+    pub async fn open_pc_audio_stream(&self, peer: DeviceId) -> Result<iroh::endpoint::SendStream> {
+        let session = self.connected(&peer)?;
+        let (mut send, _recv) = session.conn.open_bi().await.map_err(crate::error::net)?;
+        let _ = send.set_priority(2); // AUDIO_PRIORITY
+        let header = nectarlink_protocol::messages::StreamHeader {
+            svc: "pc_audio".into(),
+            op: "stream".into(),
+            v: 1,
+        };
+        nectarlink_protocol::write_frame(&mut send, &Envelope::new(types::STREAM, &header)?.to_cbor()).await?;
+        Ok(send)
+    }
+
     /// Opens a web link on a paired device.
     pub async fn open_link(&self, peer: DeviceId, url: String) -> Result<()> {
         crate::actions::open_link(&self.shared, peer, url).await

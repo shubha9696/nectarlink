@@ -325,6 +325,29 @@ pub(crate) async fn receive_audio(
     sink.audio_ended();
 }
 
+/// A PC opened a dedicated high-quality PC sound stream to this phone.
+pub(crate) async fn receive_pc_audio(
+    shared: Arc<Shared>,
+    peer: DeviceId,
+    mut send: SendStream,
+    mut recv: RecvStream,
+) {
+    let _ = send.finish();
+    while let Ok(Some(packet)) = read_video_packet(&mut recv).await {
+        if packet.data.len() > 5 {
+            let sample_rate = u32::from_le_bytes([packet.data[0], packet.data[1], packet.data[2], packet.data[3]]);
+            let channels = packet.data[4];
+            let pcm = packet.data[5..].to_vec();
+            shared.emit(NodeEvent::PcAudioFrame {
+                device: peer,
+                sample_rate,
+                channels,
+                pcm,
+            });
+        }
+    }
+}
+
 // ---- The phone ----
 
 /// Handles `mirror.*` on a session. Returns false for other types.
