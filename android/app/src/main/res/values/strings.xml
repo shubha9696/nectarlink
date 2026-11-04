@@ -1373,6 +1373,15 @@
     <string name="device_name_in_profile">%1$s (%2$s)</string>
     <string name="profile_work">Work</string>
     <string name="profile_other">Second profile</string>
+    <!-- TouchControl Floating Window / PiP Mode -->
+    <string name="remote_pip_mode">Floating window (PiP)</string>
+    <string name="remote_pip_permission_title">Display over other apps</string>
+    <string name="remote_pip_permission_text">To use TouchControl in a floating window while other apps are open, allow NectarLink to display over other apps.</string>
+    <string name="touch_control_overlay_notification">Floating TouchControl active</string>
+    <string name="touch_control_overlay_controlling">Controlling %1$s</string>
+    <string name="touch_control_overlay_close">Close</string>
+    <string name="touch_control_overlay_trackpad">Trackpad</string>
+    <string name="touch_control_overlay_screen">Screen</string>
 </resources>
 
 

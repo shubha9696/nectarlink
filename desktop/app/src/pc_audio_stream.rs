@@ -289,9 +289,14 @@ mod imp {
             std::thread::sleep(Duration::from_millis(500));
             return Ok(());
         };
+        if crate::phone_sound::active().is_some() || crate::mirror::has_sound(&peer) {
+            // Never loop back PC audio when phone audio is playing through PC speakers (prevents reverberation)
+            std::thread::sleep(Duration::from_millis(200));
+            return Ok(());
+        }
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let studio_quality = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(is_exact_quality()));
-        let (tx, rx) = tokio::sync::mpsc::channel::<bytes::Bytes>(64);
+        let (tx, rx) = tokio::sync::mpsc::channel::<bytes::Bytes>(24);
 
         let stop_clone = stop.clone();
         let studio_clone = studio_quality.clone();

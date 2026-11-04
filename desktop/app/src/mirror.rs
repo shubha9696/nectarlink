@@ -2023,6 +2023,7 @@ impl MirrorSink for Sink {
         {
             rec.on_audio_config(config.rate, config.channels);
         }
+        crate::pc_audio_stream::set_enabled(false);
         let mut sound = self.sound.lock().unwrap_or_else(|e| e.into_inner());
         // A new format: a new player (the old one ends when dropped).
         *sound = match Player::start(config.rate, u16::from(config.channels)) {

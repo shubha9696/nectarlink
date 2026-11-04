@@ -12,6 +12,8 @@ import android.media.MediaFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import android.view.OrientationEventListener
 import android.view.Surface
@@ -313,6 +315,44 @@ private fun extractH264CodecConfig(data: ByteArray): Pair<ByteArray, ByteArray>?
         i = nalHeaderIdx + 1
     }
     return if (sawSpsOrPps && firstPlayableNalOffset > 0 && firstPlayableNalOffset < data.size) {
+        Pair(
+            data.copyOfRange(0, firstPlayableNalOffset),
+            data.copyOfRange(firstPlayableNalOffset, data.size),
+        )
+    } else {
+        null
+    }
+}
+
+/**
+ * Extracts leading HEVC VPS (NAL type 32), SPS (NAL type 33), and PPS (NAL type 34) parameter
+ * sets from an Annex-B keyframe for hardware decoders requiring explicit BUFFER_FLAG_CODEC_CONFIG.
+ */
+private fun extractHevcCodecConfig(data: ByteArray): Pair<ByteArray, ByteArray>? {
+    var i = 0
+    var firstPlayableNalOffset = -1
+    var sawConfig = false
+    while (i + 4 < data.size) {
+        val scLen = if (data[i].toInt() == 0 && data[i + 1].toInt() == 0 && data[i + 2].toInt() == 1) {
+            3
+        } else if (i + 4 < data.size && data[i].toInt() == 0 && data[i + 1].toInt() == 0 && data[i + 2].toInt() == 0 && data[i + 3].toInt() == 1) {
+            4
+        } else {
+            i++
+            continue
+        }
+        val nalHeaderIdx = i + scLen
+        if (nalHeaderIdx >= data.size) break
+        val nalType = (data[nalHeaderIdx].toInt() and 0x7E) ushr 1
+        if (nalType in 32..34) {
+            sawConfig = true
+        } else if (nalType in 0..31) {
+            firstPlayableNalOffset = i
+            break
+        }
+        i = nalHeaderIdx + 1
+    }
+    return if (sawConfig && firstPlayableNalOffset > 0 && firstPlayableNalOffset < data.size) {
         Pair(
             data.copyOfRange(0, firstPlayableNalOffset),
             data.copyOfRange(firstPlayableNalOffset, data.size),
@@ -688,8 +728,14 @@ fun PcMirrorView(
                         packet: Core.PcMirrorPacket,
                         renderedLocal: java.util.concurrent.atomic.AtomicBoolean,
                     ): Boolean {
-                        if (packet.keyframe && effectiveCodec == "h264") {
-                            val split = extractH264CodecConfig(packet.data)
+                        if (packet.keyframe) {
+                            val split = if (effectiveCodec == "h265" || effectiveCodec == "hevc") {
+                                extractHevcCodecConfig(packet.data)
+                            } else if (effectiveCodec == "h264" || effectiveCodec == "avc") {
+                                extractH264CodecConfig(packet.data)
+                            } else {
+                                null
+                            }
                             if (split != null) {
                                 val (csd, idrSlice) = split
                                 queueRaw(csd, packet.timeUs, MediaCodec.BUFFER_FLAG_CODEC_CONFIG)
@@ -719,12 +765,12 @@ fun PcMirrorView(
                             }
                         }
 
-                        // Keyframe retry watchdog until the first frame is rendered on screen.
+                        // Keyframe retry watchdog until the first frame is rendered on screen (allows cellular internet WAN time to arrive).
                         val watchdogJob = launch {
-                            delay(1500L)
+                            delay(2500L)
                             while (isActive && !renderedLocal.get()) {
                                 core.requestPcMirrorKeyframe(pcId)
-                                delay(1500L)
+                                delay(2500L)
                             }
                         }
 
@@ -1716,6 +1762,28 @@ fun PcMirrorView(
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
                     ) {
                         Text("${currentFps}fps", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)) {
+                                TouchControlOverlayService.start(context, pcId, pcName)
+                                (context as? Activity)?.moveTaskToBack(true)
+                            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                                context.startActivity(intent)
+                            }
+                        },
+                        modifier = Modifier.weight(0.7f).height(38.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_pip),
+                            contentDescription = stringResource(R.string.remote_pip_mode),
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
                     OutlinedButton(
                         onClick = { enterFullScreen(fromButton = true) },

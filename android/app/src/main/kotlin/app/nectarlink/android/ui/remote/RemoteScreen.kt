@@ -11,6 +11,8 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
+import android.net.Uri
+import android.provider.Settings
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -227,6 +229,29 @@ fun RemoteScreen(
                         painter = painterResource(R.drawable.ic_bluetooth),
                         contentDescription = if (btOn) "Windows Bluetooth On" else "Windows Bluetooth Off",
                         tint = if (btOn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                val context = LocalContext.current
+                IconButton(
+                    onClick = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)) {
+                            TouchControlOverlayService.start(context, device.id, device.name)
+                            (context as? Activity)?.moveTaskToBack(true)
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}")
+                            )
+                            context.startActivity(intent)
+                        }
+                    },
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_pip),
+                        contentDescription = stringResource(R.string.remote_pip_mode),
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp),
                     )
                 }

@@ -382,7 +382,6 @@ pub fn run_wasapi_loopback(
         client.Start()?;
 
         let mut staging: Vec<u8> = Vec::with_capacity(CHUNK_BYTES * 2);
-        let mut dsp = StudioDsp::new();
 
         while !stop.load(Ordering::Relaxed) {
             let mut packet_frames = capture.GetNextPacketSize()?;

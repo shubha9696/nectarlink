@@ -155,6 +155,7 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden"
             android:exported="true"
             android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -441,5 +442,10 @@
         <receiver
             android:name=".widget.PcWidgetProvider$ActionReceiver"
             android:exported="false" />
+            <!-- Interactive floating window (PiP mode) for PC TouchControl. -->
+        <service
+            android:name=".ui.remote.TouchControlOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>

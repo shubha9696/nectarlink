@@ -31,10 +31,10 @@ use windows::Win32::{
 };
 
 /// How much sound is gathered before playing (and again after a stall).
-const START_MS: u32 = 10;
+const START_MS: u32 = 25;
 /// More than this waiting, and the oldest is dropped down to [`TRIM_TO_MS`].
-const MOST_MS: u32 = 35;
-const TRIM_TO_MS: u32 = 15;
+const MOST_MS: u32 = 120;
+const TRIM_TO_MS: u32 = 35;
 /// The device's buffer.
 const DEVICE_BUFFER: Duration = Duration::from_millis(10);
 
@@ -47,7 +47,7 @@ struct PacketQueue {
 impl PacketQueue {
     fn new() -> Self {
         Self {
-            packets: Mutex::new(VecDeque::with_capacity(16)),
+            packets: Mutex::new(VecDeque::with_capacity(32)),
             closed: AtomicBool::new(false),
         }
     }
@@ -57,8 +57,8 @@ impl PacketQueue {
             return;
         }
         let mut q = self.packets.lock().unwrap_or_else(|e| e.into_inner());
-        // Bounded queue: max 8 packets (~80ms). Drop oldest to eliminate latency drift!
-        if q.len() >= 8 {
+        // Bounded queue: max 24 packets (~240ms). Drop oldest to eliminate latency drift!
+        if q.len() >= 24 {
             q.pop_front();
         }
         q.push_back(data);
@@ -137,6 +137,8 @@ struct Jitter {
     per_ms: usize,
     /// Gathering sound before playing.
     waiting: bool,
+    /// Whether the previous block ended in silence or underrun.
+    last_silent: bool,
     /// Times it ran dry, and bytes dropped for piling up (for the log).
     stalls: u32,
     trimmed: usize,
@@ -150,6 +152,7 @@ impl Jitter {
             frame,
             per_ms: frame * rate as usize / 1000,
             waiting: true,
+            last_silent: true,
             stalls: 0,
             trimmed: 0,
         }
@@ -196,13 +199,49 @@ impl Jitter {
                     out[first..n].copy_from_slice(&s2[..second]);
                 }
                 self.bytes.drain(..n);
+
+                // Smoothly fade in if resuming from silence/underrun to eliminate initial click/crack
+                if self.last_silent {
+                    let fade_frames = (self.per_ms * 2 / self.frame).min(n / self.frame);
+                    for f in 0..fade_frames {
+                        let factor = f as f32 / fade_frames as f32;
+                        for ch in 0..(self.frame / 2) {
+                            let idx = f * self.frame + ch * 2;
+                            let sample = i16::from_le_bytes([out[idx], out[idx + 1]]);
+                            let faded = (sample as f32 * factor) as i16;
+                            let b = faded.to_le_bytes();
+                            out[idx] = b[0];
+                            out[idx + 1] = b[1];
+                        }
+                    }
+                    self.last_silent = false;
+                }
             }
+
             if n < out.len() {
-                // Ran dry momentarily: zero-pad missing tail but don't stall future packets
+                // Ran dry momentarily: fade out the tail before zeros to eliminate popping
+                if n > 0 {
+                    let fade_frames = (self.per_ms * 2 / self.frame).min(n / self.frame);
+                    let start_fade_byte = n - fade_frames * self.frame;
+                    for f in 0..fade_frames {
+                        let factor = 1.0 - (f as f32 / fade_frames as f32);
+                        for ch in 0..(self.frame / 2) {
+                            let idx = start_fade_byte + f * self.frame + ch * 2;
+                            let sample = i16::from_le_bytes([out[idx], out[idx + 1]]);
+                            let faded = (sample as f32 * factor) as i16;
+                            let b = faded.to_le_bytes();
+                            out[idx] = b[0];
+                            out[idx + 1] = b[1];
+                        }
+                    }
+                }
                 if self.bytes.is_empty() {
                     self.stalls += 1;
                 }
+                self.last_silent = true;
             }
+        } else {
+            self.last_silent = true;
         }
         out[n..].fill(0);
     }

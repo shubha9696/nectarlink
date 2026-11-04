@@ -1592,6 +1592,13 @@ mod imp {
                     SRCCOPY,
                 ).as_bool()
             };
+            if !ok {
+                // Wake display if monitor went into power-save/sleep mode
+                windows::Win32::UI::WindowsAndMessaging::mouse_event(
+                    windows::Win32::UI::WindowsAndMessaging::MOUSEEVENTF_MOVE,
+                    0, 0, 0, 0
+                );
+            }
 
             // Draw the mouse cursor at its scaled position so the phone user sees where they point.
             let mut ci = CURSORINFO {
@@ -2383,15 +2390,37 @@ mod imp {
         // mount before sending the initial MirrorConfig and IDR keyframe.
         std::thread::sleep(Duration::from_millis(120));
 
-        let fps = options.fps.clamp(10, 120);
-        let max_bitrate = options.bitrate.clamp(400_000, 30_000_000);
-        // Lowered when the link can't keep up (frames dropped to hold the delay down),
-        // raised back once it has been clean for a while.
-        let is_relay = node.paired_devices().ok().and_then(|devs| {
-            devs.into_iter().find(|d| d.id == peer).map(|d| matches!(d.link, nectarlink_core::LinkState::Online { path: nectarlink_core::ConnectionPath::Relay, .. }))
+        #[cfg(windows)]
+        unsafe {
+            windows::Win32::System::Power::SetThreadExecutionState(
+                windows::Win32::System::Power::ES_CONTINUOUS
+                    | windows::Win32::System::Power::ES_DISPLAY_REQUIRED
+                    | windows::Win32::System::Power::ES_SYSTEM_REQUIRED,
+            );
+        }
+
+        let is_internet = node.paired_devices().ok().and_then(|devs| {
+            devs.into_iter().find(|d| d.id == peer).map(|d| match d.link {
+                nectarlink_core::LinkState::Online { path, rtt_ms } => {
+                    path == nectarlink_core::ConnectionPath::Relay
+                        || rtt_ms > 25
+                        || node.session(&peer).is_some_and(|s| {
+                            s.remote_ip_addrs().iter().any(|a| !nectarlink_core::is_lan_ip(a.ip()))
+                        })
+                }
+                _ => false,
+            })
         }).unwrap_or(false);
-        let mut bitrate = if is_relay {
-            1_500_000.min(max_bitrate)
+
+        let fps = if is_internet { options.fps.clamp(10, 30) } else { options.fps.clamp(10, 120) };
+        let max_bitrate = if is_internet {
+            options.bitrate.clamp(150_000, 1_500_000)
+        } else {
+            options.bitrate.clamp(400_000, 30_000_000)
+        };
+        let min_bitrate = if is_internet { 150_000 } else { MIN_BITRATE };
+        let mut bitrate = if is_internet {
+            800_000.min(max_bitrate)
         } else {
             max_bitrate
         };
@@ -2412,6 +2441,7 @@ mod imp {
         let mut last_reinit = Instant::now() - Duration::from_secs(5);
         let mut last_drop: Option<Instant> = None;
         let mut last_rate_change = Instant::now();
+        let mut last_keyframe_request = Instant::now();
         let mut stats = Stats::default();
         let mut stats_since = Instant::now();
         // Play on phone: the player's picture instead of the screen, and the
@@ -2550,10 +2580,14 @@ mod imp {
                                 MirrorSend::Dropped | MirrorSend::NeedKeyframe => {
                                     stats.dropped += 1;
                                     last_drop = Some(Instant::now());
-                                    force_keyframe.store(true, Ordering::SeqCst);
+                                    // Rate limit keyframe generation to avoid congestion collapse on slow links
+                                    if last_keyframe_request.elapsed() >= Duration::from_millis(1500) {
+                                        force_keyframe.store(true, Ordering::SeqCst);
+                                        last_keyframe_request = Instant::now();
+                                    }
                                     // The link is slower than the stream: ask for less, adapting quickly to network speed.
-                                    if last_rate_change.elapsed() >= Duration::from_millis(500) {
-                                        let lower = (bitrate * 3 / 4).max(MIN_BITRATE);
+                                    if last_rate_change.elapsed() >= Duration::from_millis(400) {
+                                        let lower = (bitrate * 2 / 3).max(min_bitrate);
                                         if lower < bitrate && enc.set_bitrate(lower) {
                                             bitrate = lower;
                                             last_rate_change = Instant::now();
@@ -2625,6 +2659,12 @@ mod imp {
             }
         }
 
+        #[cfg(windows)]
+        unsafe {
+            windows::Win32::System::Power::SetThreadExecutionState(
+                windows::Win32::System::Power::ES_CONTINUOUS,
+            );
+        }
         #[cfg(target_os = "linux")]
         stop_wayland_screencast();
         tracing::info!(%peer, "stopped sharing this PC's screen");

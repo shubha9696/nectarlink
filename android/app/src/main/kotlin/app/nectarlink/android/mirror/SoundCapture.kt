@@ -40,7 +40,7 @@ class SoundCapture(
     @Volatile private var elevatedSocket: Socket? = null
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var localPlayerTrack: AudioTrack? = null
-    private val localQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(4)
+    private val localQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>(4)
     @Volatile private var localRunning = false
     private var localThread: Thread? = null
     private var thread: Thread? = null
@@ -66,7 +66,15 @@ class SoundCapture(
         localThread = Thread({
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             try {
-                val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+                val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(PACKET_BYTES * 2)
+                val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                val speakerDevice = am?.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)?.firstOrNull {
+                    it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ||
+                    it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                    it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                    it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                }
+
                 val track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
@@ -79,16 +87,27 @@ class SoundCapture(
                             }
                             .build()
                     )
-                    .setAudioFormat(AudioFormat.Builder().setSampleRate(RATE).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setSampleRate(RATE)
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                            .build()
+                    )
                     .setBufferSizeInBytes(minBuf)
                     .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
                     .build()
+
+                if (speakerDevice != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    track.preferredDevice = speakerDevice
+                }
                 localPlayerTrack = track
                 track.play()
 
                 while (localRunning && running) {
-                    val pkt = localQueue.poll(50, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
-                    track.write(pkt, 0, pkt.size, AudioTrack.WRITE_BLOCKING)
+                    val chunk = localQueue.poll(50, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
+                    track.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING)
                 }
             } catch (_: InterruptedException) {
             } catch (e: Exception) {
@@ -109,10 +128,10 @@ class SoundCapture(
         if (!localRunning || localThread == null) {
             startLocalWorker()
         }
-        if (localQueue.remainingCapacity() == 0) {
+        while (localQueue.size >= 2) {
             localQueue.poll()
         }
-        localQueue.offer(packet.copyOf())
+        localQueue.offer(packet)
     }
 
     private fun stopLocal() {

@@ -316,9 +316,10 @@ impl MirrorSink for Sink {
 
 
     fn audio_config(&self, config: MirrorAudioConfig) {
+        // Prevent loopback reverberation between phone-to-pc playback and pc-to-phone loopback
+        crate::pc_audio_stream::set_enabled(false);
 
         // A new format: a new player (the old one ends when dropped).
-
         let player = Player::start(config.rate, u16::from(config.channels))
 
             .inspect_err(|e| tracing::warn!(error = %e, "can't play the phone's sound"))
@@ -340,21 +341,19 @@ impl MirrorSink for Sink {
 
 
     fn audio(&self, _time_us: u64, data: Vec<u8>) {
-
         // The mirror window's mute is the phone's sound on this PC.
-
         if crate::mirror::muted() || crate::mirror::audio_mode(&self.device) == "phone" {
-
             return;
+        }
 
+        // Ensure PC-to-phone loopback is disabled while phone-to-PC audio is actively playing
+        if crate::pc_audio_stream::is_enabled() {
+            crate::pc_audio_stream::set_enabled(false);
         }
 
         if let Some(player) = self.player.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-
             player.push(data);
-
         }
-
     }
 
 
