@@ -2447,6 +2447,7 @@ dependencies = [
 name = "nectarlink-core"
 version = "0.1.29"
 dependencies = [
+ "anyhow",
  "blake3",
  "bytes",
  "data-encoding",

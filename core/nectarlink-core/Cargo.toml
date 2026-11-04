@@ -9,6 +9,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 nectarlink-adb.workspace = true
 nectarlink-protocol.workspace = true
 iroh.workspace = true
