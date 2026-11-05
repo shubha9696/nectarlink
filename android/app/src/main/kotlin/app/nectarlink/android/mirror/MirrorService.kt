@@ -76,7 +76,7 @@ class MirrorService : Service() {
         val consent = intent?.let { IntentCompat.getParcelableExtra(it, EXTRA_CONSENT, Intent::class.java) }
         val result = intent?.getIntExtra(EXTRA_RESULT, android.app.Activity.RESULT_OK) ?: android.app.Activity.RESULT_OK
 
-        if (pc == null || (!isElevated && !soundOnly && consent == null) || projection != null || elevatedSocket != null || elevatedStarting) {
+        if (pc == null || (!isElevated && !soundOnly && consent == null && activeProjection == null) || projection != null || elevatedSocket != null || elevatedStarting) {
             if (projection == null && elevatedSocket == null && !elevatedStarting) stopSharing()
             return START_NOT_STICKY
         }
@@ -95,7 +95,7 @@ class MirrorService : Service() {
         // In Android 14 (API 34): startForeground MUST be called with FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         // BEFORE calling getMediaProjection(result, consent)!
         val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            if (consent != null && !isElevated) {
+            if ((consent != null || activeProjection != null) && !isElevated) {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             } else {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
@@ -135,18 +135,23 @@ class MirrorService : Service() {
             return START_NOT_STICKY
         }
 
-        // Now that startForeground(..., MEDIA_PROJECTION) is active, getMediaProjection succeeds!
-        val manager = getSystemService(MediaProjectionManager::class.java)
-        val granted = runCatching {
-            manager.getMediaProjection(result, consent!!)
-        }.onFailure {
-            Log.e(TAG, "getMediaProjection failed", it)
-            cachedConsent = null
-        }.getOrNull()
+        // Reuse active MediaProjection if already held; otherwise get fresh projection:
+        val live = activeProjection
+        val granted = if (live != null) {
+            live
+        } else {
+            val manager = getSystemService(MediaProjectionManager::class.java)
+            runCatching {
+                if (consent != null) manager.getMediaProjection(result, consent) else null
+            }.onFailure {
+                Log.e(TAG, "getMediaProjection failed", it)
+            }.getOrNull()
+        }
 
         if (granted == null) {
             Log.w(TAG, "no screen capture granted or consent expired")
             cachedConsent = null
+            activeProjection = null
             stopSharing()
             if (soundOnly) {
                 // If the previous consent token expired, prompt user for fresh consent
@@ -162,6 +167,7 @@ class MirrorService : Service() {
             return START_NOT_STICKY
         }
 
+        activeProjection = granted
         projection = granted
         pcId = pc
         current = this
@@ -177,6 +183,7 @@ class MirrorService : Service() {
             // The user stopped it (from the status bar, or by locking).
             override fun onStop() = main.post {
                 cachedConsent = null
+                activeProjection = null
                 stopSharing()
             }.let {}
         }, main)
@@ -422,9 +429,7 @@ class MirrorService : Service() {
         encoder = null
         sound?.stop()
         sound = null
-        projection?.let { runCatching { it.stop() } }
         projection = null
-        cachedConsent = null
         pcId = null
         if (current === this) current = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -468,8 +473,27 @@ class MirrorService : Service() {
 
         /** Starts sharing with `request`'s PC, with the user's consent (from the capture prompt). */
         @Volatile private var cachedConsent: Pair<Int, Intent>? = null
+        @Volatile private var activeProjection: MediaProjection? = null
 
         fun tryStartWithCachedConsent(context: Context, request: MirrorRequest): Boolean {
+            if (activeProjection != null) {
+                val cached = cachedConsent
+                val intent = Intent(context, MirrorService::class.java)
+                    .putExtra(EXTRA_PC, request.pcId)
+                    .putExtra(EXTRA_MAX_SIZE, request.maxSize)
+                    .putExtra(EXTRA_FPS, request.fps)
+                    .putExtra(EXTRA_BITRATE, request.bitrate)
+                    .putExtra(EXTRA_AUDIO, request.audio)
+                    .putExtra(EXTRA_STAY_AWAKE, request.stayAwake)
+                    .putExtra(EXTRA_SCREEN_OFF, request.screenOff)
+                    .putExtra(EXTRA_SOUND_ONLY, request.soundOnly)
+                if (cached != null) {
+                    intent.putExtra(EXTRA_CONSENT, cached.second)
+                    intent.putExtra(EXTRA_RESULT, cached.first)
+                }
+                ContextCompat.startForegroundService(context, intent)
+                return true
+            }
             val cached = cachedConsent ?: return false
             start(context, request, cached.first, cached.second)
             return true

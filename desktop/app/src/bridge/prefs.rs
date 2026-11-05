@@ -740,10 +740,9 @@ impl qobject::Preferences {
         if *self.walkthrough_completed() != disk.walkthrough_completed {
             self.as_mut().set_walkthrough_completed(disk.walkthrough_completed);
         }
-        if *self.whats_new_dismissed() != disk.whats_new_dismissed {
-            self.as_mut().set_whats_new_dismissed(disk.whats_new_dismissed);
+        if disk.whats_new_dismissed && !*self.whats_new_dismissed() {
+            self.as_mut().set_whats_new_dismissed(true);
         }
-        let _ = disk.save(&core_host::host().data_dir);
     }
 
     pub fn restart_walkthrough(mut self: Pin<&mut Self>) {

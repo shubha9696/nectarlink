@@ -260,12 +260,14 @@ Item {
             // Gentle "What's new" banner for returning or upgraded users.
             Card {
                 id: whatsNewCard
+                property bool localDismissed: false
                 width: column.width
-                visible: Preferences.walkthroughCompleted && !Preferences.whatsNewDismissed
+                visible: Preferences.walkthroughCompleted && !Preferences.whatsNewDismissed && !localDismissed
                 padding: 16
                 Item {
                     width: parent.width
-                    height: Math.max(whatsNewTextCol.implicitHeight, whatsNewBtnRow.implicitHeight)
+                    implicitHeight: Math.max(whatsNewTextCol.implicitHeight, 44)
+                    height: implicitHeight
                     Column {
                         id: whatsNewTextCol
                         anchors.left: parent.left
@@ -297,8 +299,8 @@ Item {
                             size: "sm"
                             text: qsTr("Dismiss")
                             onClicked: {
+                                whatsNewCard.localDismissed = true
                                 Preferences.whatsNewDismissed = true
-                                whatsNewCard.visible = false
                             }
                         }
                         Button {
@@ -307,6 +309,7 @@ Item {
                             iconPath: Icons.book
                             text: qsTr("Open features guide")
                             onClicked: {
+                                whatsNewCard.localDismissed = true
                                 Preferences.whatsNewDismissed = true
                                 AppController.currentPage = "guide"
                             }

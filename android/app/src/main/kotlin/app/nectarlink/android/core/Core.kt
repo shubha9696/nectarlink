@@ -139,6 +139,15 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         toggles = { toggles },
         storage = { storage },
         onMirror = { pc, request ->
+            if (request.soundOnly && MirrorService.startSoundOnly(this.context, request)) {
+                return@onMirror
+            }
+            if (app.nectarlink.android.elevated.Elevated.running && MirrorService.startElevated(this.context, request)) {
+                return@onMirror
+            }
+            if (MirrorService.tryStartWithCachedConsent(this.context, request)) {
+                return@onMirror
+            }
             MirrorRequests.show(this.context, request, _state.value.nameOf(pc).orEmpty())
         },
         onWebcam = { pc, request ->

@@ -100,22 +100,7 @@ class AppDisplay(
                 made?.resize(newW, newH, newDpi)
                 made?.surface = next.surface
                 surfaceControlToken?.let { token ->
-                    runCatching {
-                        val sc = Class.forName("android.view.SurfaceControl")
-                        sc.getMethod("openTransaction").invoke(null)
-                        try {
-                            sc.getMethod("setDisplaySurface", android.os.IBinder::class.java, Surface::class.java)
-                                .invoke(null, token, next.surface)
-                            val rectClass = android.graphics.Rect::class.java
-                            val r = android.graphics.Rect(0, 0, newW, newH)
-                            runCatching {
-                                sc.getMethod("setDisplayProjection", android.os.IBinder::class.java, Int::class.javaPrimitiveType, rectClass, rectClass)
-                                    .invoke(null, token, 0, r, r)
-                            }
-                        } finally {
-                            sc.getMethod("closeTransaction").invoke(null)
-                        }
-                    }
+                    runCatching { applySurfaceControlProjection(token, next.surface, newW, newH) }
                 }
                 curW = newW
                 curH = newH
@@ -303,27 +288,50 @@ class AppDisplay(
             val token = sc.getMethod("createDisplay", String::class.java, Boolean::class.javaPrimitiveType)
                 .invoke(null, "NectarlinkScreen", false)
             if (token != null) {
-                sc.getMethod("openTransaction").invoke(null)
-                try {
-                    sc.getMethod("setDisplaySurface", android.os.IBinder::class.java, Surface::class.java)
-                        .invoke(null, token, surface)
-                    runCatching {
-                        sc.getMethod("setDisplayLayerStack", android.os.IBinder::class.java, Int::class.javaPrimitiveType)
-                            .invoke(null, token, 0)
-                    }
-                    val rectClass = android.graphics.Rect::class.java
-                    val r = android.graphics.Rect(0, 0, w, h)
-                    runCatching {
-                        sc.getMethod("setDisplayProjection", android.os.IBinder::class.java, Int::class.javaPrimitiveType, rectClass, rectClass)
-                            .invoke(null, token, 0, r, r)
-                    }
-                } finally {
-                    sc.getMethod("closeTransaction").invoke(null)
-                }
+                applySurfaceControlProjection(token, surface, w, h)
                 surfaceControlToken = token
             }
         }
         return null
+    }
+
+    private fun applySurfaceControlProjection(token: Any, surface: Surface, w: Int, h: Int) {
+        val sc = Class.forName("android.view.SurfaceControl")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val tClass = Class.forName("android.view.SurfaceControl\$Transaction")
+            val t = tClass.getConstructor().newInstance()
+            tClass.getMethod("setDisplaySurface", android.os.IBinder::class.java, Surface::class.java)
+                .invoke(t, token, surface)
+            runCatching {
+                tClass.getMethod("setDisplayLayerStack", android.os.IBinder::class.java, Int::class.javaPrimitiveType)
+                    .invoke(t, token, 0)
+            }
+            val rectClass = android.graphics.Rect::class.java
+            val r = android.graphics.Rect(0, 0, w, h)
+            runCatching {
+                tClass.getMethod("setDisplayProjection", android.os.IBinder::class.java, Int::class.javaPrimitiveType, rectClass, rectClass)
+                    .invoke(t, token, 0, r, r)
+            }
+            tClass.getMethod("apply").invoke(t)
+        } else {
+            sc.getMethod("openTransaction").invoke(null)
+            try {
+                sc.getMethod("setDisplaySurface", android.os.IBinder::class.java, Surface::class.java)
+                    .invoke(null, token, surface)
+                runCatching {
+                    sc.getMethod("setDisplayLayerStack", android.os.IBinder::class.java, Int::class.javaPrimitiveType)
+                        .invoke(null, token, 0)
+                }
+                val rectClass = android.graphics.Rect::class.java
+                val r = android.graphics.Rect(0, 0, w, h)
+                runCatching {
+                    sc.getMethod("setDisplayProjection", android.os.IBinder::class.java, Int::class.javaPrimitiveType, rectClass, rectClass)
+                        .invoke(null, token, 0, r, r)
+                }
+            } finally {
+                sc.getMethod("closeTransaction").invoke(null)
+            }
+        }
     }
 
     private fun createDisplay(w: Int, h: Int, d: Int, surface: Surface): VirtualDisplay {

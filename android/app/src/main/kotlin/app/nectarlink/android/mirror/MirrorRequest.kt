@@ -171,8 +171,17 @@ class MirrorConsentActivity : ComponentActivity() {
         MirrorRequests.dismiss(this, asked.pcId)
         if (savedInstanceState != null) return
 
-        if (asked.soundOnly && app.nectarlink.android.elevated.Elevated.running) {
-            MirrorService.startElevated(this, asked)
+        if (asked.soundOnly && MirrorService.startSoundOnly(this, asked)) {
+            finish()
+            return
+        }
+
+        if (MirrorService.tryStartWithCachedConsent(this, asked)) {
+            finish()
+            return
+        }
+
+        if (app.nectarlink.android.elevated.Elevated.running && MirrorService.startElevated(this, asked)) {
             finish()
             return
         }

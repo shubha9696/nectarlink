@@ -2568,17 +2568,28 @@ mod imp {
                                         stats.keyframes += 1;
                                     }
                                 }
-                                MirrorSend::Dropped | MirrorSend::NeedKeyframe => {
+                                MirrorSend::Dropped => {
                                     stats.dropped += 1;
                                     last_drop = Some(Instant::now());
-                                    // Rate limit keyframe generation: 800ms on internet for rapid WAN recovery!
-                                    if last_keyframe_request.elapsed() >= Duration::from_millis(if is_internet { 800 } else { 1500 }) {
+                                    // Drop backpressure: step bitrate down smoothly (10% step) without slamming to minimum or forcing heavy keyframes.
+                                    if last_rate_change.elapsed() >= Duration::from_millis(500) {
+                                        let lower = (bitrate * 9 / 10).max(min_bitrate);
+                                        if lower < bitrate && enc.set_bitrate(lower) {
+                                            bitrate = lower;
+                                            last_rate_change = Instant::now();
+                                        }
+                                    }
+                                }
+                                MirrorSend::NeedKeyframe => {
+                                    stats.dropped += 1;
+                                    last_drop = Some(Instant::now());
+                                    // Only force keyframe when stream explicitly needs resync, rate-limited to 2.5s so we don't saturate WAN.
+                                    if last_keyframe_request.elapsed() >= Duration::from_millis(2500) {
                                         force_keyframe.store(true, Ordering::SeqCst);
                                         last_keyframe_request = Instant::now();
                                     }
-                                    // The link is slower than the stream: ask for less, adapting smoothly without collapsing bitrate.
-                                    if last_rate_change.elapsed() >= Duration::from_millis(if is_internet { 800 } else { 400 }) {
-                                        let lower = (bitrate * 4 / 5).max(min_bitrate);
+                                    if last_rate_change.elapsed() >= Duration::from_millis(500) {
+                                        let lower = (bitrate * 85 / 100).max(min_bitrate);
                                         if lower < bitrate && enc.set_bitrate(lower) {
                                             bitrate = lower;
                                             last_rate_change = Instant::now();
@@ -2594,13 +2605,13 @@ mod imp {
                         if send_failed {
                             break;
                         }
-                        // Clean for 3 s: step the bitrate back up quickly toward high quality.
-                        let clean = last_drop.is_none_or(|t| t.elapsed() >= Duration::from_secs(if is_internet { 3 } else { 10 }));
+                        // Clean for 2 s: step the bitrate back up smoothly toward max.
+                        let clean = last_drop.is_none_or(|t| t.elapsed() >= Duration::from_secs(2));
                         if clean
                             && bitrate < max_bitrate
-                            && last_rate_change.elapsed() >= Duration::from_secs(if is_internet { 3 } else { 10 })
+                            && last_rate_change.elapsed() >= Duration::from_secs(2)
                         {
-                            let higher = (bitrate * 6 / 5).min(max_bitrate);
+                            let higher = (bitrate * 115 / 100).min(max_bitrate);
                             if enc.set_bitrate(higher) {
                                 bitrate = higher;
                                 last_rate_change = Instant::now();
