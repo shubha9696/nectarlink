@@ -498,6 +498,8 @@ fun HomeScreen(
 
 ) {
 
+    val liveMirrorSession by app.nectarlink.android.mirror.MirrorService.session.collectAsStateWithLifecycle()
+
     var showClipboardHistory by remember { mutableStateOf(false) }
 
     var showTimeline by remember { mutableStateOf(false) }
@@ -755,7 +757,6 @@ fun HomeScreen(
 
         }
 
-        val liveMirrorSession by app.nectarlink.android.mirror.MirrorService.session.collectAsStateWithLifecycle()
         if (liveMirrorSession.active) {
             item(key = "mirror_active_banner", contentType = "banner") {
                 val context = LocalContext.current
