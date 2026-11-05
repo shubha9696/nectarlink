@@ -39,23 +39,18 @@ class SoundCapture(
     @Volatile private var running = false
     @Volatile private var elevatedSocket: Socket? = null
     @Volatile private var audioRecord: AudioRecord? = null
-    @Volatile private var localPlayerTrack: AudioTrack? = null
-    private val localQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>(4)
-    @Volatile private var localRunning = false
-    private var localThread: Thread? = null
     private var thread: Thread? = null
 
     private fun applyVolumeForMode(mode: Int) {
         val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
         try {
-            if (mode == 0 && projection != null) {
-                // In MediaProjection mode, mute STREAM_MUSIC so only PC plays.
-                // In Elevated mode, REMOTE_SUBMIX naturally silences phone speakers for PC only.
+            if (mode == 0) {
+                // In mode 0 (PC only), mute STREAM_MUSIC so only PC plays.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, 0)
                 }
             } else {
-                // Both or Phone only: Unmute STREAM_MUSIC
+                // In mode 1 (Both) or mode 2 (Phone only), unmute STREAM_MUSIC so phone speakers play naturally.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
                 }
@@ -78,118 +73,8 @@ class SoundCapture(
         s?.let { runCatching { it.close() } }
     }
 
-    private var volumeCheckCounter = 0
-
-    private fun startLocalWorker() {
-        if (localThread != null && localRunning) return
-        localRunning = true
-        localThread = Thread({
-            try {
-                val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(PACKET_BYTES * 2)
-
-                // Dedicated speaker playback that NEVER loops back into REMOTE_SUBMIX:
-                // 1. AudioAttributes.FLAG_AUDIBILITY_ENFORCED forces hardware speaker output routing.
-                // 2. AudioAttributes.ALLOW_CAPTURE_BY_NONE (API 29+) explicitly prohibits any capture session or
-                //    REMOTE_SUBMIX from recording this AudioTrack, eliminating any digital feedback loop.
-                // 3. AudioAttributes.USAGE_ASSISTANCE_SONIFICATION ensures AudioPolicy routes directly to physical
-                //    speakers without being claimed by MediaRecorder.AudioSource.REMOTE_SUBMIX.
-                val attrBuilder = AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    attrBuilder.setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
-                }
-
-                val track = AudioTrack.Builder()
-                    .setAudioAttributes(attrBuilder.build())
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setSampleRate(RATE)
-                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                            .build()
-                    )
-                    .setBufferSizeInBytes(minBuf * 2)
-                    .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
-
-                // Route directly to physical built-in speaker HAL on Android 6.0+ (API 23+)
-                val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
-                    runCatching {
-                        val devices = am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
-                        val speaker = devices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-                        if (speaker != null) {
-                            track.setPreferredDevice(speaker)
-                        }
-                    }
-                }
-
-                val initialGain = if (am != null) {
-                    val cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-                    val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-                    (cur.toFloat() / max.toFloat()).coerceIn(0f, 1f)
-                } else 1.0f
-                track.setVolume(initialGain)
-                localPlayerTrack = track
-                track.play()
-
-                while (localRunning && running) {
-                    val chunk = localQueue.poll(20, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
-                    if (volumeCheckCounter++ % 20 == 0 && am != null) {
-                        val cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-                        val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-                        val gain = (cur.toFloat() / max.toFloat()).coerceIn(0f, 1f)
-                        track.setVolume(gain)
-                    }
-                    track.write(chunk, 0, chunk.size, AudioTrack.WRITE_NON_BLOCKING)
-                }
-            } catch (_: InterruptedException) {
-            } catch (e: Exception) {
-                Log.w(TAG, "Local player error", e)
-            } finally {
-                val t = localPlayerTrack
-                localPlayerTrack = null
-                t?.runCatching { stop() }
-                t?.runCatching { release() }
-            }
-        }, "sound-local-player").apply {
-            start()
-        }
-    }
-
-    private fun playLocal(packet: ByteArray) {
-        if (!localRunning || localThread == null) {
-            startLocalWorker()
-        }
-        val copy = packet.copyOf()
-        while (localQueue.size >= 4) {
-            localQueue.poll()
-        }
-        localQueue.offer(copy)
-    }
-
-    private fun stopLocal() {
-        localRunning = false
-        localThread?.interrupt()
-        localThread = null
-        localQueue.clear()
-        val track = localPlayerTrack
-        localPlayerTrack = null
-        track?.let {
-            runCatching { it.stop() }
-            runCatching { it.release() }
-        }
-    }
-
     internal fun onModeChanged(newMode: Int) {
         applyVolumeForMode(newMode)
-        if (newMode != 1) {
-            stopLocal()
-        }
         // When switching to mode 2 ("phone only"), immediately close the capture socket / stop AudioRecord.
         // This releases REMOTE_SUBMIX in InputServer, allowing Android OS to route all audio directly to
         // the phone's physical speakers.
@@ -263,7 +148,6 @@ class SoundCapture(
 
     private fun runRecord(record: AudioRecord) {
         audioRecord = record
-        stopLocal()
         applyVolumeForMode(soundMode)
         try {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
@@ -323,7 +207,6 @@ class SoundCapture(
         } catch (e: Exception) {
             Log.w(TAG, "AudioRecord sound capture stopped", e)
         } finally {
-            stopLocal()
             restoreVolume()
             audioRecord = null
             activeCaptures.remove(this)
@@ -394,11 +277,6 @@ class SoundCapture(
                                 break
                             }
                         }
-                        if (soundMode == 1) {
-                            playLocal(packet)
-                        } else {
-                            stopLocal()
-                        }
                     }
                 } catch (e: Exception) {
                     if (running && soundMode != 2) {
@@ -411,7 +289,6 @@ class SoundCapture(
         } catch (e: Exception) {
             Log.w(TAG, "Elevated sound capture stopped", e)
         } finally {
-            stopLocal()
             restoreVolume()
             closeElevatedSocket()
             if (Elevated.running) {
@@ -429,7 +306,6 @@ class SoundCapture(
         audioRecord = null
         val th = thread
         thread = null
-        stopLocal()
         restoreVolume()
         activeCaptures.remove(this)
         closeElevatedSocket()

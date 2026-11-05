@@ -32,6 +32,7 @@ Window {
         if (phase === "ended") {
             win.visible = false
             win.close()
+            win.destroy()
         } else if (phase === "showing" && info.app && sized) {
             resizeTimer.restart()
         }
@@ -41,6 +42,7 @@ Window {
         if (phase === "ended") {
             win.visible = false
             win.close()
+            win.destroy()
         }
     }
 

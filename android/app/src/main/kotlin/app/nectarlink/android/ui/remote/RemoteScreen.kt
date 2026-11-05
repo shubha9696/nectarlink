@@ -1116,6 +1116,7 @@ internal fun VoiceTypingBar(
 
     fun launchSystemSpeechDialog() {
         destroyRecognizer(cancelWatchdog = true)
+        val candidates = buildCandidateRecognizers()
         runCatching {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -1130,11 +1131,17 @@ internal fun VoiceTypingBar(
             if (activities.isNotEmpty()) {
                 speechLauncher.launch(intent)
                 state = DictateState.Listening(partial = "Listening...")
+            } else if (candidates.isNotEmpty()) {
+                state = DictateState.Error(DictateError.Failed)
             } else {
                 state = DictateState.Error(DictateError.NoRecognizer)
             }
         }.onFailure {
-            state = DictateState.Error(DictateError.NoRecognizer)
+            if (candidates.isNotEmpty()) {
+                state = DictateState.Error(DictateError.Failed)
+            } else {
+                state = DictateState.Error(DictateError.NoRecognizer)
+            }
         }
     }
 
@@ -1162,27 +1169,28 @@ internal fun VoiceTypingBar(
     fun buildCandidateRecognizers(): List<() -> SpeechRecognizer?> {
         val list = mutableListOf<() -> SpeechRecognizer?>()
 
-        // 1. Default system SpeechRecognizer
-        if (SpeechRecognizer.isRecognitionAvailable(context)) {
-            list.add {
-                runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
-                    ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
-            }
+        // 1. Google Speech Recognition Service explicitly (bypasses broken OEM defaults like com.google.android.as)
+        list.add {
+            runCatching {
+                val comp = ComponentName("com.google.android.googlequicksearchbox", "com.google.android.voicesearch.serviceapi.GoogleRecognitionService")
+                SpeechRecognizer.createSpeechRecognizer(context, comp)
+            }.getOrNull()
         }
 
-        // 2. Android On-Device Speech Recognizer (if API 33+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            list.add {
-                runCatching {
-                    if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
-                        SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-                    } else null
-                }.getOrNull()
-            }
-        }
-
-        // 3. Concrete system-registered RecognitionServices dynamically found on this phone
+        // 2. Query any RecognitionService specifically inside googlequicksearchbox or tts packages
         val pm = context.packageManager
+        for (pkg in listOf("com.google.android.googlequicksearchbox", "com.google.android.tts")) {
+            val intent = Intent(RecognitionService.SERVICE_INTERFACE).setPackage(pkg)
+            val services = runCatching { pm.queryIntentServices(intent, 0) }.getOrDefault(emptyList())
+            for (info in services) {
+                list.add {
+                    val comp = ComponentName(info.serviceInfo.packageName, info.serviceInfo.name)
+                    runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
+                }
+            }
+        }
+
+        // 3. Concrete system-registered RecognitionServices dynamically found across all packages
         val resolveInfos = runCatching {
             pm.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
         }.getOrDefault(emptyList())
@@ -1190,6 +1198,25 @@ internal fun VoiceTypingBar(
             list.add {
                 val comp = ComponentName(info.serviceInfo.packageName, info.serviceInfo.name)
                 runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
+            }
+        }
+
+        // 4. Default system SpeechRecognizer
+        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+            list.add {
+                runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
+                    ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
+            }
+        }
+
+        // 5. Android On-Device Speech Recognizer (if API 33+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            list.add {
+                runCatching {
+                    if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+                        SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                    } else null
+                }.getOrNull()
             }
         }
 
@@ -1316,7 +1343,10 @@ internal fun VoiceTypingBar(
                 }
                 // For any other error (binding failure, busy, server disconnect, network issue), fall back immediately!
                 if (candidateIndex + 1 < candidates.size) {
-                    startInlineSpeechRecognizer(candidateIndex + 1)
+                    scope.launch {
+                        delay(150)
+                        startInlineSpeechRecognizer(candidateIndex + 1)
+                    }
                 } else {
                     launchSystemSpeechDialog()
                 }
@@ -1334,9 +1364,6 @@ internal fun VoiceTypingBar(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 5000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
         }
 
         recognizer = sr
@@ -1349,7 +1376,10 @@ internal fun VoiceTypingBar(
         if (!started) {
             destroyRecognizer(cancelWatchdog = false)
             if (candidateIndex + 1 < candidates.size) {
-                startInlineSpeechRecognizer(candidateIndex + 1)
+                scope.launch {
+                    delay(150)
+                    startInlineSpeechRecognizer(candidateIndex + 1)
+                }
             } else {
                 launchSystemSpeechDialog()
             }
@@ -1364,6 +1394,7 @@ internal fun VoiceTypingBar(
             if (!isReadyForSpeech && recognizer != null) {
                 destroyRecognizer(cancelWatchdog = false)
                 if (candidateIndex + 1 < candidates.size) {
+                    delay(150)
                     startInlineSpeechRecognizer(candidateIndex + 1)
                 } else {
                     launchSystemSpeechDialog()

@@ -417,8 +417,10 @@ class MirrorService : Service() {
         screenOff = false
         soundOnly = false
         elevatedStarting = false
+        val proj = projection ?: activeProjection
         cachedConsent = null
         activeProjection = null
+        projection = null
         _session.value = MirrorSession()
         StreamPower.set(this, StreamPower.SCREEN, streaming = false)
         elevatedDisplayListener?.let {
@@ -431,14 +433,18 @@ class MirrorService : Service() {
         encoder = null
         val snd = sound
         sound = null
-        projection = null
         pcId = null
         if (current === this) current = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        runCatching {
+            getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+        }
+        runCatching { proj?.stop() }
         stopSelf()
         Thread({
             enc?.stop()
             snd?.stop()
+            runCatching { proj?.stop() }
         }, "mirror-stop-async").start()
     }
 
@@ -562,6 +568,10 @@ class MirrorService : Service() {
             val service = current
             if (service == null) {
                 _session.value = MirrorSession()
+                val proj = activeProjection
+                activeProjection = null
+                cachedConsent = null
+                runCatching { proj?.stop() }
                 return
             }
             service.main.post {
@@ -576,6 +586,10 @@ class MirrorService : Service() {
             val service = current
             if (service == null) {
                 _session.value = MirrorSession()
+                val proj = activeProjection
+                activeProjection = null
+                cachedConsent = null
+                runCatching { proj?.stop() }
                 return
             }
             service.main.post { service.stopSharing() }
