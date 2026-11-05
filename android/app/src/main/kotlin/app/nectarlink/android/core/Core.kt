@@ -141,12 +141,16 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         onMirror = { pc, request ->
             if (request.soundOnly && MirrorService.startSoundOnly(this.context, request)) {
                 // Handled sound-only
+                true
             } else if (app.nectarlink.android.elevated.Elevated.running && MirrorService.startElevated(this.context, request)) {
                 // Handled elevated
+                true
             } else if (MirrorService.tryStartWithCachedConsent(this.context, request)) {
                 // Handled with retained consent
+                true
             } else {
                 MirrorRequests.show(this.context, request, _state.value.nameOf(pc).orEmpty())
+                true
             }
         },
         onWebcam = { pc, request ->
@@ -2338,9 +2342,63 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         enqueueRemoteOp { runCatching { it.requestPcMirrorKeyframe(id) } }
     }
 
+    private val pendingPcTouchLock = Any()
+    private var pendingPcTouchId: String? = null
+    private var pendingPcTouchX = 0f
+    private var pendingPcTouchY = 0f
+    private var pendingPcTouchQueued = false
+
     /** Sends a normalized touch, scroll, key, or text event to a paired PC during reverse mirroring. */
     fun sendPcMirrorInput(id: String, input: app.nectarlink.core.MirrorInputEvent) {
-        enqueueRemoteOp { runCatching { it.sendPcMirrorInput(id, input) } }
+        if (input is app.nectarlink.core.MirrorInputEvent.Touch && input.v1 == app.nectarlink.core.TouchPhase.MOVE) {
+            val shouldQueue = synchronized(pendingPcTouchLock) {
+                pendingPcTouchId = id
+                pendingPcTouchX = input.v2
+                pendingPcTouchY = input.v3
+                if (!pendingPcTouchQueued) {
+                    pendingPcTouchQueued = true
+                    true
+                } else {
+                    false
+                }
+            }
+            if (shouldQueue) {
+                enqueueRemoteOp { node ->
+                    val (targetId, x, y) = synchronized(pendingPcTouchLock) {
+                        pendingPcTouchQueued = false
+                        Triple(pendingPcTouchId, pendingPcTouchX, pendingPcTouchY)
+                    }
+                    if (targetId != null) {
+                        runCatching {
+                            node.sendPcMirrorInput(
+                                targetId,
+                                app.nectarlink.core.MirrorInputEvent.Touch(app.nectarlink.core.TouchPhase.MOVE, x, y),
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            enqueueRemoteOp { node ->
+                val pending = synchronized(pendingPcTouchLock) {
+                    if (pendingPcTouchQueued && pendingPcTouchId != null) {
+                        pendingPcTouchQueued = false
+                        Triple(pendingPcTouchId, pendingPcTouchX, pendingPcTouchY)
+                    } else {
+                        null
+                    }
+                }
+                if (pending != null && pending.first != null) {
+                    runCatching {
+                        node.sendPcMirrorInput(
+                            pending.first!!,
+                            app.nectarlink.core.MirrorInputEvent.Touch(app.nectarlink.core.TouchPhase.MOVE, pending.second, pending.third),
+                        )
+                    }
+                }
+                runCatching { node.sendPcMirrorInput(id, input) }
+            }
+        }
     }
 
     private fun remoteCommand(onStatus: ((RemoteAccess) -> Unit)?, block: suspend (NectarlinkNode) -> Unit) {

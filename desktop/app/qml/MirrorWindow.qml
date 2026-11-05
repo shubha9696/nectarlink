@@ -31,6 +31,8 @@ Window {
     onPhaseChanged: {
         if (phase === "ended") {
             win.close()
+        } else if (phase === "showing" && info.app && sized) {
+            resizeTimer.restart()
         }
     }
 
@@ -174,7 +176,6 @@ Window {
     onHeightChanged: if (info.app && sized && readyForResize) resizeTimer.restart()
     onXChanged: if (info.app && sized && readyForResize) moveTimer.restart()
     onYChanged: if (info.app && sized && readyForResize) moveTimer.restart()
-    onPhaseChanged: if (phase === "showing" && info.app && sized) resizeTimer.restart()
     onActiveChanged: if (win.active) Mirror.syncClipboardOnFocus(win.mirrorKey)
 
     onFrameChanged: {

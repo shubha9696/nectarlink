@@ -578,7 +578,7 @@ mod tests {
     fn transport_overrides_parse_and_bad_values_keep_the_defaults() {
         let default = TransportTuning::default();
         assert_eq!(TransportTuning::parse(None, None), default);
-        assert_eq!(default.congestion, Congestion::Cubic);
+        assert_eq!(default.congestion, Congestion::Bbr3);
         assert_eq!(TransportTuning::parse(Some("cubic"), None).congestion, Congestion::Cubic);
         assert_eq!(TransportTuning::parse(Some(" BBR3 "), None).congestion, Congestion::Bbr3);
         assert_eq!(TransportTuning::parse(Some("bbr"), None).congestion, Congestion::Bbr3);

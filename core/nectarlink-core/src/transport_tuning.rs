@@ -132,7 +132,7 @@ pub fn build_wifi_optimized_transport_config() -> noq_proto::TransportConfig {
     config.send_window(CONNECTION_SEND_WINDOW_BYTES);
 
     // 3. Tolerate 2-hop Wi-Fi frame reordering without triggering false loss recovery.
-    config.packet_threshold(4);
+    config.packet_threshold(WIFI_HAIRPIN_PACKET_THRESHOLD);
 
     // 4. Safe universal initial MTU (1200 bytes) ensures 100% packet delivery across
     // all 5G / 4G cellular carriers, VPNs, and internet paths, while DPLPMTUD probes higher.

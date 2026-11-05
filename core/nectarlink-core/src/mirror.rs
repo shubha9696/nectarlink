@@ -50,11 +50,11 @@ fn pc_mirror_allowed(shared: &Shared, peer: &DeviceId) -> bool {
         || shared.pc_mirror_sessions.lock().unwrap_or_else(|e| e.into_inner()).contains(peer)
         || shared.store.is_paired(peer).unwrap_or(false)
 }
-/// Packets waiting to go out, at most. Beyond this the network is behind:
-/// sending more would only add delay. 4 packets keeps real-time interactive latency under 50ms over WAN/mobile relays.
-const QUEUE: usize = 4;
+/// Packets waiting to go out, at most. 16 packets (~500 ms at 30 fps) absorbs cellular/WAN
+/// latency jitter and relay roundtrips without queue stalls or frame starving.
+const QUEUE: usize = 16;
 /// Sound packets waiting to go out, at most (each is 10 ms).
-const AUDIO_QUEUE: usize = 12;
+const AUDIO_QUEUE: usize = 24;
 /// Icons in a `mirror.apps` answer, at most, in bytes: the rest go without
 /// (the answer stays well inside a frame).
 const ICONS_BUDGET: usize = 768 * 1024;
@@ -556,10 +556,6 @@ impl MirrorStream {
         if self.closed.load(Ordering::Acquire) {
             return MirrorSend::Closed;
         }
-        let mut resyncing = self.resyncing.lock().unwrap_or_else(|e| e.into_inner());
-        if *resyncing && kind == PacketKind::Frame && !self.audio {
-            return MirrorSend::NeedKeyframe;
-        }
         let sent = if kind == PacketKind::Config {
             self.queue.blocking_send((kind, time_us, data)).map_err(|_| ())
         } else {
@@ -571,6 +567,7 @@ impl MirrorStream {
         match sent {
             Ok(()) => {
                 if kind == PacketKind::Keyframe {
+                    let mut resyncing = self.resyncing.lock().unwrap_or_else(|e| e.into_inner());
                     *resyncing = false;
                 }
                 MirrorSend::Queued
@@ -578,6 +575,7 @@ impl MirrorStream {
             Err(()) if self.closed.load(Ordering::Acquire) => MirrorSend::Closed,
             Err(()) if self.audio => MirrorSend::Dropped,
             Err(()) => {
+                let mut resyncing = self.resyncing.lock().unwrap_or_else(|e| e.into_inner());
                 if !*resyncing {
                     *resyncing = true;
                     MirrorSend::NeedKeyframe

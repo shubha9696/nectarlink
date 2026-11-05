@@ -3946,7 +3946,7 @@ async fn bind_endpoint(
         .stream_receive_window(VarInt::from_u32(tuning.stream_window))
         .receive_window(VarInt::from_u32(tuning.connection_window))
         .send_window(u64::from(tuning.connection_window))
-        .packet_threshold(4)
+        .packet_threshold(10)
         .initial_mtu(1200)
         .min_mtu(1200)
         .mtu_discovery_config(Some(noq_proto::MtuDiscoveryConfig::default()))

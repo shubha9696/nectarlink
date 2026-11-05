@@ -890,6 +890,7 @@ fun PcMirrorView(
                         val touchStartedInVideo = initialMapped != null
                         var lastX = initialMapped?.first ?: 0.5f
                         var lastY = initialMapped?.second ?: 0.5f
+                        var lastMoveSentMs = 0L
                         var twoFingerGesture = false
                         var didTwoFingerScroll = false
                         var isPinching = false
@@ -1022,13 +1023,18 @@ fun PcMirrorView(
                                 )
                                 if (mapped != null) {
                                     val (nx, ny) = mapped
+                                    val nowMs = System.currentTimeMillis()
                                     if (abs(nx - lastX) > 0.002f || abs(ny - lastY) > 0.002f) {
+                                        val dist = hypot(nx - lastX, ny - lastY)
                                         lastX = nx
                                         lastY = ny
-                                        core.sendPcMirrorInput(
-                                            pcId,
-                                            MirrorInputEvent.Touch(TouchPhase.MOVE, lastX, lastY),
-                                        )
+                                        if (nowMs - lastMoveSentMs >= 20L || dist > 0.01f) {
+                                            lastMoveSentMs = nowMs
+                                            core.sendPcMirrorInput(
+                                                pcId,
+                                                MirrorInputEvent.Touch(TouchPhase.MOVE, lastX, lastY),
+                                            )
+                                        }
                                     }
                                 }
                                 for (i in 0 until changes.size) {

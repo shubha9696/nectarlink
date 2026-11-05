@@ -2405,13 +2405,13 @@ mod imp {
         let max_size = if is_internet { options.max_size.min(1280) } else { options.max_size };
         let fps = if is_internet { options.fps.clamp(20, 30) } else { options.fps.clamp(10, 120) };
         let max_bitrate = if is_internet {
-            options.bitrate.clamp(600_000, 4_000_000)
+            options.bitrate.clamp(1_200_000, 5_000_000)
         } else {
             options.bitrate.clamp(400_000, 30_000_000)
         };
-        let min_bitrate = if is_internet { 500_000 } else { MIN_BITRATE };
+        let min_bitrate = if is_internet { 800_000 } else { MIN_BITRATE };
         let mut bitrate = if is_internet {
-            1_800_000.min(max_bitrate)
+            2_000_000.min(max_bitrate).max(min_bitrate)
         } else {
             max_bitrate
         };
@@ -2512,13 +2512,16 @@ mod imp {
 
             // A keyframe on request comes from the running encoder. Rebuilding it (a new
             // stream config plus a full keyframe) is the fallback for encoders that can't.
-            let requested_kf = force_keyframe.swap(false, Ordering::SeqCst);
+            let requested_kf = force_keyframe.load(Ordering::SeqCst);
             let keyframe_in_place =
                 requested_kf && encoder.as_ref().is_some_and(ScreenEncoder::request_keyframe);
             let need_reinit = encoder.is_none()
                 || (requested_kf
                     && !keyframe_in_place
-                    && last_reinit.elapsed() >= Duration::from_millis(if is_internet { 1200 } else { 1400 }));
+                    && last_reinit.elapsed() >= Duration::from_millis(if is_internet { 500 } else { 800 }));
+            if keyframe_in_place || need_reinit {
+                force_keyframe.store(false, Ordering::SeqCst);
+            }
 
             if need_reinit {
                 match new_pc_encoder_with_fallback(&mut codec, dst_w, dst_h, fps, bitrate) {
@@ -2571,9 +2574,9 @@ mod imp {
                                 MirrorSend::Dropped => {
                                     stats.dropped += 1;
                                     last_drop = Some(Instant::now());
-                                    // Drop backpressure: step bitrate down smoothly (10% step) without slamming to minimum or forcing heavy keyframes.
+                                    // Drop backpressure: step bitrate down gently without slamming to minimum.
                                     if last_rate_change.elapsed() >= Duration::from_millis(500) {
-                                        let lower = (bitrate * 9 / 10).max(min_bitrate);
+                                        let lower = (bitrate * 95 / 100).max(min_bitrate);
                                         if lower < bitrate && enc.set_bitrate(lower) {
                                             bitrate = lower;
                                             last_rate_change = Instant::now();
@@ -2583,13 +2586,13 @@ mod imp {
                                 MirrorSend::NeedKeyframe => {
                                     stats.dropped += 1;
                                     last_drop = Some(Instant::now());
-                                    // Only force keyframe when stream explicitly needs resync, rate-limited to 2.5s so we don't saturate WAN.
-                                    if last_keyframe_request.elapsed() >= Duration::from_millis(2500) {
+                                    // Promptly request keyframe (500 ms cooldown) so WAN recovers instantly without multi-second freeze.
+                                    if last_keyframe_request.elapsed() >= Duration::from_millis(500) {
                                         force_keyframe.store(true, Ordering::SeqCst);
                                         last_keyframe_request = Instant::now();
                                     }
                                     if last_rate_change.elapsed() >= Duration::from_millis(500) {
-                                        let lower = (bitrate * 85 / 100).max(min_bitrate);
+                                        let lower = (bitrate * 92 / 100).max(min_bitrate);
                                         if lower < bitrate && enc.set_bitrate(lower) {
                                             bitrate = lower;
                                             last_rate_change = Instant::now();
@@ -2605,11 +2608,11 @@ mod imp {
                         if send_failed {
                             break;
                         }
-                        // Clean for 2 s: step the bitrate back up smoothly toward max.
-                        let clean = last_drop.is_none_or(|t| t.elapsed() >= Duration::from_secs(2));
+                        // Clean for 1 s: step the bitrate back up smoothly toward max.
+                        let clean = last_drop.is_none_or(|t| t.elapsed() >= Duration::from_secs(1));
                         if clean
                             && bitrate < max_bitrate
-                            && last_rate_change.elapsed() >= Duration::from_secs(2)
+                            && last_rate_change.elapsed() >= Duration::from_secs(1)
                         {
                             let higher = (bitrate * 115 / 100).min(max_bitrate);
                             if enc.set_bitrate(higher) {
