@@ -1114,58 +1114,6 @@ internal fun VoiceTypingBar(
         state = DictateState.Idle()
     }
 
-    fun launchSystemSpeechDialog() {
-        destroyRecognizer(cancelWatchdog = true)
-        val candidates = buildCandidateRecognizers()
-        runCatching {
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak into $pcName")
-                val localeTag = Locale.getDefault().toLanguageTag()
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
-            }
-            val pm = context.packageManager
-            val activities = runCatching { pm.queryIntentActivities(intent, 0) }.getOrDefault(emptyList())
-            if (activities.isNotEmpty()) {
-                speechLauncher.launch(intent)
-                state = DictateState.Listening(partial = "Listening...")
-            } else if (candidates.isNotEmpty()) {
-                state = DictateState.Error(DictateError.Failed)
-            } else {
-                state = DictateState.Error(DictateError.NoRecognizer)
-            }
-        }.onFailure {
-            if (candidates.isNotEmpty()) {
-                state = DictateState.Error(DictateError.Failed)
-            } else {
-                state = DictateState.Error(DictateError.NoRecognizer)
-            }
-        }
-    }
-
-    LaunchedEffect(state) {
-        if (state is DictateState.Error) {
-            delay(2500)
-            if (state is DictateState.Error) {
-                state = DictateState.Idle()
-            }
-        } else if (state is DictateState.Typing && (state as DictateState.Typing).text == "Transcribing...") {
-            delay(3000)
-            if (state is DictateState.Typing && (state as DictateState.Typing).text == "Transcribing...") {
-                destroyRecognizer()
-                state = DictateState.Idle()
-            }
-        } else if (state is DictateState.Listening && (state as DictateState.Listening).partial.isEmpty()) {
-            delay(25000)
-            if (state is DictateState.Listening && (state as DictateState.Listening).partial.isEmpty()) {
-                destroyRecognizer()
-                state = DictateState.Idle()
-            }
-        }
-    }
-
     fun buildCandidateRecognizers(): List<() -> SpeechRecognizer?> {
         val list = mutableListOf<() -> SpeechRecognizer?>()
 
@@ -1221,6 +1169,58 @@ internal fun VoiceTypingBar(
         }
 
         return list
+    }
+
+    fun launchSystemSpeechDialog() {
+        destroyRecognizer(cancelWatchdog = true)
+        val candidates = buildCandidateRecognizers()
+        runCatching {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak into $pcName")
+                val localeTag = Locale.getDefault().toLanguageTag()
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
+            }
+            val pm = context.packageManager
+            val activities = runCatching { pm.queryIntentActivities(intent, 0) }.getOrDefault(emptyList())
+            if (activities.isNotEmpty()) {
+                speechLauncher.launch(intent)
+                state = DictateState.Listening(partial = "Listening...")
+            } else if (candidates.isNotEmpty()) {
+                state = DictateState.Error(DictateError.Failed)
+            } else {
+                state = DictateState.Error(DictateError.NoRecognizer)
+            }
+        }.onFailure {
+            if (candidates.isNotEmpty()) {
+                state = DictateState.Error(DictateError.Failed)
+            } else {
+                state = DictateState.Error(DictateError.NoRecognizer)
+            }
+        }
+    }
+
+    LaunchedEffect(state) {
+        if (state is DictateState.Error) {
+            delay(2500)
+            if (state is DictateState.Error) {
+                state = DictateState.Idle()
+            }
+        } else if (state is DictateState.Typing && (state as DictateState.Typing).text == "Transcribing...") {
+            delay(3000)
+            if (state is DictateState.Typing && (state as DictateState.Typing).text == "Transcribing...") {
+                destroyRecognizer()
+                state = DictateState.Idle()
+            }
+        } else if (state is DictateState.Listening && (state as DictateState.Listening).partial.isEmpty()) {
+            delay(25000)
+            if (state is DictateState.Listening && (state as DictateState.Listening).partial.isEmpty()) {
+                destroyRecognizer()
+                state = DictateState.Idle()
+            }
+        }
     }
 
     fun startInlineSpeechRecognizer(candidateIndex: Int = 0) {
