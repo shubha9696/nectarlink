@@ -417,6 +417,8 @@ class MirrorService : Service() {
         screenOff = false
         soundOnly = false
         elevatedStarting = false
+        cachedConsent = null
+        activeProjection = null
         _session.value = MirrorSession()
         StreamPower.set(this, StreamPower.SCREEN, streaming = false)
         elevatedDisplayListener?.let {
@@ -425,15 +427,19 @@ class MirrorService : Service() {
         elevatedDisplayListener = null
         elevatedSocket?.let { runCatching { it.close() } }
         elevatedSocket = null
-        encoder?.stop()
+        val enc = encoder
         encoder = null
-        sound?.stop()
+        val snd = sound
         sound = null
         projection = null
         pcId = null
         if (current === this) current = null
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
+        Thread({
+            enc?.stop()
+            snd?.stop()
+        }, "mirror-stop-async").start()
     }
 
     override fun onDestroy() {
@@ -494,9 +500,7 @@ class MirrorService : Service() {
                 ContextCompat.startForegroundService(context, intent)
                 return true
             }
-            val cached = cachedConsent ?: return false
-            start(context, request, cached.first, cached.second)
-            return true
+            return false
         }
 
         fun startSoundOnly(context: Context, request: MirrorRequest): Boolean {

@@ -176,15 +176,6 @@ class MirrorConsentActivity : ComponentActivity() {
                 finish()
                 return
             }
-            if (MirrorService.tryStartWithCachedConsent(this, asked)) {
-                finish()
-                return
-            }
-        }
-
-        if (MirrorService.tryStartWithCachedConsent(this, asked)) {
-            finish()
-            return
         }
 
         if (app.nectarlink.android.elevated.Elevated.running && MirrorService.startElevated(this, asked)) {

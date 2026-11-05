@@ -263,6 +263,7 @@ class SoundCapture(
 
     private fun runRecord(record: AudioRecord) {
         audioRecord = record
+        stopLocal()
         applyVolumeForMode(soundMode)
         try {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
@@ -312,9 +313,7 @@ class SoundCapture(
 
                 val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
                 if (soundMode != 2) {
-                    // When capturing via MediaProjection (record), Android already plays to the phone's physical speakers natively!
-                    // Do NOT call playLocal() here, which would play a second delayed copy and cause echo/reverberation!
-                    stopLocal()
+                    // When capturing via MediaProjection (record), Android already plays to the phone's physical speakers natively.
                     if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) {
                         running = false
                         break
@@ -426,6 +425,10 @@ class SoundCapture(
 
     fun stop() {
         running = false
+        val rec = audioRecord
+        audioRecord = null
+        val th = thread
+        thread = null
         stopLocal()
         restoreVolume()
         activeCaptures.remove(this)
@@ -433,14 +436,14 @@ class SoundCapture(
         if (Elevated.running) {
             Elevated.stopAudio()
         }
-        audioRecord?.let {
-            runCatching { it.stop() }
-            runCatching { it.release() }
-        }
-        audioRecord = null
         stream.end()
-        thread?.interrupt()
-        thread = null
+        th?.interrupt()
+        if (rec != null) {
+            Thread({
+                runCatching { rec.stop() }
+                runCatching { rec.release() }
+            }, "sound-stop-release").start()
+        }
     }
 
     companion object {
