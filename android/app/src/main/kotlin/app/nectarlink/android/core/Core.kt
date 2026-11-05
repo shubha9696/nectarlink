@@ -2350,11 +2350,11 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
 
     /** Sends a normalized touch, scroll, key, or text event to a paired PC during reverse mirroring. */
     fun sendPcMirrorInput(id: String, input: app.nectarlink.core.MirrorInputEvent) {
-        if (input is app.nectarlink.core.MirrorInputEvent.Touch && input.v1 == app.nectarlink.core.TouchPhase.MOVE) {
+        if (input is app.nectarlink.core.MirrorInputEvent.Touch && input.action == app.nectarlink.core.TouchPhase.MOVE) {
             val shouldQueue = synchronized(pendingPcTouchLock) {
                 pendingPcTouchId = id
-                pendingPcTouchX = input.v2
-                pendingPcTouchY = input.v3
+                pendingPcTouchX = input.x
+                pendingPcTouchY = input.y
                 if (!pendingPcTouchQueued) {
                     pendingPcTouchQueued = true
                     true
