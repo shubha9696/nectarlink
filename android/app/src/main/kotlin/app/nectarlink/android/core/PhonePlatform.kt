@@ -165,7 +165,6 @@ internal class PhonePlatform(
                     true
                 } else {
                     MirrorService.startSoundOnly(context, request)
-                    onMirror(pcId, request)
                     true
                 }
             } else {

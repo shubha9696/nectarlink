@@ -30,9 +30,17 @@ Window {
 
     onPhaseChanged: {
         if (phase === "ended") {
+            win.visible = false
             win.close()
         } else if (phase === "showing" && info.app && sized) {
             resizeTimer.restart()
+        }
+    }
+
+    Component.onCompleted: {
+        if (phase === "ended") {
+            win.visible = false
+            win.close()
         }
     }
 

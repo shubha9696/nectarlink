@@ -1065,9 +1065,11 @@ internal fun VoiceTypingBar(
     var isReadyForSpeech by remember { mutableStateOf(false) }
     var watchdogJob by remember { mutableStateOf<Job?>(null) }
 
-    fun destroyRecognizer() {
-        watchdogJob?.cancel()
-        watchdogJob = null
+    fun destroyRecognizer(cancelWatchdog: Boolean = true) {
+        if (cancelWatchdog) {
+            watchdogJob?.cancel()
+            watchdogJob = null
+        }
         val sr = recognizer
         recognizer = null
         if (sr != null) {
@@ -1080,7 +1082,7 @@ internal fun VoiceTypingBar(
 
     DisposableEffect(pcId) {
         onDispose {
-            destroyRecognizer()
+            destroyRecognizer(cancelWatchdog = true)
         }
     }
 
@@ -1088,6 +1090,7 @@ internal fun VoiceTypingBar(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         watchdogJob?.cancel()
+        watchdogJob = null
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             val raw = matches?.firstOrNull()?.trim()
@@ -1112,7 +1115,7 @@ internal fun VoiceTypingBar(
     }
 
     fun launchSystemSpeechDialog() {
-        destroyRecognizer()
+        destroyRecognizer(cancelWatchdog = true)
         runCatching {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -1125,7 +1128,7 @@ internal fun VoiceTypingBar(
             speechLauncher.launch(intent)
             state = DictateState.Listening(partial = "Listening...")
         }.onFailure {
-            state = DictateState.Error(DictateError.NoSpeech)
+            state = DictateState.Error(DictateError.NoRecognizer)
         }
     }
 
@@ -1188,7 +1191,7 @@ internal fun VoiceTypingBar(
     }
 
     fun startInlineSpeechRecognizer(candidateIndex: Int = 0) {
-        destroyRecognizer()
+        destroyRecognizer(cancelWatchdog = false)
         currentPartial = ""
         isReadyForSpeech = false
 
@@ -1208,12 +1211,14 @@ internal fun VoiceTypingBar(
             override fun onReadyForSpeech(params: Bundle?) {
                 isReadyForSpeech = true
                 watchdogJob?.cancel()
+                watchdogJob = null
                 state = DictateState.Listening(partial = currentPartial.ifEmpty { "Listening..." })
             }
 
             override fun onBeginningOfSpeech() {
                 isReadyForSpeech = true
                 watchdogJob?.cancel()
+                watchdogJob = null
                 state = DictateState.Listening(partial = currentPartial.ifEmpty { "Listening..." })
             }
 
@@ -1221,6 +1226,7 @@ internal fun VoiceTypingBar(
                 if (!isReadyForSpeech && rmsdB > 0f) {
                     isReadyForSpeech = true
                     watchdogJob?.cancel()
+                    watchdogJob = null
                     state = DictateState.Listening(partial = currentPartial.ifEmpty { "Listening..." })
                 }
             }
@@ -1245,10 +1251,11 @@ internal fun VoiceTypingBar(
 
             override fun onResults(results: Bundle?) {
                 watchdogJob?.cancel()
+                watchdogJob = null
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val raw = matches?.firstOrNull()?.trim()?.ifEmpty { null }
                     ?: currentPartial.trim().ifEmpty { null }
-                destroyRecognizer()
+                destroyRecognizer(cancelWatchdog = true)
                 currentPartial = ""
                 if (raw.isNullOrBlank()) {
                     state = DictateState.Error(DictateError.NoSpeech)
@@ -1273,8 +1280,9 @@ internal fun VoiceTypingBar(
 
             override fun onError(error: Int) {
                 watchdogJob?.cancel()
+                watchdogJob = null
                 val captured = currentPartial.trim()
-                destroyRecognizer()
+                destroyRecognizer(cancelWatchdog = true)
                 currentPartial = ""
                 if (captured.isNotBlank()) {
                     val joined = utteranceJoiner.next(captured)
@@ -1330,7 +1338,7 @@ internal fun VoiceTypingBar(
         }.getOrDefault(false)
 
         if (!started) {
-            destroyRecognizer()
+            destroyRecognizer(cancelWatchdog = false)
             if (candidateIndex + 1 < candidates.size) {
                 startInlineSpeechRecognizer(candidateIndex + 1)
             } else {
@@ -1339,13 +1347,13 @@ internal fun VoiceTypingBar(
             return
         }
 
-        // Safety watchdog: Give the speech service up to 1500ms to initialize and ready microphone.
+        // Safety watchdog: Give the speech service up to 3000ms to bind, initialize and ready microphone.
         // If it hangs silently, automatically try the next speech candidate or system speech dialog!
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
-            delay(1500)
+            delay(3000)
             if (!isReadyForSpeech && recognizer != null) {
-                destroyRecognizer()
+                destroyRecognizer(cancelWatchdog = false)
                 if (candidateIndex + 1 < candidates.size) {
                     startInlineSpeechRecognizer(candidateIndex + 1)
                 } else {
@@ -1363,26 +1371,11 @@ internal fun VoiceTypingBar(
             return
         }
 
-        // Always activate the system speech dialog first - this is the official, universal
-        // mechanism that immediately activates the hardware microphone on all Android versions
-        // and OEM ROMs (Xiaomi HyperOS, Samsung OneUI, Pixel, OnePlus, etc.).
-        val launched = runCatching {
-            destroyRecognizer()
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak into $pcName")
-                val localeTag = Locale.getDefault().toLanguageTag()
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
-            }
-            speechLauncher.launch(intent)
-            state = DictateState.Listening(partial = "Listening...")
-            true
-        }.getOrDefault(false)
-
-        if (!launched) {
-            startInlineSpeechRecognizer()
+        val candidates = buildCandidateRecognizers()
+        if (candidates.isNotEmpty()) {
+            startInlineSpeechRecognizer(0)
+        } else {
+            launchSystemSpeechDialog()
         }
     }
 

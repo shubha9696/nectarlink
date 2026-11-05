@@ -87,16 +87,23 @@ class SoundCapture(
             try {
                 val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(PACKET_BYTES * 2)
 
-                // Safe local playback using standard USAGE_MEDIA (NOT USAGE_VOICE_COMMUNICATION!):
-                // Using USAGE_MEDIA avoids switching the HAL into telephony/AEC mode, completely
-                // eliminating any possibility of deadlock with REMOTE_SUBMIX in audioserver.
+                // Dedicated speaker playback that NEVER loops back into REMOTE_SUBMIX:
+                // 1. AudioAttributes.FLAG_AUDIBILITY_ENFORCED forces hardware speaker output routing.
+                // 2. AudioAttributes.ALLOW_CAPTURE_BY_NONE (API 29+) explicitly prohibits any capture session or
+                //    REMOTE_SUBMIX from recording this AudioTrack, eliminating any digital feedback loop.
+                // 3. AudioAttributes.USAGE_ASSISTANCE_SONIFICATION ensures AudioPolicy routes directly to physical
+                //    speakers without being claimed by MediaRecorder.AudioSource.REMOTE_SUBMIX.
+                val attrBuilder = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    attrBuilder.setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
+                }
+
                 val track = AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build()
-                    )
+                    .setAudioAttributes(attrBuilder.build())
                     .setAudioFormat(
                         AudioFormat.Builder()
                             .setSampleRate(RATE)
@@ -109,12 +116,35 @@ class SoundCapture(
                     .setTransferMode(AudioTrack.MODE_STREAM)
                     .build()
 
-                track.setVolume(1.0f)
+                // Route directly to physical built-in speaker HAL on Android 6.0+ (API 23+)
+                val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && am != null) {
+                    runCatching {
+                        val devices = am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+                        val speaker = devices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                        if (speaker != null) {
+                            track.setPreferredDevice(speaker)
+                        }
+                    }
+                }
+
+                val initialGain = if (am != null) {
+                    val cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                    val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                    (cur.toFloat() / max.toFloat()).coerceIn(0f, 1f)
+                } else 1.0f
+                track.setVolume(initialGain)
                 localPlayerTrack = track
                 track.play()
 
                 while (localRunning && running) {
                     val chunk = localQueue.poll(20, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
+                    if (volumeCheckCounter++ % 20 == 0 && am != null) {
+                        val cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                        val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                        val gain = (cur.toFloat() / max.toFloat()).coerceIn(0f, 1f)
+                        track.setVolume(gain)
+                    }
                     track.write(chunk, 0, chunk.size, AudioTrack.WRITE_NON_BLOCKING)
                 }
             } catch (_: InterruptedException) {
@@ -306,6 +336,7 @@ class SoundCapture(
     }
 
     private fun runElevated() {
+        applyVolumeForMode(soundMode)
         try {
             while (running) {
                 // If soundMode is 2 ("phone only"), keep socket closed so InputServer releases REMOTE_SUBMIX,
@@ -382,6 +413,7 @@ class SoundCapture(
             Log.w(TAG, "Elevated sound capture stopped", e)
         } finally {
             stopLocal()
+            restoreVolume()
             closeElevatedSocket()
             if (Elevated.running) {
                 Elevated.stopAudio()
