@@ -1135,8 +1135,17 @@ pub fn on_event(event: &NodeEvent) {
                 if cleared_kb {
                     core_host::host().hub.changed(Changes::MIRROR);
                 }
-            }
-            if phase(&window).is_some() {
+                // When full-screen phone mirroring stops, cleanly close the window on PC
+                state(|s| {
+                    s.windows.remove(&window);
+                    s.notices.remove(&window);
+                    if !s.mirroring(device) {
+                        s.screen_off.remove(device);
+                    }
+                });
+                ffi::video_clear(&window.key());
+                core_host::host().hub.changed(Changes::MIRROR);
+            } else if phase(&window).is_some() {
                 set_phase(window, Phase::Ended(None));
             }
             state(|s| {

@@ -28,6 +28,12 @@ Window {
     readonly property string phase: info.phase || ""
     readonly property bool canControl: info.canControl === true
 
+    onPhaseChanged: {
+        if (phase === "ended") {
+            win.close()
+        }
+    }
+
     visible: true
     title: info.app ? qsTr("%1 · %2").arg(info.title).arg(deviceName)
          : deviceName.length > 0 ? qsTr("%1 · NectarLink").arg(deviceName) : qsTr("Phone screen · NectarLink")
