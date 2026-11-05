@@ -714,23 +714,17 @@ fun HomeScreen(
 
 
 
-        item(key = "whats_new_guide_banner", contentType = "banner") {
-
+        if (showWhatsNewGuideBanner) {
+            item(key = "whats_new_guide_banner", contentType = "banner") {
                 WhatsNewFeaturesGuideCard(
-
                     onOpenGuide = {
-
                         onDismissWhatsNewGuide()
-
                         onOpenFeaturesGuide()
-
                     },
-
                     onDismiss = onDismissWhatsNewGuide,
-
                 )
-
             }
+        }
 
 
         // After the What's new card, one at a time.

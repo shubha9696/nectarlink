@@ -41,6 +41,8 @@ FocusScope {
 
     implicitHeight: small ? 32 : 40
     implicitWidth: row.implicitWidth + (variant === "text" ? 20 : (small ? 26 : 36))
+    width: implicitWidth
+    height: implicitHeight
     activeFocusOnTab: true
     opacity: enabled ? 1 : 0.38
 

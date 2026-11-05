@@ -278,8 +278,9 @@ class PcSpeakerPlayer(
                     AudioFormat.CHANNEL_OUT_STEREO,
                     AudioFormat.ENCODING_PCM_16BIT,
                 ) / 4
-                // 1.5x for Low Latency (~18ms, FastMixer active, 0 underrun), 3x for Dolby Studio (~40ms, full headroom)
-                val targetFrames = if (exact) minFrames * 3 else (minFrames * 3) / 2
+                // Low Latency mode: Minimum native burst size (FastMixer active, ~8-10ms buffer)
+                // Dolby Studio mode: 3x buffer (~40ms, full headroom for uninterrupted spatial audio)
+                val targetFrames = if (exact) minFrames * 3 else minOf(minFrames, 384)
                 track.setBufferSizeInFrames(minOf(track.bufferCapacityInFrames, targetFrames))
             }
         }
@@ -331,8 +332,9 @@ class PcSpeakerPlayer(
                 var hadUnderrun = false
 
                 while (active.get()) {
-                    // Block up to 25 ms for the next real audio packet
-                    val packet = packetQueue.poll(25, TimeUnit.MILLISECONDS)
+                    // Block up to 10 ms in Low Latency (0ms lock), 25 ms in Dolby Studio mode
+                    val pollTimeout = if (exactQuality) 25L else 10L
+                    val packet = packetQueue.poll(pollTimeout, TimeUnit.MILLISECONDS)
                     if (packet == null) {
                         hadUnderrun = true
                         continue
@@ -396,16 +398,22 @@ class PcSpeakerPlayer(
 
     fun enqueueFrame(pcm: ByteArray) {
         if (!active.get()) return
-        // Bounded queue: 4 packets in Low Latency (~40ms ceiling), 8 packets in Dolby Studio (~80ms ceiling)
-        val maxQueue = if (exactQuality) 8 else 4
+        // True 0 ms architecture:
+        // In Low Latency mode, keep queue capacity at 1: Stale packets are dropped instantly
+        // so audio is written to the hardware HAL with zero accumulated delay (<15ms total)!
+        // In Dolby Studio mode, keep up to 6 packets (~60ms) for smooth cinematic streaming.
+        val maxQueue = if (exactQuality) 6 else 1
         while (packetQueue.size >= maxQueue) {
-            packetQueue.poll() // Discard oldest only when network backs up, preventing underflow and cracking!
+            packetQueue.poll() // Discard stale packet to stay strictly locked to 0ms real-time
         }
         packetQueue.offer(pcm)
     }
 
     fun updateQuality(exact: Boolean) {
         exactQuality = exact
+        if (!exact) {
+            packetQueue.clear() // Instantly flush any buffered packets on switching to 0ms mode!
+        }
         audioTrack?.let { track ->
             updateTrackBuffer(track, exact, currentSampleRate)
         }

@@ -310,13 +310,13 @@ pub const BYTES_PER_FRAME: usize = 4;
 pub const CHUNK_BYTES: usize = 1_920;
 
 pub struct DolbyStudioDsp {
-    // Stereo low-shelf warmth filter state (~120 Hz)
+    // Stereo low-shelf resonant warmth filter state (~260 Hz)
     bass_l: f32,
     bass_r: f32,
-    // Mid/Side spatial widener filter state (~300 Hz)
+    // Mid/Side spatial widener filter state (~350 Hz)
     side_l: f32,
     side_r: f32,
-    // High-frequency clarity / dialogue presence state (~6 kHz)
+    // High-frequency clarity / dialogue presence state (~5.2 kHz)
     air_l: f32,
     air_r: f32,
 }
@@ -339,18 +339,20 @@ impl DolbyStudioDsp {
             return;
         }
 
-        // Clean, studio-grade linear acoustic filters designed for transparent, distortion-free fidelity:
-        // 1. Bass cutoff (~120 Hz at 48kHz): alpha = 2*pi*120/48000 ~= 0.0157
-        const BASS_ALPHA: f32 = 0.0157;
-        // 2. Side-channel spatial filter (~300 Hz): alpha = 2*pi*300/48000 ~= 0.0392
-        const SIDE_ALPHA: f32 = 0.0392;
-        // 3. Dialogue & Air clarity filter (~6 kHz): alpha = 2*pi*6000/48000 ~= 0.55
-        const AIR_ALPHA: f32 = 0.55;
+        // Acoustic DSP tuned specifically for mobile stereo loudspeakers:
+        // 1. Resonant mid-bass warmth (~260 Hz at 48kHz): alpha = 2*pi*260/48000 ~= 0.0340
+        //    (Smartphone speakers cut off sharply below 180-220Hz; 260Hz is the resonance
+        //     sweet spot for deep, punchy, audible bass, kick drums, and rich vocal body)
+        const BASS_ALPHA: f32 = 0.0340;
+        // 2. Side-channel spatial filter (~350 Hz): alpha = 2*pi*350/48000 ~= 0.0458
+        const SIDE_ALPHA: f32 = 0.0458;
+        // 3. Dialogue & Air clarity filter (~5.2 kHz): alpha = 2*pi*5200/48000 ~= 0.68
+        const AIR_ALPHA: f32 = 0.68;
 
-        const STEREO_EXPAND: f32 = 1.25; // Expands Side channel cleanly for wide 3D soundstage
-        const BASS_BOOST: f32 = 0.30; // +2.5 dB warm, punchy, distortion-free low-end
-        const AIR_BOOST: f32 = 0.20; // +1.6 dB dialogue presence and acoustic sheen
-        const PRE_SCALE: f32 = 0.88; // Clean headroom factor to prevent clipping
+        const STEREO_EXPAND: f32 = 1.40; // Expands Side channel for a distinctly wide 3D soundstage
+        const BASS_BOOST: f32 = 0.45;    // +3.5 dB warm, punchy, audible bass resonance
+        const AIR_BOOST: f32 = 0.30;     // +2.5 dB dialogue presence and acoustic sheen
+        const PRE_SCALE: f32 = 1.0;      // 100% full scale unity volume (no attenuation!)
 
         for frame in buf.chunks_exact_mut(4) {
             let l_raw = i16::from_le_bytes([frame[0], frame[1]]) as f32 / 32768.0;
@@ -363,7 +365,7 @@ impl DolbyStudioDsp {
             let mid = 0.5 * (l + r);
             let side = 0.5 * (l - r);
 
-            // Filter out low bass from Side so low bass stays mono and punchy
+            // Filter out low bass from Side so bass stays tight and centered
             self.side_l += SIDE_ALPHA * (side - self.side_l);
             let side_high = side - self.side_l;
             let enhanced_side = side + side_high * (STEREO_EXPAND - 1.0);
@@ -371,13 +373,13 @@ impl DolbyStudioDsp {
             l = mid + enhanced_side;
             r = mid - enhanced_side;
 
-            // 2. Clean, Non-Distorting Bass Warmth & Punch
+            // 2. Punchy Acoustic Bass Warmth (Audible on smartphone speakers)
             self.bass_l += BASS_ALPHA * (l_raw - self.bass_l);
             self.bass_r += BASS_ALPHA * (r_raw - self.bass_r);
             l += self.bass_l * BASS_BOOST;
             r += self.bass_r * BASS_BOOST;
 
-            // 3. Dialogue & High-End Air Clarity
+            // 3. Dialogue & High-End Air Brilliance
             self.air_l += AIR_ALPHA * (l - self.air_l);
             self.air_r += AIR_ALPHA * (r - self.air_r);
             let air_diff_l = l - self.air_l;
@@ -385,16 +387,16 @@ impl DolbyStudioDsp {
             l += air_diff_l * AIR_BOOST;
             r += air_diff_r * AIR_BOOST;
 
-            // 4. Soft-Knee Transparent Peak Limiter (0% clipping, transparent dynamics)
-            let l_out = if l.abs() > 0.85 {
+            // 4. Soft-Knee Studio Peak Limiter (0% clipping, transparent mastering dynamics)
+            let l_out = if l.abs() > 0.88 {
                 let s = l.signum();
-                s * (0.85 + (l.abs() - 0.85).tanh() * 0.14)
+                s * (0.88 + (l.abs() - 0.88).tanh() * 0.11)
             } else {
                 l
             };
-            let r_out = if r.abs() > 0.85 {
+            let r_out = if r.abs() > 0.88 {
                 let s = r.signum();
-                s * (0.85 + (r.abs() - 0.85).tanh() * 0.14)
+                s * (0.88 + (r.abs() - 0.88).tanh() * 0.11)
             } else {
                 r
             };
@@ -474,10 +476,16 @@ pub fn run_wasapi_loopback(
 
                 capture.ReleaseBuffer(num_frames)?;
 
-                while staging.len() >= CHUNK_BYTES {
-                    let mut chunk: Vec<u8> = staging.drain(..CHUNK_BYTES).collect();
-                    let is_studio = studio_quality.load(Ordering::Relaxed);
-                    dsp.process(&mut chunk, is_studio);
+                let is_studio = studio_quality.load(Ordering::Relaxed);
+                // In Low Latency Mode: chunk at 960 bytes (5.0 ms = 240 frames) for minimal 0ms buffering!
+                // In Dolby Studio Mode: chunk at 1,920 bytes (10.0 ms = 480 frames) for optimal spatial audio.
+                let chunk_size = if is_studio { CHUNK_BYTES } else { 960 };
+
+                while staging.len() >= chunk_size {
+                    let mut chunk: Vec<u8> = staging.drain(..chunk_size).collect();
+                    if is_studio {
+                        dsp.process(&mut chunk, true);
+                    }
                     let _ = tx.try_send(bytes::Bytes::from(chunk));
                 }
 

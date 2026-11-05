@@ -1122,10 +1122,14 @@ internal fun VoiceTypingBar(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
             }
-            speechLauncher.launch(intent)
-            state = DictateState.Listening(partial = "Listening...")
+            if (intent.resolveActivity(context.packageManager) != null) {
+                speechLauncher.launch(intent)
+                state = DictateState.Listening(partial = "Listening...")
+            } else {
+                state = DictateState.Error(DictateError.NoSpeech)
+            }
         }.onFailure {
-            state = DictateState.Error(DictateError.NoRecognizer)
+            state = DictateState.Error(DictateError.NoSpeech)
         }
     }
 
@@ -1150,37 +1154,76 @@ internal fun VoiceTypingBar(
         }
     }
 
-    fun createBestRecognizer(): SpeechRecognizer? {
+    fun buildCandidateRecognizers(): List<() -> SpeechRecognizer?> {
+        val list = mutableListOf<() -> SpeechRecognizer?>()
         val pm = context.packageManager
         val resolveInfos = runCatching {
             pm.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
         }.getOrDefault(emptyList())
 
-        // Prefer Google Speech Recognition Service or primary system provider
-        val preferredService = resolveInfos.firstOrNull {
-            val pkg = it.serviceInfo.packageName.lowercase()
-            pkg.contains("googlequicksearchbox") || pkg == "com.google.android.tts" || pkg == "com.google.android.as"
-        } ?: resolveInfos.firstOrNull()
-
-        if (preferredService != null) {
-            val comp = ComponentName(preferredService.serviceInfo.packageName, preferredService.serviceInfo.name)
-            val sr = runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
-            if (sr != null) return sr
+        // 1. Google Speech Services (the reliable, standard engine: com.google.android.tts)
+        list.add {
+            val comp = ComponentName(
+                "com.google.android.tts",
+                "com.google.android.apps.speech.tts.googletts.service.GoogleTTSRecognitionService"
+            )
+            runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
         }
 
-        // Fall back to default system SpeechRecognizer
-        return runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
-            ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
+        // 2. Google QuickSearchBox (standard voice search service)
+        list.add {
+            val comp = ComponentName(
+                "com.google.android.googlequicksearchbox",
+                "com.google.android.voicesearch.serviceapi.GoogleRecognitionService"
+            )
+            runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
+        }
+
+        // 3. Android On-Device Speech Recognizer (if API 33+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            list.add {
+                runCatching {
+                    if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+                        SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                    } else null
+                }.getOrNull()
+            }
+        }
+
+        // 4. Default System Speech Recognizer
+        list.add {
+            runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
+                ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
+        }
+
+        // 5. Any other speech recognition service discovered dynamically on device
+        for (info in resolveInfos) {
+            val pkg = info.serviceInfo.packageName.lowercase()
+            if (pkg != "com.google.android.tts" && !pkg.contains("googletts") && !pkg.contains("googlequicksearchbox")) {
+                list.add {
+                    val comp = ComponentName(info.serviceInfo.packageName, info.serviceInfo.name)
+                    runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
+                }
+            }
+        }
+
+        return list
     }
 
-    fun startInlineSpeechRecognizer() {
+    fun startInlineSpeechRecognizer(candidateIndex: Int = 0) {
         destroyRecognizer()
         currentPartial = ""
         isReadyForSpeech = false
 
-        val sr = createBestRecognizer()
-        if (sr == null) {
+        val candidates = buildCandidateRecognizers()
+        if (candidateIndex >= candidates.size) {
             launchSystemSpeechDialog()
+            return
+        }
+
+        val sr = candidates[candidateIndex].invoke()
+        if (sr == null) {
+            startInlineSpeechRecognizer(candidateIndex + 1)
             return
         }
 
@@ -1197,7 +1240,14 @@ internal fun VoiceTypingBar(
                 state = DictateState.Listening(partial = currentPartial.ifEmpty { "Listening..." })
             }
 
-            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onRmsChanged(rmsdB: Float) {
+                if (!isReadyForSpeech && rmsdB > 0f) {
+                    isReadyForSpeech = true
+                    watchdogJob?.cancel()
+                    state = DictateState.Listening(partial = currentPartial.ifEmpty { "Listening..." })
+                }
+            }
+
             override fun onBufferReceived(buffer: ByteArray?) {}
 
             override fun onEndOfSpeech() {
@@ -1265,14 +1315,16 @@ internal fun VoiceTypingBar(
                         return
                     }
                 }
-                // If inline SpeechRecognizer failed to initialize or bind service, immediately launch system dialog!
+                // If client failed to bind or initialize, immediately fall back to the next candidate recognizer!
                 if (error == SpeechRecognizer.ERROR_CLIENT ||
                     error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
                     error == SpeechRecognizer.ERROR_SERVER ||
                     error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED
                 ) {
-                    launchSystemSpeechDialog()
-                    return
+                    if (candidateIndex + 1 < candidates.size) {
+                        startInlineSpeechRecognizer(candidateIndex + 1)
+                        return
+                    }
                 }
                 state = when (error) {
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
@@ -1293,11 +1345,14 @@ internal fun VoiceTypingBar(
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            val localeTag = Locale.getDefault().toLanguageTag()
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
         }
 
         recognizer = sr
-        state = DictateState.Listening(partial = "Listening...")
+        state = DictateState.Listening(partial = "Connecting...")
         val started = runCatching {
             sr.startListening(intent)
             true
@@ -1305,18 +1360,26 @@ internal fun VoiceTypingBar(
 
         if (!started) {
             destroyRecognizer()
-            launchSystemSpeechDialog()
+            if (candidateIndex + 1 < candidates.size) {
+                startInlineSpeechRecognizer(candidateIndex + 1)
+            } else {
+                launchSystemSpeechDialog()
+            }
             return
         }
 
-        // Safety watchdog: Give the speech service up to 2.5s to initialize its acoustic models & mic.
-        // If it hangs silently without activating the microphone, fall back to the system speech dialog immediately!
+        // Safety watchdog: Give the speech service up to 5.0s to initialize and ready microphone.
+        // If it hangs silently, automatically try the next speech candidate!
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
-            delay(2500)
+            delay(5000)
             if (!isReadyForSpeech && recognizer != null) {
                 destroyRecognizer()
-                launchSystemSpeechDialog()
+                if (candidateIndex + 1 < candidates.size) {
+                    startInlineSpeechRecognizer(candidateIndex + 1)
+                } else {
+                    launchSystemSpeechDialog()
+                }
             }
         }
     }

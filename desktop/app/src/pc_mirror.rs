@@ -2402,16 +2402,16 @@ mod imp {
             })
         }).unwrap_or(false);
 
-        let max_size = if is_internet { options.max_size.min(960) } else { options.max_size };
-        let fps = if is_internet { options.fps.clamp(15, 30) } else { options.fps.clamp(10, 120) };
+        let max_size = if is_internet { options.max_size.min(1280) } else { options.max_size };
+        let fps = if is_internet { options.fps.clamp(20, 30) } else { options.fps.clamp(10, 120) };
         let max_bitrate = if is_internet {
-            options.bitrate.clamp(150_000, 1_200_000)
+            options.bitrate.clamp(600_000, 4_000_000)
         } else {
             options.bitrate.clamp(400_000, 30_000_000)
         };
-        let min_bitrate = if is_internet { 150_000 } else { MIN_BITRATE };
+        let min_bitrate = if is_internet { 500_000 } else { MIN_BITRATE };
         let mut bitrate = if is_internet {
-            500_000.min(max_bitrate)
+            1_800_000.min(max_bitrate)
         } else {
             max_bitrate
         };
@@ -2518,7 +2518,7 @@ mod imp {
             let need_reinit = encoder.is_none()
                 || (requested_kf
                     && !keyframe_in_place
-                    && last_reinit.elapsed() >= Duration::from_millis(if is_internet { 5000 } else { 1400 }));
+                    && last_reinit.elapsed() >= Duration::from_millis(if is_internet { 1200 } else { 1400 }));
 
             if need_reinit {
                 match new_pc_encoder_with_fallback(&mut codec, dst_w, dst_h, fps, bitrate) {
@@ -2571,14 +2571,14 @@ mod imp {
                                 MirrorSend::Dropped | MirrorSend::NeedKeyframe => {
                                     stats.dropped += 1;
                                     last_drop = Some(Instant::now());
-                                    // Rate limit keyframe generation to avoid congestion collapse on slow links
-                                    if last_keyframe_request.elapsed() >= Duration::from_millis(if is_internet { 4000 } else { 1500 }) {
+                                    // Rate limit keyframe generation: 800ms on internet for rapid WAN recovery!
+                                    if last_keyframe_request.elapsed() >= Duration::from_millis(if is_internet { 800 } else { 1500 }) {
                                         force_keyframe.store(true, Ordering::SeqCst);
                                         last_keyframe_request = Instant::now();
                                     }
-                                    // The link is slower than the stream: ask for less, adapting quickly to network speed.
-                                    if last_rate_change.elapsed() >= Duration::from_millis(400) {
-                                        let lower = (bitrate * 2 / 3).max(min_bitrate);
+                                    // The link is slower than the stream: ask for less, adapting smoothly without collapsing bitrate.
+                                    if last_rate_change.elapsed() >= Duration::from_millis(if is_internet { 800 } else { 400 }) {
+                                        let lower = (bitrate * 4 / 5).max(min_bitrate);
                                         if lower < bitrate && enc.set_bitrate(lower) {
                                             bitrate = lower;
                                             last_rate_change = Instant::now();
@@ -2594,13 +2594,13 @@ mod imp {
                         if send_failed {
                             break;
                         }
-                        // Clean for 10 s: step the bitrate back up toward what the phone asked for.
-                        let clean = last_drop.is_none_or(|t| t.elapsed() >= Duration::from_secs(10));
+                        // Clean for 3 s: step the bitrate back up quickly toward high quality.
+                        let clean = last_drop.is_none_or(|t| t.elapsed() >= Duration::from_secs(if is_internet { 3 } else { 10 }));
                         if clean
                             && bitrate < max_bitrate
-                            && last_rate_change.elapsed() >= Duration::from_secs(10)
+                            && last_rate_change.elapsed() >= Duration::from_secs(if is_internet { 3 } else { 10 })
                         {
-                            let higher = (bitrate / 4 * 5).min(max_bitrate);
+                            let higher = (bitrate * 6 / 5).min(max_bitrate);
                             if enc.set_bitrate(higher) {
                                 bitrate = higher;
                                 last_rate_change = Instant::now();

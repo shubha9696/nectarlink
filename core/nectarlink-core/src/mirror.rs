@@ -51,8 +51,8 @@ fn pc_mirror_allowed(shared: &Shared, peer: &DeviceId) -> bool {
         || shared.store.is_paired(peer).unwrap_or(false)
 }
 /// Packets waiting to go out, at most. Beyond this the network is behind:
-/// sending more would only add delay. 16 packets provides smooth routing over mobile relays without bufferbloat.
-const QUEUE: usize = 16;
+/// sending more would only add delay. 48 packets provides smooth routing over mobile relays without bufferbloat.
+const QUEUE: usize = 48;
 /// Sound packets waiting to go out, at most (each is a few milliseconds).
 const AUDIO_QUEUE: usize = 24;
 /// Icons in a `mirror.apps` answer, at most, in bytes: the rest go without

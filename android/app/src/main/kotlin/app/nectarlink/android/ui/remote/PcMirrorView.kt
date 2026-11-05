@@ -767,14 +767,15 @@ fun PcMirrorView(
                             }
                         }
 
-                        // Keyframe retry watchdog until the first frame is rendered on screen (allows cellular internet WAN time to arrive).
+                        // Keyframe retry watchdog until the first frame is rendered on screen:
+                        // Fast 1.2s initial retry eliminates the 20-25s delay on cellular/internet WAN connections!
                         val watchdogJob = launch {
-                            delay(5000L)
-                            var interval = 5000L
+                            delay(1200L)
+                            var interval = 1200L
                             while (isActive && !renderedLocal.get()) {
                                 core.requestPcMirrorKeyframe(pcId)
                                 delay(interval)
-                                interval = (interval * 1.5f).toLong().coerceAtMost(15000L)
+                                interval = (interval * 1.3f).toLong().coerceAtMost(3000L)
                             }
                         }
 

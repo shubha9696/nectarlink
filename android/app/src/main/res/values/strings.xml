@@ -1382,6 +1382,32 @@
     <string name="touch_control_overlay_close">Close</string>
     <string name="touch_control_overlay_trackpad">Trackpad</string>
     <string name="touch_control_overlay_screen">Screen</string>
+
+    <!-- New Features Guide Items -->
+    <string name="guide_voice_typing_title">Voice typing &amp; PC Dictation</string>
+    <string name="guide_voice_typing_summary">Speak into your phone to type directly into any active PC window with live speech recognition and on-device transcribing.</string>
+    <string name="guide_voice_typing_where">Home › Control PC › Dictate</string>
+    <string name="guide_voice_typing_needs">Microphone permission and Remote input allowed</string>
+
+    <string name="guide_biometric_unlock_title">Biometric PC Unlock</string>
+    <string name="guide_biometric_unlock_summary">Unlock your Windows PC lock screen instantly and securely using your phone\'s fingerprint sensor or biometrics.</string>
+    <string name="guide_biometric_unlock_where">Quick Settings tile › Lock PC, or Control PC screen</string>
+    <string name="guide_biometric_unlock_needs">Paired PC and Windows Credential Provider</string>
+
+    <string name="guide_pip_overlay_title">Floating PC TouchControl (PiP)</string>
+    <string name="guide_pip_overlay_summary">Floating interactive touch overlay that stays on top while using other apps, letting you control your PC trackpad, clicks, and keys.</string>
+    <string name="guide_pip_overlay_where">Control PC › Top bar PiP icon</string>
+    <string name="guide_pip_overlay_needs">Display over other apps permission</string>
+
+    <string name="guide_quick_tiles_title">Quick Settings PC Tiles</string>
+    <string name="guide_quick_tiles_summary">Android Quick Settings tiles to lock your PC or mirror your PC screen with a single swipe and tap.</string>
+    <string name="guide_quick_tiles_where">Notification shade › Edit Quick Settings</string>
+    <string name="guide_quick_tiles_needs">Online paired PC</string>
+
+    <string name="guide_phone_sound_title">Phone sound on PC &amp; Dual Audio</string>
+    <string name="guide_phone_sound_summary">Stream what your phone plays (music, video, apps) to PC speakers, with PC only, Both, or Phone only output options.</string>
+    <string name="guide_phone_sound_where">PC Home › Phone sound on this PC &amp; Audio mode</string>
+    <string name="guide_phone_sound_needs">Paired PC over local Wi-Fi, Internet, or USB</string>
 </resources>
 
 

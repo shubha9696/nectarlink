@@ -2487,6 +2487,66 @@ fn load_guide_doc_content(raw_key: &str) -> (String, String) {
              - Paired phone connected over local Wi-Fi or USB."
             ),
         ),
+        "phone-sound" => (
+            tr!("Guide", "Phone sound on this PC"),
+            tr!(
+                "Guide",
+                "What it does\n\
+             Streams what your phone plays (music, video audio, apps) to your PC speakers or headphones. Choose PC only, Both, or Phone only output.\n\n\
+             Where to find it\n\
+             - Home › Phone sound on this PC.\n\n\
+             What it needs\n\
+             - Paired phone over Wi-Fi, Internet, or USB."
+            ),
+        ),
+        "studio-audio" => (
+            tr!("Guide", "Studio / Dolby Audio & 0ms Mode"),
+            tr!(
+                "Guide",
+                "What it does\n\
+             Switches between Studio / Dolby Audio Quality (acoustic 260Hz bass resonance, 3D stereo widener, 5.2kHz brilliance) and 0ms Low Latency mode for gaming.\n\n\
+             Where to find it\n\
+             - Home › Studio / Dolby Audio Quality toggle.\n\n\
+             What it needs\n\
+             - Active PC audio streaming session."
+            ),
+        ),
+        "voice-typing" => (
+            tr!("Guide", "Voice typing & PC Dictation"),
+            tr!(
+                "Guide",
+                "What it does\n\
+             Dictate using your phone's microphone to type directly into any active Windows application in real-time with Google Speech Services and on-device transcription.\n\n\
+             Where to find it\n\
+             - On your phone: Control PC › Dictate.\n\n\
+             What it needs\n\
+             - Microphone permission on phone and Remote input on PC."
+            ),
+        ),
+        "biometric-unlock" => (
+            tr!("Guide", "Biometric PC Unlock"),
+            tr!(
+                "Guide",
+                "What it does\n\
+             Unlocks your Windows lock screen seamlessly using your phone's fingerprint sensor or biometrics.\n\n\
+             Where to find it\n\
+             - Quick Settings tile on phone › Lock PC / Fingerprint prompt, or Remote Screen › Unlock.\n\n\
+             What it needs\n\
+             - Paired phone and Windows Credential Provider installed."
+            ),
+        ),
+        "touch-control-pip" => (
+            tr!("Guide", "Floating PC TouchControl (PiP)"),
+            tr!(
+                "Guide",
+                "What it does\n\
+             A compact floating Picture-in-Picture window that lets you control your PC trackpad, clicks, and shortcuts while using other Android apps.\n\n\
+             Where to find it\n\
+             - On your phone: Control PC › Floating window icon.\n\n\
+             What it needs\n\
+             - Display over other apps permission on phone."
+            ),
+        ),
         "recordings" => (
             tr!("Guide", "Voice recorder"),
             tr!(

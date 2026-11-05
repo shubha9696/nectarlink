@@ -296,7 +296,10 @@ Item {
                             variant: "text"
                             size: "sm"
                             text: qsTr("Dismiss")
-                            onClicked: Preferences.whatsNewDismissed = true
+                            onClicked: {
+                                Preferences.whatsNewDismissed = true
+                                whatsNewCard.visible = false
+                            }
                         }
                         Button {
                             variant: "tonal"
@@ -388,7 +391,10 @@ Item {
                             variant: "text"
                             size: "sm"
                             text: qsTr("Not now")
-                            onClicked: Preferences.hiveInviteDismissed = true
+                            onClicked: {
+                                Preferences.hiveInviteDismissed = true
+                                hiveInvite.visible = false
+                            }
                         }
                         Button {
                             variant: "tonal"
