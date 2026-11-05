@@ -40,18 +40,36 @@ class SoundCapture(
     @Volatile private var elevatedSocket: Socket? = null
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var localPlayerTrack: AudioTrack? = null
-    private val localQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>(8)
+    private val localQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>(4)
     @Volatile private var localRunning = false
     private var localThread: Thread? = null
     private var thread: Thread? = null
 
     private fun applyVolumeForMode(mode: Int) {
-        // No-op: Never mute STREAM_MUSIC, as doing so silences application output
-        // before audio capture, causing both PC and phone to receive silence.
-        // In Elevated mode, REMOTE_SUBMIX naturally silences phone speakers for PC only.
+        val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
+        try {
+            if (mode == 0 && projection != null) {
+                // In MediaProjection mode, mute STREAM_MUSIC so only PC plays.
+                // In Elevated mode, REMOTE_SUBMIX naturally silences phone speakers for PC only.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, 0)
+                }
+            } else {
+                // Both or Phone only: Unmute STREAM_MUSIC
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
+                }
+            }
+        } catch (_: Exception) {}
     }
 
     private fun restoreVolume() {
+        val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
+            }
+        } catch (_: Exception) {}
     }
 
     private fun closeElevatedSocket() {
@@ -66,31 +84,17 @@ class SoundCapture(
         if (localThread != null && localRunning) return
         localRunning = true
         localThread = Thread({
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             try {
                 val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT).coerceAtLeast(PACKET_BYTES * 2)
 
-                val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
-                val speakerDevice = am?.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)?.firstOrNull {
-                    it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ||
-                    it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET ||
-                    it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                    it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-                }
-
-                // High-fidelity local playback using USAGE_VOICE_COMMUNICATION:
-                // Android AudioPolicy NEVER routes USAGE_VOICE_COMMUNICATION to REMOTE_SUBMIX!
-                // This guarantees zero feedback loop, zero reverberation, and bit-perfect physical speaker output.
+                // Safe local playback using standard USAGE_MEDIA (NOT USAGE_VOICE_COMMUNICATION!):
+                // Using USAGE_MEDIA avoids switching the HAL into telephony/AEC mode, completely
+                // eliminating any possibility of deadlock with REMOTE_SUBMIX in audioserver.
                 val track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                            .apply {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                    setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
-                                }
-                            }
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                             .build()
                     )
                     .setAudioFormat(
@@ -105,20 +109,13 @@ class SoundCapture(
                     .setTransferMode(AudioTrack.MODE_STREAM)
                     .build()
 
-                // Route directly to physical speaker hardware, completely bypassing REMOTE_SUBMIX to prevent reverberation feedback!
-                if (speakerDevice != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    track.preferredDevice = speakerDevice
-                }
-
                 track.setVolume(1.0f)
-
                 localPlayerTrack = track
                 track.play()
 
                 while (localRunning && running) {
-                    val chunk = localQueue.poll(25, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
-                    // Pure HD bit-perfect audio at unity 1.0x gain: zero clipping, zero cracking, zero feedback runaway!
-                    track.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING)
+                    val chunk = localQueue.poll(20, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
+                    track.write(chunk, 0, chunk.size, AudioTrack.WRITE_NON_BLOCKING)
                 }
             } catch (_: InterruptedException) {
             } catch (e: Exception) {
@@ -130,7 +127,6 @@ class SoundCapture(
                 t?.runCatching { release() }
             }
         }, "sound-local-player").apply {
-            priority = Thread.MAX_PRIORITY
             start()
         }
     }
@@ -139,12 +135,9 @@ class SoundCapture(
         if (!localRunning || localThread == null) {
             startLocalWorker()
         }
-        // CRITICAL FIX: Clone the packet buffer!
-        // Previously, the shared packet buffer was passed without copyOf(), causing the capture thread
-        // to overwrite bytes while the playback thread was reading them, resulting in massive sample tearing and cracking!
         val copy = packet.copyOf()
-        while (localQueue.size >= 8) {
-            localQueue.poll() // Bounded to 8 packets (~80ms) to eliminate latency drift while preventing underflow
+        while (localQueue.size >= 4) {
+            localQueue.poll()
         }
         localQueue.offer(copy)
     }

@@ -1319,25 +1319,19 @@ internal fun VoiceTypingBar(
                         return
                     }
                 }
-                // If client failed to bind or initialize, immediately fall back to the next candidate recognizer!
-                if (error == SpeechRecognizer.ERROR_CLIENT ||
-                    error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
-                    error == SpeechRecognizer.ERROR_SERVER ||
-                    error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED
-                ) {
-                    if (candidateIndex + 1 < candidates.size) {
-                        startInlineSpeechRecognizer(candidateIndex + 1)
-                        return
-                    }
+                if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                    state = DictateState.Error(DictateError.PermissionNeeded)
+                    return
                 }
-                state = when (error) {
-                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
-                        DictateState.Error(DictateError.PermissionNeeded)
-                    SpeechRecognizer.ERROR_NO_MATCH,
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
-                        DictateState.Error(DictateError.NoSpeech)
-                    else ->
-                        DictateState.Error(DictateError.NoSpeech)
+                if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                    state = DictateState.Error(DictateError.NoSpeech)
+                    return
+                }
+                // For any other error (binding failure, busy, server disconnect, network issue), fall back immediately!
+                if (candidateIndex + 1 < candidates.size) {
+                    startInlineSpeechRecognizer(candidateIndex + 1)
+                } else {
+                    launchSystemSpeechDialog()
                 }
             }
 
@@ -1372,11 +1366,11 @@ internal fun VoiceTypingBar(
             return
         }
 
-        // Safety watchdog: Give the speech service up to 5.0s to initialize and ready microphone.
-        // If it hangs silently, automatically try the next speech candidate!
+        // Safety watchdog: Give the speech service up to 2.5s to initialize and ready microphone.
+        // If it hangs silently, automatically try the next speech candidate or system speech dialog!
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
-            delay(5000)
+            delay(2500)
             if (!isReadyForSpeech && recognizer != null) {
                 destroyRecognizer()
                 if (candidateIndex + 1 < candidates.size) {

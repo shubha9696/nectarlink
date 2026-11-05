@@ -506,6 +506,9 @@ class MirrorService : Service() {
             if (tryStartWithCachedConsent(context, request)) {
                 return true
             }
+            if (context is MirrorConsentActivity) {
+                return false
+            }
             val intent = request.toIntent(Intent(context, MirrorConsentActivity::class.java))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)

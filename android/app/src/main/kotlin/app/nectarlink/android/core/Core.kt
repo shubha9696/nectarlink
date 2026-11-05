@@ -140,15 +140,14 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         storage = { storage },
         onMirror = { pc, request ->
             if (request.soundOnly && MirrorService.startSoundOnly(this.context, request)) {
-                return@onMirror
+                // Handled sound-only
+            } else if (app.nectarlink.android.elevated.Elevated.running && MirrorService.startElevated(this.context, request)) {
+                // Handled elevated
+            } else if (MirrorService.tryStartWithCachedConsent(this.context, request)) {
+                // Handled with retained consent
+            } else {
+                MirrorRequests.show(this.context, request, _state.value.nameOf(pc).orEmpty())
             }
-            if (app.nectarlink.android.elevated.Elevated.running && MirrorService.startElevated(this.context, request)) {
-                return@onMirror
-            }
-            if (MirrorService.tryStartWithCachedConsent(this.context, request)) {
-                return@onMirror
-            }
-            MirrorRequests.show(this.context, request, _state.value.nameOf(pc).orEmpty())
         },
         onWebcam = { pc, request ->
             val session = WebcamService.session.value

@@ -506,6 +506,8 @@ fun HomeScreen(
 
     var pulsingTarget by remember { mutableStateOf<GuideHighlightTarget?>(null) }
 
+    var bannerDismissedLocally by rememberSaveable { mutableStateOf(false) }
+
     // Keep a screen of cards composed on each side, so scrolling back does not rebuild them.
 
     @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -714,14 +716,18 @@ fun HomeScreen(
 
 
 
-        if (showWhatsNewGuideBanner) {
+        if (showWhatsNewGuideBanner && !bannerDismissedLocally) {
             item(key = "whats_new_guide_banner", contentType = "banner") {
                 WhatsNewFeaturesGuideCard(
                     onOpenGuide = {
+                        bannerDismissedLocally = true
                         onDismissWhatsNewGuide()
                         onOpenFeaturesGuide()
                     },
-                    onDismiss = onDismissWhatsNewGuide,
+                    onDismiss = {
+                        bannerDismissedLocally = true
+                        onDismissWhatsNewGuide()
+                    },
                 )
             }
         }
@@ -4401,7 +4407,13 @@ private fun PcAudioCardSection(
                             screenOff = false,
                             soundOnly = true,
                         )
-                        app.nectarlink.android.mirror.MirrorService.startSoundOnly(context, req)
+                        if (app.nectarlink.android.elevated.Elevated.running) {
+                            app.nectarlink.android.mirror.MirrorService.startElevated(context, req)
+                        } else if (app.nectarlink.android.mirror.MirrorService.tryStartWithCachedConsent(context, req)) {
+                            // Retained consent - start immediately with no prompt
+                        } else {
+                            app.nectarlink.android.mirror.MirrorService.startSoundOnly(context, req)
+                        }
                     }
                 }
                 .padding(horizontal = 12.dp, vertical = 8.dp),
