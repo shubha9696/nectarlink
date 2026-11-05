@@ -564,7 +564,11 @@ class MirrorService : Service() {
                 _session.value = MirrorSession()
                 return
             }
-            service.main.post { if (service.pcId == pcId) service.stopSharing() }
+            service.main.post {
+                if (service.pcId.isNullOrEmpty() || service.pcId.equals(pcId, ignoreCase = true)) {
+                    service.stopSharing()
+                }
+            }
         }
 
         /** Stops any active screen mirroring session from the UI. */

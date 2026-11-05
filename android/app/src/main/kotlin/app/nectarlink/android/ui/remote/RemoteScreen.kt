@@ -1125,8 +1125,14 @@ internal fun VoiceTypingBar(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
             }
-            speechLauncher.launch(intent)
-            state = DictateState.Listening(partial = "Listening...")
+            val pm = context.packageManager
+            val activities = runCatching { pm.queryIntentActivities(intent, 0) }.getOrDefault(emptyList())
+            if (activities.isNotEmpty()) {
+                speechLauncher.launch(intent)
+                state = DictateState.Listening(partial = "Listening...")
+            } else {
+                state = DictateState.Error(DictateError.NoRecognizer)
+            }
         }.onFailure {
             state = DictateState.Error(DictateError.NoRecognizer)
         }
@@ -1212,14 +1218,14 @@ internal fun VoiceTypingBar(
                 isReadyForSpeech = true
                 watchdogJob?.cancel()
                 watchdogJob = null
-                state = DictateState.Listening(partial = currentPartial.ifEmpty { "Listening..." })
+                state = DictateState.Listening(partial = currentPartial.ifEmpty { "Listening... Speak now" })
             }
 
             override fun onBeginningOfSpeech() {
                 isReadyForSpeech = true
                 watchdogJob?.cancel()
                 watchdogJob = null
-                state = DictateState.Listening(partial = currentPartial.ifEmpty { "Listening..." })
+                state = DictateState.Listening(partial = currentPartial.ifEmpty { "Hearing you..." })
             }
 
             override fun onRmsChanged(rmsdB: Float) {
@@ -1227,7 +1233,7 @@ internal fun VoiceTypingBar(
                     isReadyForSpeech = true
                     watchdogJob?.cancel()
                     watchdogJob = null
-                    state = DictateState.Listening(partial = currentPartial.ifEmpty { "Listening..." })
+                    state = DictateState.Listening(partial = currentPartial.ifEmpty { "Hearing you..." })
                 }
             }
 
@@ -1328,6 +1334,9 @@ internal fun VoiceTypingBar(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 5000L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
         }
 
         recognizer = sr
@@ -1347,11 +1356,11 @@ internal fun VoiceTypingBar(
             return
         }
 
-        // Safety watchdog: Give the speech service up to 3000ms to bind, initialize and ready microphone.
+        // Safety watchdog: Give the speech service up to 8000ms to bind, initialize and ready microphone.
         // If it hangs silently, automatically try the next speech candidate or system speech dialog!
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
-            delay(3000)
+            delay(8000)
             if (!isReadyForSpeech && recognizer != null) {
                 destroyRecognizer(cancelWatchdog = false)
                 if (candidateIndex + 1 < candidates.size) {

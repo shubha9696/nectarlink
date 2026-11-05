@@ -755,73 +755,46 @@ fun HomeScreen(
 
         }
 
-        if (mirrorSession.active) {
-
+        val liveMirrorSession by app.nectarlink.android.mirror.MirrorService.session.collectAsStateWithLifecycle()
+        if (liveMirrorSession.active) {
             item(key = "mirror_active_banner", contentType = "banner") {
-
                 val context = LocalContext.current
-            val mirrorSession by app.nectarlink.android.mirror.MirrorService.session.collectAsStateWithLifecycle()
-
-                val pcName = mirrorSession.pcId?.let { state.nameOf(it) }
-
+                val pcName = liveMirrorSession.pcId?.let { state.nameOf(it) }
                     ?: stringResource(R.string.your_pc)
-
                 val controlReady = state.inputAccess || state.elevated
-
                 val subtitle = when {
-
-                    mirrorSession.soundOnly -> stringResource(R.string.mirror_banner_subtitle_sound)
-
+                    liveMirrorSession.soundOnly -> stringResource(R.string.mirror_banner_subtitle_sound)
                     controlReady -> stringResource(R.string.mirror_banner_subtitle_control_on)
-
-                    mirrorSession.audio -> stringResource(R.string.mirror_banner_subtitle_audio)
-
+                    liveMirrorSession.audio -> stringResource(R.string.mirror_banner_subtitle_audio)
                     else -> stringResource(R.string.mirror_banner_subtitle)
-
                 }
-
                 LiveStreamingBanner(
-
                     title = stringResource(
-
-                        if (mirrorSession.soundOnly) R.string.mirror_sharing_sound else R.string.mirror_sharing,
-
+                        if (liveMirrorSession.soundOnly) R.string.mirror_sharing_sound else R.string.mirror_sharing,
                         pcName,
-
                     ),
-
                     subtitle = subtitle,
-
                     primaryActionLabel = stringResource(R.string.action_stop),
-
-                    onPrimaryAction = onStopMirror,
-
-                    // Nothing to control without the screen.
-
-                    secondaryActionLabel = if (!controlReady && !mirrorSession.soundOnly) {
-
+                    onPrimaryAction = {
+                        val pc = liveMirrorSession.pcId
+                        if (!pc.isNullOrEmpty()) {
+                            app.nectarlink.android.mirror.MirrorService.stop(pc)
+                        }
+                        app.nectarlink.android.mirror.MirrorService.stopCurrent()
+                        onStopMirror()
+                    },
+                    secondaryActionLabel = if (!controlReady && !liveMirrorSession.soundOnly) {
                         stringResource(R.string.mirror_allow_pc_control)
-
                     } else {
-
                         null
-
                     },
-
                     onSecondaryAction = if (!controlReady) {
-
                         { runCatching { context.startActivity(InputService.settingsIntent()) } }
-
                     } else {
-
                         null
-
                     },
-
                 )
-
             }
-
         }
 
         if (webcamSession.active) {
@@ -3334,14 +3307,16 @@ private fun PcCard(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    val isCastingScreen = mirrorSession.active && !mirrorSession.soundOnly && mirrorSession.pcId == device.id
+                    val isCastingScreen = mirrorSession.active && !mirrorSession.soundOnly && (mirrorSession.pcId.isNullOrEmpty() || mirrorSession.pcId.equals(device.id, ignoreCase = true))
                     FilledTonalButton(
                         contentPadding = CardButtonPadding,
                         enabled = device.online,
                         colors = if (isCastingScreen) primaryBtn else tonal,
                         onClick = {
                             if (isCastingScreen) {
-                                app.nectarlink.android.mirror.MirrorService.stop(device.id)
+                                val targetPc = mirrorSession.pcId ?: device.id
+                                app.nectarlink.android.mirror.MirrorService.stop(targetPc)
+                                app.nectarlink.android.mirror.MirrorService.stopCurrent()
                             } else {
                                 val castBitrate = 4_000_000
                                 val req = app.nectarlink.android.mirror.MirrorRequest(
@@ -4041,7 +4016,7 @@ private fun PcAudioCardSection(
 
     val mirrorSession by app.nectarlink.android.mirror.MirrorService.session.collectAsStateWithLifecycle()
 
-    val phoneAudioOnPc = mirrorSession.active && mirrorSession.soundOnly && mirrorSession.pcId == pcId
+    val phoneAudioOnPc = mirrorSession.active && mirrorSession.soundOnly && (mirrorSession.pcId.isNullOrEmpty() || mirrorSession.pcId.equals(pcId, ignoreCase = true))
 
 
 
@@ -4394,7 +4369,9 @@ private fun PcAudioCardSection(
 
                 .clickable(role = Role.Switch) {
                     if (phoneAudioOnPc) {
-                        app.nectarlink.android.mirror.MirrorService.stop(pcId)
+                        val targetPc = mirrorSession.pcId ?: pcId
+                        app.nectarlink.android.mirror.MirrorService.stop(targetPc)
+                        app.nectarlink.android.mirror.MirrorService.stopCurrent()
                     } else {
                         if (streamingToPhone) onSetPcAudio(200, null)
                         val req = app.nectarlink.android.mirror.MirrorRequest(
