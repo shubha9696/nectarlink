@@ -1152,12 +1152,8 @@ internal fun VoiceTypingBar(
 
     fun buildCandidateRecognizers(): List<() -> SpeechRecognizer?> {
         val list = mutableListOf<() -> SpeechRecognizer?>()
-        val pm = context.packageManager
-        val resolveInfos = runCatching {
-            pm.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
-        }.getOrDefault(emptyList())
 
-        // 1. Default System Speech Recognizer (if system reports available)
+        // 1. Default system SpeechRecognizer
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
             list.add {
                 runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
@@ -1165,25 +1161,7 @@ internal fun VoiceTypingBar(
             }
         }
 
-        // 2. Google Speech Services (the reliable, standard engine: com.google.android.tts)
-        list.add {
-            val comp = ComponentName(
-                "com.google.android.tts",
-                "com.google.android.apps.speech.tts.googletts.service.GoogleTTSRecognitionService"
-            )
-            runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
-        }
-
-        // 2. Google QuickSearchBox (standard voice search service)
-        list.add {
-            val comp = ComponentName(
-                "com.google.android.googlequicksearchbox",
-                "com.google.android.voicesearch.serviceapi.GoogleRecognitionService"
-            )
-            runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
-        }
-
-        // 3. Android On-Device Speech Recognizer (if API 33+)
+        // 2. Android On-Device Speech Recognizer (if API 33+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             list.add {
                 runCatching {
@@ -1194,20 +1172,15 @@ internal fun VoiceTypingBar(
             }
         }
 
-        // 4. Default System Speech Recognizer
-        list.add {
-            runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
-                ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
-        }
-
-        // 5. Any other speech recognition service discovered dynamically on device
+        // 3. Concrete system-registered RecognitionServices dynamically found on this phone
+        val pm = context.packageManager
+        val resolveInfos = runCatching {
+            pm.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
+        }.getOrDefault(emptyList())
         for (info in resolveInfos) {
-            val pkg = info.serviceInfo.packageName.lowercase()
-            if (pkg != "com.google.android.tts" && !pkg.contains("googletts") && !pkg.contains("googlequicksearchbox")) {
-                list.add {
-                    val comp = ComponentName(info.serviceInfo.packageName, info.serviceInfo.name)
-                    runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
-                }
+            list.add {
+                val comp = ComponentName(info.serviceInfo.packageName, info.serviceInfo.name)
+                runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
             }
         }
 
@@ -1366,11 +1339,11 @@ internal fun VoiceTypingBar(
             return
         }
 
-        // Safety watchdog: Give the speech service up to 2.5s to initialize and ready microphone.
+        // Safety watchdog: Give the speech service up to 1500ms to initialize and ready microphone.
         // If it hangs silently, automatically try the next speech candidate or system speech dialog!
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
-            delay(2500)
+            delay(1500)
             if (!isReadyForSpeech && recognizer != null) {
                 destroyRecognizer()
                 if (candidateIndex + 1 < candidates.size) {
@@ -1389,7 +1362,28 @@ internal fun VoiceTypingBar(
             state = DictateState.Error(DictateError.PermissionNeeded)
             return
         }
-        startInlineSpeechRecognizer()
+
+        // Always activate the system speech dialog first - this is the official, universal
+        // mechanism that immediately activates the hardware microphone on all Android versions
+        // and OEM ROMs (Xiaomi HyperOS, Samsung OneUI, Pixel, OnePlus, etc.).
+        val launched = runCatching {
+            destroyRecognizer()
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak into $pcName")
+                val localeTag = Locale.getDefault().toLanguageTag()
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
+            }
+            speechLauncher.launch(intent)
+            state = DictateState.Listening(partial = "Listening...")
+            true
+        }.getOrDefault(false)
+
+        if (!launched) {
+            startInlineSpeechRecognizer()
+        }
     }
 
     fun stopRecognition() {
