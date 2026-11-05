@@ -1122,12 +1122,8 @@ internal fun VoiceTypingBar(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
             }
-            if (intent.resolveActivity(context.packageManager) != null) {
-                speechLauncher.launch(intent)
-                state = DictateState.Listening(partial = "Listening...")
-            } else {
-                state = DictateState.Error(DictateError.NoSpeech)
-            }
+            speechLauncher.launch(intent)
+            state = DictateState.Listening(partial = "Listening...")
         }.onFailure {
             state = DictateState.Error(DictateError.NoSpeech)
         }
@@ -1161,7 +1157,15 @@ internal fun VoiceTypingBar(
             pm.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
         }.getOrDefault(emptyList())
 
-        // 1. Google Speech Services (the reliable, standard engine: com.google.android.tts)
+        // 1. Default System Speech Recognizer (if system reports available)
+        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+            list.add {
+                runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
+                    ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
+            }
+        }
+
+        // 2. Google Speech Services (the reliable, standard engine: com.google.android.tts)
         list.add {
             val comp = ComponentName(
                 "com.google.android.tts",

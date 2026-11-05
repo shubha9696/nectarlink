@@ -78,14 +78,14 @@ class SoundCapture(
                     it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
                 }
 
-                // High-fidelity local playback using USAGE_ASSISTANCE_SONIFICATION:
-                // Android AudioPolicy NEVER routes USAGE_ASSISTANCE_SONIFICATION to REMOTE_SUBMIX!
+                // High-fidelity local playback using USAGE_VOICE_COMMUNICATION:
+                // Android AudioPolicy NEVER routes USAGE_VOICE_COMMUNICATION to REMOTE_SUBMIX!
                 // This guarantees zero feedback loop, zero reverberation, and bit-perfect physical speaker output.
                 val track = AudioTrack.Builder()
                     .setAudioAttributes(
                         AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                             .apply {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                     setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)

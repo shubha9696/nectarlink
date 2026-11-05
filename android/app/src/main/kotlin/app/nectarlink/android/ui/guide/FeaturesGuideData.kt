@@ -878,7 +878,7 @@ object FeaturesGuideCatalog {
         ),
         FeatureGuideEntry(
             id = "biometric_pc_unlock",
-            area = FeatureArea.ConveniencePower,
+            area = FeatureArea.PowerNetwork,
             titleRes = R.string.guide_biometric_unlock_title,
             summaryRes = R.string.guide_biometric_unlock_summary,
             keywords = listOf("fingerprint", "biometric", "unlock pc", "lock pc", "security"),
@@ -918,7 +918,7 @@ object FeaturesGuideCatalog {
         ),
         FeatureGuideEntry(
             id = "quick_settings_pc_tiles",
-            area = FeatureArea.ConveniencePower,
+            area = FeatureArea.PowerNetwork,
             titleRes = R.string.guide_quick_tiles_title,
             summaryRes = R.string.guide_quick_tiles_summary,
             keywords = listOf("quick settings", "tiles", "lock pc", "mirror pc", "notification"),
@@ -938,7 +938,7 @@ object FeaturesGuideCatalog {
         ),
         FeatureGuideEntry(
             id = "phone_sound_pc",
-            area = FeatureArea.ScreenCameraAudio,
+            area = FeatureArea.MirroringCamera,
             titleRes = R.string.guide_phone_sound_title,
             summaryRes = R.string.guide_phone_sound_summary,
             keywords = listOf("phone sound", "dual audio", "pc speaker", "both", "audio routing"),
