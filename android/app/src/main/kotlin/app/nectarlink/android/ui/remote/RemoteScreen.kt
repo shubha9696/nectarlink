@@ -18,6 +18,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.RecognitionService
+import android.util.Log
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -1126,6 +1127,124 @@ internal fun VoiceTypingBar(
     DisposableEffect(pcId) {
         onDispose {
             destroyRecognizer(cancelWatchdog = true)
+            stopAudioRecording()
+        }
+    }
+
+    var audioRecordJob by remember { mutableStateOf<Job?>(null) }
+    var isAudioRecording by remember { mutableStateOf(false) }
+
+    fun stopAudioRecording() {
+        isAudioRecording = false
+    }
+
+    fun startAudioRecording() {
+        destroyRecognizer(cancelWatchdog = true)
+        stopAudioRecording()
+
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            state = DictateState.Error(DictateError.PermissionNeeded)
+            return
+        }
+
+        isAudioRecording = true
+        state = DictateState.Listening(partial = "Listening... Speak into phone")
+
+        audioRecordJob?.cancel()
+        audioRecordJob = scope.launch(Dispatchers.IO) {
+            val sampleRate = 16000
+            val minBuf = AudioRecord.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+            ).coerceAtLeast(3200)
+
+            val record = runCatching {
+                AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    sampleRate,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    minBuf,
+                )
+            }.getOrNull()
+
+            if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
+                withContext(Dispatchers.Main) {
+                    state = DictateState.Error(DictateError.Failed)
+                    isAudioRecording = false
+                }
+                return@launch
+            }
+
+            val pcmStream = java.io.ByteArrayOutputStream()
+            val chunk = ByteArray(1600)
+            val startMs = System.currentTimeMillis()
+            var speechDetected = false
+            var silenceCount = 0
+
+            try {
+                record.startRecording()
+                while (isAudioRecording && isActive) {
+                    val read = record.read(chunk, 0, chunk.size)
+                    if (read > 0) {
+                        pcmStream.write(chunk, 0, read)
+
+                        var sum = 0.0
+                        for (i in 0 until read step 2) {
+                            val s = (chunk[i].toInt() and 0xff) or (chunk[i + 1].toInt() shl 8)
+                            sum += s.toShort() * s.toShort()
+                        }
+                        val rms = Math.sqrt(sum / (read / 2))
+                        if (rms > 600.0) {
+                            if (!speechDetected) {
+                                speechDetected = true
+                                withContext(Dispatchers.Main) {
+                                    state = DictateState.Listening(partial = "Hearing your voice...")
+                                }
+                            }
+                            silenceCount = 0
+                        } else if (speechDetected) {
+                            silenceCount++
+                            if (silenceCount >= 36 && System.currentTimeMillis() - startMs > 2500) {
+                                break
+                            }
+                        }
+                    }
+                    if (System.currentTimeMillis() - startMs > 25000) {
+                        break
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("RemoteScreen", "AudioRecord sound error", e)
+            } finally {
+                runCatching { record.stop() }
+                record.release()
+            }
+
+            val pcmBytes = pcmStream.toByteArray()
+            if (pcmBytes.size < 3200) {
+                withContext(Dispatchers.Main) {
+                    isAudioRecording = false
+                    state = DictateState.Error(DictateError.NoSpeech)
+                }
+                return@launch
+            }
+
+            withContext(Dispatchers.Main) {
+                isAudioRecording = false
+                state = DictateState.Typing("Transcribing on PC...")
+            }
+
+            val wavBytes = createWavBytes(pcmBytes, sampleRate, 1, 16)
+            val b64 = android.util.Base64.encodeToString(wavBytes, android.util.Base64.NO_WRAP)
+            val payload = "__NECTAR_DICTATE_WAV__:$b64"
+            core.remoteText(pcId, payload) { access ->
+                onStatus(access)
+                scope.launch(Dispatchers.Main) {
+                    state = DictateState.Idle(lastTyped = "Sent to PC")
+                }
+            }
         }
     }
 
@@ -1415,123 +1534,6 @@ internal fun VoiceTypingBar(
                     startInlineSpeechRecognizer(candidateIndex + 1)
                 } else {
                     startAudioRecording()
-                }
-            }
-        }
-    }
-
-    var audioRecordJob by remember { mutableStateOf<Job?>(null) }
-    var isAudioRecording by remember { mutableStateOf(false) }
-
-    fun stopAudioRecording() {
-        isAudioRecording = false
-    }
-
-    fun startAudioRecording() {
-        destroyRecognizer(cancelWatchdog = true)
-        stopAudioRecording()
-
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            state = DictateState.Error(DictateError.PermissionNeeded)
-            return
-        }
-
-        isAudioRecording = true
-        state = DictateState.Listening(partial = "Listening... Speak into phone")
-
-        audioRecordJob?.cancel()
-        audioRecordJob = scope.launch(Dispatchers.IO) {
-            val sampleRate = 16000
-            val minBuf = AudioRecord.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-            ).coerceAtLeast(3200)
-
-            val record = runCatching {
-                AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    sampleRate,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    minBuf,
-                )
-            }.getOrNull()
-
-            if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
-                withContext(Dispatchers.Main) {
-                    state = DictateState.Error(DictateError.Failed)
-                    isAudioRecording = false
-                }
-                return@launch
-            }
-
-            val pcmStream = java.io.ByteArrayOutputStream()
-            val chunk = ByteArray(1600)
-            val startMs = System.currentTimeMillis()
-            var speechDetected = false
-            var silenceCount = 0
-
-            try {
-                record.startRecording()
-                while (isAudioRecording && isActive) {
-                    val read = record.read(chunk, 0, chunk.size)
-                    if (read > 0) {
-                        pcmStream.write(chunk, 0, read)
-
-                        var sum = 0.0
-                        for (i in 0 until read step 2) {
-                            val s = (chunk[i].toInt() and 0xff) or (chunk[i + 1].toInt() shl 8)
-                            sum += s.toShort() * s.toShort()
-                        }
-                        val rms = Math.sqrt(sum / (read / 2))
-                        if (rms > 600.0) {
-                            if (!speechDetected) {
-                                speechDetected = true
-                                withContext(Dispatchers.Main) {
-                                    state = DictateState.Listening(partial = "Hearing your voice...")
-                                }
-                            }
-                            silenceCount = 0
-                        } else if (speechDetected) {
-                            silenceCount++
-                            if (silenceCount >= 36 && System.currentTimeMillis() - startMs > 2500) {
-                                break
-                            }
-                        }
-                    }
-                    if (System.currentTimeMillis() - startMs > 25000) {
-                        break
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "AudioRecord sound error", e)
-            } finally {
-                runCatching { record.stop() }
-                record.release()
-            }
-
-            val pcmBytes = pcmStream.toByteArray()
-            if (pcmBytes.size < 3200) {
-                withContext(Dispatchers.Main) {
-                    isAudioRecording = false
-                    state = DictateState.Error(DictateError.NoSpeech)
-                }
-                return@launch
-            }
-
-            withContext(Dispatchers.Main) {
-                isAudioRecording = false
-                state = DictateState.Typing("Transcribing on PC...")
-            }
-
-            val wavBytes = createWavBytes(pcmBytes, sampleRate, 1, 16)
-            val b64 = android.util.Base64.encodeToString(wavBytes, android.util.Base64.NO_WRAP)
-            val payload = "__NECTAR_DICTATE_WAV__:$b64"
-            core.remoteText(pcId, payload) { access ->
-                onStatus(access)
-                scope.launch(Dispatchers.Main) {
-                    state = DictateState.Idle(lastTyped = "Sent to PC")
                 }
             }
         }
