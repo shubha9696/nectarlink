@@ -189,10 +189,32 @@ pub fn send_to_lock_pipe(cmd: &str) -> bool {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             let _ = std::process::Command::new("schtasks")
+                .args(["/Run", "/TN", "NectarLinkUnlock"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+            let _ = std::process::Command::new("schtasks")
                 .args(["/Run", "/TN", "NectarLinkHelper"])
                 .creation_flags(CREATE_NO_WINDOW)
                 .status();
-            std::thread::sleep(std::time::Duration::from_millis(60));
+
+            // Also check candidates to spawn directly if needed
+            let candidates = [
+                std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("unlock_helper.exe"))),
+                Some(std::path::PathBuf::from(r"C:\nectarlink-app\unlock_helper.exe")),
+                Some(std::path::PathBuf::from(r"C:\nectarlink\unlock_helper.exe")),
+                Some(std::path::PathBuf::from(r"C:\Program Files\Nectarlink\unlock_helper.exe")),
+            ];
+            for candidate in candidates.into_iter().flatten() {
+                if candidate.exists() {
+                    let mut proc = std::process::Command::new(&candidate);
+                    proc.arg("--service").creation_flags(CREATE_NO_WINDOW);
+                    if let Ok(_) = proc.spawn() {
+                        break;
+                    }
+                }
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(150));
         }
     }
     false

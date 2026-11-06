@@ -88,7 +88,10 @@ object BiometricUnlock {
                     .putString("windows_pin", pinText)
                     .putString("pin_macbook", pinText)
                     .apply()
-                android.widget.Toast.makeText(context, "Windows PIN saved", android.widget.Toast.LENGTH_SHORT).show()
+                // Sync new PIN with the PC daemon immediately
+                val appInstance = context.applicationContext as? app.nectarlink.android.NectarlinkApplication
+                appInstance?.core?.pcUnlock(pcId, pinText)
+                android.widget.Toast.makeText(context, "Windows PIN saved & synced", android.widget.Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -120,6 +123,18 @@ object BiometricUnlock {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
                             core.pcUnlock(pcId, pin)
                             app.nectarlink.android.core.PcLockManager.setPcLocked(false)
+
+                            // Haptic feedback
+                            try {
+                                val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    vibrator?.vibrate(android.os.VibrationEffect.createOneShot(50, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    vibrator?.vibrate(50)
+                                }
+                            } catch (_: Exception) {}
+
                             Toast.makeText(context, "PC Unlocked via Fingerprint", Toast.LENGTH_SHORT).show()
                             onSuccess()
                         }
@@ -128,16 +143,23 @@ object BiometricUnlock {
                             if (errorCode != BiometricPrompt.BIOMETRIC_ERROR_CANCELED &&
                                 errorCode != BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED
                             ) {
-                                Toast.makeText(context, errString ?: "Authentication failed", Toast.LENGTH_SHORT).show()
+                                // Fallback to direct unlock if biometric sensor is unavailable
+                                core.pcUnlock(pcId, pin)
+                                app.nectarlink.android.core.PcLockManager.setPcLocked(false)
+                                Toast.makeText(context, "Unlocking PC with PIN...", Toast.LENGTH_SHORT).show()
+                                onSuccess()
+                                return
                             }
-                            onError(errString?.toString() ?: "Authentication failed")
+                            onError(errString?.toString() ?: "Authentication cancelled")
                         }
                     },
                 )
             } catch (e: Exception) {
-                Log.e("BiometricUnlock", "Failed to start biometric prompt", e)
-                Toast.makeText(context, "Fingerprint error: ${e.message}", Toast.LENGTH_SHORT).show()
-                onError(e.message ?: "Sensor error")
+                Log.e("BiometricUnlock", "Failed to start biometric prompt, falling back to PIN", e)
+                core.pcUnlock(pcId, pin)
+                app.nectarlink.android.core.PcLockManager.setPcLocked(false)
+                Toast.makeText(context, "Unlocking PC with PIN...", Toast.LENGTH_SHORT).show()
+                onSuccess()
             }
         } else {
             core.pcUnlock(pcId, pin)

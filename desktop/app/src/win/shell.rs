@@ -484,47 +484,29 @@ pub fn unlock() -> Result<(), String> {
 
 
 pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
-    if !is_locked() {
-        tracing::info!("unlock: workstation is already unlocked; ignoring");
-        return Ok(());
-    }
-
     let pin_file = crate::core_host::try_data_dir()
-
         .map(|p| p.join("saved_pin.txt"))
-
         .unwrap_or_else(|| std::env::temp_dir().join("nectarlink_saved_pin.txt"));
 
-
-
     let fallback_paths = [
-
         Some(pin_file.clone()),
-
         Some(std::path::PathBuf::from(r"C:\nectarlink\saved_pin.txt")),
-
         Some(std::path::PathBuf::from(r"C:\Users\shubh\AppData\Local\nectarlink\saved_pin.txt")),
-
         Some(std::env::temp_dir().join("nectarlink_saved_pin.txt")),
-
     ];
 
-
-
     if let Some(p) = pin {
-
         if !p.trim().is_empty() {
-
             let _ = std::fs::write(&pin_file, p.trim().as_bytes());
-
             for path in fallback_paths.iter().flatten() {
-
                 let _ = std::fs::write(path, p.trim().as_bytes());
-
             }
-
         }
+    }
 
+    if !is_locked() {
+        tracing::info!("unlock: workstation is already unlocked; saved PIN and ignoring");
+        return Ok(());
     }
 
 
@@ -568,15 +550,36 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
         return Ok(());
     }
 
-    // 2. Trigger the scheduled SYSTEM task to start the helper if needed
+    // 2. Trigger the scheduled SYSTEM tasks or helper process to start if needed
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let _ = std::process::Command::new("schtasks")
+        .args(["/Run", "/TN", "NectarLinkUnlock"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
     let _ = std::process::Command::new("schtasks")
         .args(["/Run", "/TN", "NectarLinkHelper"])
         .creation_flags(CREATE_NO_WINDOW)
         .status();
 
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    // Check candidate paths to spawn unlock_helper directly if not running
+    let helper_candidates = [
+        std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("unlock_helper.exe"))),
+        Some(std::path::PathBuf::from(r"C:\nectarlink-app\unlock_helper.exe")),
+        Some(std::path::PathBuf::from(r"C:\nectarlink\unlock_helper.exe")),
+        Some(std::path::PathBuf::from(r"C:\Program Files\Nectarlink\unlock_helper.exe")),
+    ];
+    for candidate in helper_candidates.into_iter().flatten() {
+        if candidate.exists() {
+            let mut proc = std::process::Command::new(&candidate);
+            proc.arg("--service").creation_flags(CREATE_NO_WINDOW);
+            if let Ok(_) = proc.spawn() {
+                break;
+            }
+        }
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(150));
     if crate::win::input::send_to_lock_pipe(&unlock_cmd) {
         tracing::info!("unlock: sent UNLOCK command via SYSTEM named pipe after task trigger");
         return Ok(());
@@ -690,37 +693,27 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 false
             };
 
-            if !is_winlogon {
-                // Wake display and raise lock curtain cleanly with Space and Enter
-                press_key(0x20, 0x39); // VK_SPACE
-                std::thread::sleep(std::time::Duration::from_millis(80));
-                press_key(0x0D, 0x1C); // VK_RETURN
-                std::thread::sleep(std::time::Duration::from_millis(800));
+            // Wake display and raise lock curtain cleanly with Space and Enter
+            press_key(0x20, 0x39); // VK_SPACE
+            std::thread::sleep(std::time::Duration::from_millis(80));
+            press_key(0x0D, 0x1C); // VK_RETURN
+            std::thread::sleep(std::time::Duration::from_millis(850));
 
-                // 4. Re-acquire active input desktop after curtain transition
-                let hdesk2 = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
-                if hdesk2 != 0 {
-                    unsafe { SetThreadDesktop(hdesk2); }
-                    if hdesk != 0 && hdesk != hdesk2 {
-                        unsafe { CloseDesktop(hdesk); }
-                    }
-                    hdesk = hdesk2;
+            // Re-acquire active input desktop after curtain transition
+            let hdesk2 = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
+            if hdesk2 != 0 {
+                unsafe { SetThreadDesktop(hdesk2); }
+                if hdesk != 0 && hdesk != hdesk2 {
+                    unsafe { CloseDesktop(hdesk); }
                 }
+                hdesk = hdesk2;
             }
 
             // Escape any existing error dialog
             press_key(0x1B, 0x01); // VK_ESCAPE
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            std::thread::sleep(std::time::Duration::from_millis(80));
 
-            // Click center-screen directly inside PIN box (x=50%, y=51%)
-            unsafe {
-                mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTDOWN, 32768, 33400, 0, 0);
-                std::thread::sleep(std::time::Duration::from_millis(40));
-                mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE | MOUSEEVENTF_LEFTUP, 32768, 33400, 0, 0);
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-
-            // Select all (Ctrl+A) and backspace to guarantee empty field
+            // Select all (Ctrl+A) and clear with backspaces to guarantee empty field
             unsafe {
                 keybd_event(0x11, 0x1D, 0, 0); // Ctrl down
                 std::thread::sleep(std::time::Duration::from_millis(20));
@@ -729,12 +722,12 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
                 keybd_event(0x11, 0x1D, 2, 0); // Ctrl up
                 std::thread::sleep(std::time::Duration::from_millis(30));
             }
-            for _ in 0..4 {
+            for _ in 0..8 {
                 press_key(0x08, 0x0E);
-                std::thread::sleep(std::time::Duration::from_millis(20));
+                std::thread::sleep(std::time::Duration::from_millis(15));
             }
 
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(80));
 
 
 
@@ -859,35 +852,8 @@ pub fn unlock_with_pin(pin: Option<&str>) -> Result<(), String> {
 
 
 /// Returns `true` if the Windows workstation is currently locked (Winlogon desktop is active).
-
 pub fn is_locked() -> bool {
-
-    unsafe extern "system" {
-
-        fn OpenInputDesktop(dw_flags: u32, f_inherit: i32, dw_desired_access: u32) -> isize;
-
-        fn CloseDesktop(h_desktop: isize) -> i32;
-
-    }
-
-    unsafe {
-
-        let desk = OpenInputDesktop(0, 0, 0x0001);
-
-        if desk != 0 {
-
-            CloseDesktop(desk);
-
-            false
-
-        } else {
-
-            true
-
-        }
-
-    }
-
+    crate::win::input::is_screen_locked()
 }
 
 fn get_bluetooth_radio() -> Result<Radio, String> {

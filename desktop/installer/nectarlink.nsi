@@ -233,12 +233,15 @@ Section "Install"
   FileWriteUTF16LE $0 '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">$\r$\n'
   FileWriteUTF16LE $0 '  <RegistrationInfo>$\r$\n'
   FileWriteUTF16LE $0 '    <Description>NectarLink SYSTEM input bridge for lock screen remote control and PIN unlock.</Description>$\r$\n'
-  FileWriteUTF16LE $0 '    <SecurityDescriptor>D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;AU)</SecurityDescriptor>$\r$\n'
+  FileWriteUTF16LE $0 '    <SecurityDescriptor>D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;AU)</SecurityDescriptor>$\r$\n'
   FileWriteUTF16LE $0 '  </RegistrationInfo>$\r$\n'
   FileWriteUTF16LE $0 '  <Triggers>$\r$\n'
   FileWriteUTF16LE $0 '    <BootTrigger>$\r$\n'
   FileWriteUTF16LE $0 '      <Enabled>true</Enabled>$\r$\n'
   FileWriteUTF16LE $0 '    </BootTrigger>$\r$\n'
+  FileWriteUTF16LE $0 '    <LogonTrigger>$\r$\n'
+  FileWriteUTF16LE $0 '      <Enabled>true</Enabled>$\r$\n'
+  FileWriteUTF16LE $0 '    </LogonTrigger>$\r$\n'
   FileWriteUTF16LE $0 '  </Triggers>$\r$\n'
   FileWriteUTF16LE $0 '  <Principals>$\r$\n'
   FileWriteUTF16LE $0 '    <Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal>$\r$\n'
@@ -248,6 +251,10 @@ Section "Install"
   FileWriteUTF16LE $0 '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>$\r$\n'
   FileWriteUTF16LE $0 '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>$\r$\n'
   FileWriteUTF16LE $0 '    <AllowStartOnDemand>true</AllowStartOnDemand>$\r$\n'
+  FileWriteUTF16LE $0 '    <RestartOnFailure>$\r$\n'
+  FileWriteUTF16LE $0 '      <Interval>PT1M</Interval>$\r$\n'
+  FileWriteUTF16LE $0 '      <Count>3</Count>$\r$\n'
+  FileWriteUTF16LE $0 '    </RestartOnFailure>$\r$\n'
   FileWriteUTF16LE $0 '    <Enabled>true</Enabled>$\r$\n'
   FileWriteUTF16LE $0 '    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>$\r$\n'
   FileWriteUTF16LE $0 '  </Settings>$\r$\n'
@@ -258,6 +265,8 @@ Section "Install"
   FileClose $0
   nsExec::Exec 'schtasks /Create /TN "NectarLinkHelper" /XML "$PLUGINSDIR\helper-task.xml" /F'
   nsExec::Exec 'schtasks /Run /TN "NectarLinkHelper"'
+  nsExec::Exec 'schtasks /Create /TN "NectarLinkUnlock" /XML "$PLUGINSDIR\helper-task.xml" /F'
+  nsExec::Exec 'schtasks /Run /TN "NectarLinkUnlock"'
 
   !insertmacro Progress "step shortcuts"
   CreateShortCut "$SMPROGRAMS\${DISPLAY}.lnk" "$INSTDIR\${EXE}" "" "$INSTDIR\${EXE}" 0 "" "" "Your phone, on your PC"

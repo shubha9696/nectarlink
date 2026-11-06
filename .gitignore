@@ -13,7 +13,9 @@ signing.properties
 
 # ---- Rust ----
 /target/
+build_out/
 **/target/
+build_out/
 **/*.rs.bk
 
 # ---- Qt / C++ build output ----

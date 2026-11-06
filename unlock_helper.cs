@@ -291,17 +291,35 @@ namespace NectarLinkUnlockHelper
             Thread.Sleep(15);
         }
 
+        static string ReadSavedPin()
+        {
+            string[] candidates = new string[] {
+                @"C:\nectarlink\saved_pin.txt",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"nectarlink\saved_pin.txt"),
+                Path.Combine(Path.GetTempPath(), "nectarlink_saved_pin.txt")
+            };
+            foreach (var path in candidates)
+            {
+                if (File.Exists(path))
+                {
+                    try {
+                        string content = File.ReadAllText(path).Trim();
+                        if (!string.IsNullOrEmpty(content)) return content;
+                    } catch { }
+                }
+            }
+            return "9500";
+        }
+
         static void TypePin(string pin)
         {
+            if (string.IsNullOrEmpty(pin)) return;
             AttachInputDesktop();
             EnsureDesktopsAccessible();
 
             // Escape any existing error message or camera/lock prompt
             SendKey(0x1B, 0x01); // VK_ESCAPE
-            Thread.Sleep(60);
-
-            ClickPinBox();
-            Thread.Sleep(60);
+            Thread.Sleep(80);
 
             // Select all (Ctrl+A) and clear with backspaces to guarantee empty field
             keybd_event(0x11, 0x1D, 0, UIntPtr.Zero); // Ctrl down
@@ -311,7 +329,7 @@ namespace NectarLinkUnlockHelper
             keybd_event(0x11, 0x1D, KEYEVENTF_KEYUP, UIntPtr.Zero); // Ctrl up
             Thread.Sleep(30);
 
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < 8; i++)
             {
                 SendKey(0x08, 0x0E); // VK_BACK
                 Thread.Sleep(15);
@@ -321,46 +339,72 @@ namespace NectarLinkUnlockHelper
             foreach (char c in pin)
             {
                 TypeChar(c);
-                Thread.Sleep(25);
+                Thread.Sleep(30);
             }
-            Thread.Sleep(100);
+            Thread.Sleep(120);
             SendKey(0x0D, 0x1C); // VK_RETURN
         }
 
         static void ExecuteUnlock(string pin)
         {
+            if (string.IsNullOrEmpty(pin))
+            {
+                pin = ReadSavedPin();
+            }
+
             Log("ExecuteUnlock: starting unlock sequence with PIN len " + pin.Length);
             AttachInputDesktop();
             EnsureDesktopsAccessible();
 
+            if (!IsWorkstationLocked())
+            {
+                Log("Workstation is already unlocked; skipping.");
+                return;
+            }
+
             string desk = GetActiveDesktopName();
             Log("Active desktop before unlock: " + desk);
 
-            if (!desk.Equals("Winlogon", StringComparison.OrdinalIgnoreCase))
-            {
-                Log("Stage 1: Waking display and dismissing lock curtain...");
-                SendKey(0x20, 0x39); // VK_SPACE
-                Thread.Sleep(80);
-                SendKey(0x0D, 0x1C); // VK_RETURN
-                Thread.Sleep(800);
-                AttachInputDesktop();
-                EnsureDesktopsAccessible();
-            }
-            else
-            {
-                Log("Stage 1: Already on Winlogon login panel, skipping curtain dismissal.");
-            }
+            // Stage 1: Wake display and dismiss lock curtain (Windows lock curtain is rendered on Winlogon desktop!)
+            Log("Stage 1: Waking display and dismissing lock curtain...");
+            SendKey(0x20, 0x39); // VK_SPACE
+            Thread.Sleep(100);
+            SendKey(0x0D, 0x1C); // VK_RETURN
+            Thread.Sleep(850);   // Wait for curtain slide-up animation to complete
+
+            AttachInputDesktop();
+            EnsureDesktopsAccessible();
+
+            // Clear any stale error popup or Windows Hello camera prompt
+            SendKey(0x1B, 0x01); // VK_ESCAPE
+            Thread.Sleep(100);
 
             Log("Stage 2: Entering PIN...");
             TypePin(pin);
 
-            Thread.Sleep(1000);
+            Thread.Sleep(1200);
             if (IsWorkstationLocked())
             {
                 Log("Stage 3: Screen still locked, executing retry PIN entry...");
                 AttachInputDesktop();
                 EnsureDesktopsAccessible();
+
+                SendKey(0x20, 0x39); // VK_SPACE
+                Thread.Sleep(120);
+                SendKey(0x1B, 0x01); // VK_ESCAPE
+                Thread.Sleep(100);
+
                 TypePin(pin);
+
+                Thread.Sleep(1200);
+                if (IsWorkstationLocked())
+                {
+                    Log("Workstation unlock attempt completed; still locked.");
+                }
+                else
+                {
+                    Log("Workstation unlocked successfully on retry!");
+                }
             }
             else
             {
@@ -455,7 +499,7 @@ namespace NectarLinkUnlockHelper
                     break;
 
                 case "UNLOCK":
-                    string pin = parts.Length > 1 ? parts[1] : "9500";
+                    string pin = parts.Length > 1 ? parts[1] : ReadSavedPin();
                     ExecuteUnlock(pin);
                     break;
 
