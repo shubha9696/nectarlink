@@ -1124,18 +1124,20 @@ internal fun VoiceTypingBar(
         }
     }
 
-    DisposableEffect(pcId) {
-        onDispose {
-            destroyRecognizer(cancelWatchdog = true)
-            stopAudioRecording()
-        }
-    }
-
     var audioRecordJob by remember { mutableStateOf<Job?>(null) }
     var isAudioRecording by remember { mutableStateOf(false) }
 
     fun stopAudioRecording() {
         isAudioRecording = false
+    }
+
+    DisposableEffect(pcId) {
+        onDispose {
+            destroyRecognizer(cancelWatchdog = true)
+            stopAudioRecording()
+            audioRecordJob?.cancel()
+            audioRecordJob = null
+        }
     }
 
     fun startAudioRecording() {
