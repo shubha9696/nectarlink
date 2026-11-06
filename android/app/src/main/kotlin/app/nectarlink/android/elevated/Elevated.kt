@@ -899,13 +899,13 @@ object Elevated {
         }.getOrDefault(false)
     }
 
-    fun openAudioStream(): java.net.Socket? {
+    fun openAudioStream(mode: String = "pc"): java.net.Socket? {
         val (port, token) = helper ?: return null
         return runCatching {
             java.net.Socket(java.net.InetAddress.getLoopbackAddress(), port).apply {
                 tcpNoDelay = true
                 val out = OutputStreamWriter(getOutputStream(), Charsets.UTF_8)
-                out.write("$token\nA\n")
+                out.write("$token\nA $mode\n")
                 out.flush()
             }
         }.onFailure { Log.w(TAG, "can't open Elevated audio stream", it) }.getOrNull()

@@ -1155,12 +1155,23 @@ internal fun VoiceTypingBar(
             }
         }
 
+        // 4. Known OEM and Google Speech service packages
+        val knownServices = listOf(
+            ComponentName("com.google.android.googlequicksearchbox", "com.google.android.voicesearch.serviceapi.GoogleRecognitionService"),
+            ComponentName("com.google.android.googlequicksearchbox", "com.google.android.apps.gsa.staticplugins.bargein.BargeInRecognitionService"),
+            ComponentName("com.google.android.as", "com.google.android.apps.miphone.aiai.speech.service.AiAiSpeechRecognitionService"),
+        )
+        for (comp in knownServices) {
+            list.add {
+                runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
+            }
+        }
+
         return list
     }
 
     fun launchSystemSpeechDialog() {
         destroyRecognizer(cancelWatchdog = true)
-        val candidates = buildCandidateRecognizers()
         runCatching {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -1176,10 +1187,23 @@ internal fun VoiceTypingBar(
                 speechLauncher.launch(intent)
                 state = DictateState.Listening(partial = "Listening...")
             } else {
-                state = DictateState.Error(DictateError.NoRecognizer)
+                // Seamless PC voice typing fallback: start phone mic stream & trigger Windows Voice Typing (Win+H)
+                val isMicStreaming = app.nectarlink.android.mic.MicService.streaming.value == pcId
+                if (!isMicStreaming) {
+                    context.startActivity(
+                        Intent(context, app.nectarlink.android.mic.MicStartActivity::class.java).apply {
+                            putExtra(app.nectarlink.android.mic.MicStartActivity.EXTRA_PC, pcId)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    )
+                }
+                core.remoteKey(pcId, "h", listOf("win"))
+                state = DictateState.Listening(partial = "Speak into phone -> $pcName")
             }
         }.onFailure {
-            state = DictateState.Error(DictateError.Failed)
+            // Even on failure, trigger the PC voice typing stream fallback
+            core.remoteKey(pcId, "h", listOf("win"))
+            state = DictateState.Listening(partial = "Speak into phone -> $pcName")
         }
     }
 
@@ -1417,6 +1441,10 @@ internal fun VoiceTypingBar(
             runCatching { sr.stopListening() }
             state = DictateState.Typing(currentPartial.ifEmpty { "Transcribing..." })
         } else {
+            if (state is DictateState.Listening && (state as DictateState.Listening).partial.contains("-> $pcName")) {
+                state = DictateState.Idle(lastTyped = "Spoken to $pcName")
+                return
+            }
             val captured = currentPartial.trim()
             currentPartial = ""
             if (captured.isNotEmpty()) {

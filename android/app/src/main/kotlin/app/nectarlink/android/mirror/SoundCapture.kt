@@ -41,76 +41,13 @@ class SoundCapture(
     @Volatile private var running = false
     @Volatile private var elevatedSocket: Socket? = null
     @Volatile private var audioRecord: AudioRecord? = null
-    @Volatile private var localAudioTrack: AudioTrack? = null
     private var thread: Thread? = null
-
-    private fun ensureAudioTrack(): AudioTrack? {
-        val existing = localAudioTrack
-        if (existing != null) return existing
-        return runCatching {
-            val minBuf = AudioTrack.getMinBufferSize(
-                RATE,
-                AudioFormat.CHANNEL_OUT_STEREO,
-                AudioFormat.ENCODING_PCM_16BIT,
-            )
-            val track = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                AudioTrack.Builder()
-                    .setAudioAttributes(
-                        AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .setAllowedCapturePolicy(AudioAttributes.ALLOW_CAPTURE_BY_NONE)
-                            .build()
-                    )
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                            .setSampleRate(RATE)
-                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                            .build()
-                    )
-                    .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
-                    .setTransferMode(AudioTrack.MODE_STREAM)
-                    .build()
-            } else {
-                @Suppress("DEPRECATION")
-                AudioTrack(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build(),
-                    AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(RATE)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                        .build(),
-                    maxOf(minBuf, PACKET_BYTES * 4),
-                    AudioTrack.MODE_STREAM,
-                    android.media.AudioManager.AUDIO_SESSION_ID_GENERATE,
-                )
-            }
-            track.play()
-            localAudioTrack = track
-            track
-        }.getOrNull()
-    }
-
-    private fun stopAudioTrack() {
-        val track = localAudioTrack
-        localAudioTrack = null
-        track?.runCatching {
-            pause()
-            flush()
-            stop()
-            release()
-        }
-    }
 
     private fun applyVolumeForMode(mode: Int) {
         val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
         try {
             if (mode == 0) {
-                // In mode 0 (PC only), mute STREAM_MUSIC so only PC plays.
+                // In mode 0 (PC only), optionally mute STREAM_MUSIC so only PC plays.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, 0)
                 }
@@ -141,13 +78,13 @@ class SoundCapture(
     internal fun onModeChanged(newMode: Int) {
         applyVolumeForMode(newMode)
         if (newMode == 2) {
-            stopAudioTrack()
             closeElevatedSocket()
             if (Elevated.running) {
                 Elevated.stopAudio()
             }
-        } else if (newMode == 0) {
-            stopAudioTrack()
+        } else {
+            // Reconnect elevated stream to switch route flags between loopback-render (both) and loopback-only (pc)
+            closeElevatedSocket()
         }
     }
 
@@ -233,12 +170,6 @@ class SoundCapture(
                 // In mode 2 ("Phone only"), audio is for phone speaker only; don't stream to PC
                 if (soundMode == 2) continue
 
-                if (soundMode == 1) {
-                    ensureAudioTrack()?.write(packet, 0, packet.size, AudioTrack.WRITE_NON_BLOCKING)
-                } else if (localAudioTrack != null) {
-                    stopAudioTrack()
-                }
-
                 if (!configSent) {
                     configSent = true
                     started = SystemClock.elapsedRealtimeNanos()
@@ -257,7 +188,6 @@ class SoundCapture(
         } catch (e: Exception) {
             Log.w(TAG, "AudioRecord sound capture stopped", e)
         } finally {
-            stopAudioTrack()
             restoreVolume()
             audioRecord = null
             activeCaptures.remove(this)
@@ -275,7 +205,6 @@ class SoundCapture(
                 // In mode 2 ("Phone only"), release elevated submix recorder so Android
                 // routes audio naturally to the phone's physical speakers.
                 if (soundMode == 2) {
-                    stopAudioTrack()
                     closeElevatedSocket()
                     if (Elevated.running) {
                         Elevated.stopAudio()
@@ -290,7 +219,8 @@ class SoundCapture(
                     if (!running) break
                 }
 
-                val sock = Elevated.openAudioStream()
+                val modeStr = if (soundMode == 1) "both" else "pc"
+                val sock = Elevated.openAudioStream(modeStr)
                 if (sock == null) {
                     try {
                         Thread.sleep(250)
@@ -318,13 +248,6 @@ class SoundCapture(
                         if (!running) break
                         if (filled < packet.size) break
 
-                        if (soundMode == 1) {
-                            // Mode 1: Both (PC & Phone speakers)
-                            ensureAudioTrack()?.write(packet, 0, packet.size, AudioTrack.WRITE_NON_BLOCKING)
-                        } else if (localAudioTrack != null) {
-                            stopAudioTrack()
-                        }
-
                         if (!configSent) {
                             configSent = true
                             started = SystemClock.elapsedRealtimeNanos()
@@ -351,7 +274,6 @@ class SoundCapture(
         } catch (e: Exception) {
             Log.w(TAG, "Elevated sound capture stopped", e)
         } finally {
-            stopAudioTrack()
             restoreVolume()
             closeElevatedSocket()
             activeCaptures.remove(this)
@@ -365,7 +287,6 @@ class SoundCapture(
 
     fun stop() {
         running = false
-        stopAudioTrack()
         val rec = audioRecord
         audioRecord = null
         val th = thread

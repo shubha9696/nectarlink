@@ -228,7 +228,11 @@ mod imp {
                 let path = path.clone();
                 if let Some(root) = get_active_root(&device) {
                     core_host::spawn(async move {
-                        refresh_folder(root, &path).await;
+                        if path.is_empty() {
+                            refresh_tree(root).await;
+                        } else {
+                            refresh_folder(root.clone(), &path).await;
+                        }
                     });
                 }
             }
@@ -338,6 +342,11 @@ mod imp {
         }
         #[cfg(windows)]
         {
+            if let Some(root) = get_active_root(&device) {
+                core_host::spawn(async move {
+                    refresh_tree(root).await;
+                });
+            }
             win::shell::run(Path::new("explorer.exe"), &format!("\"{}\"", path.display()))
         }
         #[cfg(target_os = "linux")]
@@ -596,9 +605,9 @@ mod imp {
 
         if online {
             core_host::spawn(async move {
-                // Pre-populate top-level placeholders when connected so opening the
-                // sync root in Explorer or inspecting it immediately shows folders.
-                refresh_folder(active, "").await;
+                // Pre-populate top-level placeholders and existing subdirectories when connected
+                // so opening the sync root in Explorer immediately shows all files.
+                refresh_tree(active).await;
             });
         }
 
@@ -1248,6 +1257,38 @@ mod imp {
                 Some(&mut processed),
             )
         };
+    }
+
+    /// Recursively discovers and refreshes the root and all known/existing subdirectories
+    /// from the phone (e.g. Download, DCIM, Documents, Pictures, etc.) ensuring that all
+    /// files, including large movies, APKs, and documents, are visible in Windows Explorer.
+    #[cfg(windows)]
+    pub(crate) async fn refresh_tree(root: Arc<ActiveRoot>) {
+        refresh_folder(root.clone(), "").await;
+
+        let mut subdirs = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&root.root_path) {
+            for entry in entries.flatten() {
+                if let Ok(ft) = entry.file_type()
+                    && ft.is_dir()
+                {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if !name.starts_with('.') && !name.starts_with('$') {
+                        subdirs.push(name);
+                    }
+                }
+            }
+        }
+
+        for common in ["Download", "DCIM", "Documents", "Pictures", "Movies", "Music"] {
+            if !subdirs.iter().any(|d| d.eq_ignore_ascii_case(common)) {
+                subdirs.push(common.to_string());
+            }
+        }
+
+        for rel in subdirs {
+            refresh_folder(root.clone(), &rel).await;
+        }
     }
 
     /// Watches the sync root directory for files or folders dropped in by the user

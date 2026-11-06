@@ -324,7 +324,11 @@ object InputServer {
             if (!MessageDigest.isEqual(given.toByteArray(), token.toByteArray())) return
             val first = runCatching { reader.nextLine() }.getOrNull()
             if (first != null && first.startsWith("V ")) return appWindow(client, first, reader)
-            if (first == "A") return streamDeviceAudio(client)
+            val isAudioReq = first == "A" || (first != null && first.startsWith("A "))
+            if (isAudioReq) {
+                val mode = if (first!!.startsWith("A ")) first.substring(2).trim() else "pc"
+                return streamDeviceAudio(client, mode)
+            }
             if (first == "A_STOP") {
                 stopAudio()
                 return
@@ -367,7 +371,7 @@ object InputServer {
     }
 
     @android.annotation.SuppressLint("MissingPermission", "PrivateApi", "DiscouragedPrivateApi")
-    private fun streamDeviceAudio(client: Socket) {
+    private fun streamDeviceAudio(client: Socket, mode: String = "pc") {
         val out = client.getOutputStream()
         val rate = 48_000
         val channelMask = android.media.AudioFormat.CHANNEL_IN_STEREO
@@ -383,7 +387,81 @@ object InputServer {
             .setEncoding(encoding)
             .build()
 
+        var activePolicy: Any? = null
+        var audioManager: android.media.AudioManager? = null
+
+        fun openPolicyRecorder(both: Boolean): android.media.AudioRecord? {
+            return runCatching {
+                val shellCtx = runCatching { ShellContext.get() }.getOrNull() ?: return@runCatching null
+                val am = shellCtx.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+                    ?: return@runCatching null
+                audioManager = am
+
+                val ruleBuilderClass = Class.forName("android.media.audiopolicy.AudioMixingRule\$Builder")
+                val ruleBuilder = ruleBuilderClass.getConstructor().newInstance()
+                val addRule = ruleBuilderClass.getMethod(
+                    "addRule",
+                    android.media.AudioAttributes::class.java,
+                    Int::class.javaPrimitiveType,
+                )
+
+                // Match media and game usage
+                val mediaAttr = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .build()
+                val gameAttr = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_GAME)
+                    .build()
+                addRule.invoke(ruleBuilder, mediaAttr, 1) // RULE_MATCH_ATTRIBUTE_USAGE = 1
+                addRule.invoke(ruleBuilder, gameAttr, 1)
+                val rule = ruleBuilderClass.getMethod("build").invoke(ruleBuilder)
+
+                val mixBuilderClass = Class.forName("android.media.audiopolicy.AudioMix\$Builder")
+                val mixBuilder = mixBuilderClass.getConstructor(
+                    Class.forName("android.media.audiopolicy.AudioMixingRule"),
+                ).newInstance(rule)
+                val setFormat = mixBuilderClass.getMethod("setFormat", android.media.AudioFormat::class.java)
+                setFormat.invoke(mixBuilder, format)
+
+                val setRouteFlags = mixBuilderClass.getMethod("setRouteFlags", Int::class.javaPrimitiveType)
+                // ROUTE_FLAG_LOOP_BACK_RENDER = 3 (phone speakers play AND stream captured without mixer echo)
+                // ROUTE_FLAG_LOOP_BACK = 2 (phone speakers muted, PC hears stream)
+                val flags = if (both) 3 else 2
+                setRouteFlags.invoke(mixBuilder, flags)
+                val mix = mixBuilderClass.getMethod("build").invoke(mixBuilder)
+
+                val policyBuilderClass = Class.forName("android.media.audiopolicy.AudioPolicy\$Builder")
+                val policyBuilder = policyBuilderClass.getConstructor(
+                    android.content.Context::class.java,
+                ).newInstance(shellCtx)
+                val addMix = policyBuilderClass.getMethod("addMix", Class.forName("android.media.audiopolicy.AudioMix"))
+                addMix.invoke(policyBuilder, mix)
+                val policy = policyBuilderClass.getMethod("build").invoke(policyBuilder)
+
+                val registerPolicy = am.javaClass.getMethod(
+                    "registerAudioPolicy",
+                    Class.forName("android.media.audiopolicy.AudioPolicy"),
+                )
+                val res = registerPolicy.invoke(am, policy) as Int
+                if (res == 0) {
+                    activePolicy = policy
+                    val createSink = Class.forName("android.media.audiopolicy.AudioPolicy")
+                        .getMethod("createAudioRecordSink", Class.forName("android.media.audiopolicy.AudioMix"))
+                    val rec = createSink.invoke(policy, mix) as android.media.AudioRecord
+                    if (rec.state == android.media.AudioRecord.STATE_INITIALIZED) {
+                        return@runCatching rec
+                    }
+                    rec.release()
+                }
+                null
+            }.getOrNull()
+        }
+
         fun openRecorder(): android.media.AudioRecord? {
+            // Try AudioPolicy first for clean hardware-level loopback/render routing
+            val polRec = openPolicyRecorder(mode.contains("both"))
+            if (polRec != null) return polRec
+
             // 1. Try AudioRecord.Builder with REMOTE_SUBMIX and ShellContext attribution (scrcpy mechanism)
             runCatching {
                 val shellCtx = runCatching { ShellContext.get() }.getOrNull()
@@ -421,7 +499,7 @@ object InputServer {
                 if (rec.state == android.media.AudioRecord.STATE_INITIALIZED) return rec
                 rec.release()
             }
-            // 2. Try standard AudioRecord with REMOTE_SUBMIX (8).
+            // 3. Try standard AudioRecord with REMOTE_SUBMIX (8).
             runCatching {
                 val rec = android.media.AudioRecord(
                     android.media.MediaRecorder.AudioSource.REMOTE_SUBMIX,
@@ -465,6 +543,15 @@ object InputServer {
             if (activeAudioClient === client) activeAudioClient = null
             runCatching { recorder.stop() }
             runCatching { recorder.release() }
+            activePolicy?.let { pol ->
+                runCatching {
+                    audioManager?.javaClass?.getMethod(
+                        "unregisterAudioPolicy",
+                        Class.forName("android.media.audiopolicy.AudioPolicy"),
+                    )?.invoke(audioManager, pol)
+                }
+                activePolicy = null
+            }
             runCatching { client.close() }
         }
     }
