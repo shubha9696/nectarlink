@@ -580,6 +580,34 @@ async fn enqueue_outgoing(
                 });
             }
             FileSource::File(handle) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::io::AsRawFd;
+                    let proc_path = format!("/proc/self/fd/{}", handle.as_raw_fd());
+                    if let Ok(real_path) = std::fs::read_link(&proc_path) {
+                        if real_path.is_file() {
+                            if let Ok(meta) = real_path.metadata() {
+                                let size = meta.len();
+                                let mtime_ms = crate::file_mtime_ms(&meta);
+                                specs.push(crate::QueuedFileSpec {
+                                    path: real_path,
+                                    name: clean_name.clone(),
+                                    folder: file.folder.clone(),
+                                    size,
+                                    mtime_ms,
+                                    staged: false,
+                                });
+                                entries.push(FileEntry {
+                                    name: clean_name,
+                                    size,
+                                    folder: file.folder,
+                                    blake3: Some("0".repeat(64)),
+                                });
+                                continue;
+                            }
+                        }
+                    }
+                }
                 let stage_dir = shared.queue_staging_dir().join(&id);
                 let stage_path = stage_dir.join(format!("{idx}_{}", storable_name(&clean_name)));
                 let stage_path_clone = stage_path.clone();

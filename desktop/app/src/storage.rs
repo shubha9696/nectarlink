@@ -708,10 +708,51 @@ mod imp {
         parent_rel: &str,
         entries: &[StorageEntry],
     ) {
+        if entries.is_empty() {
+            let op_info =
+                make_op_info(connection_key, transfer_key, request_key, CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS);
+            let mut op_params = CF_OPERATION_PARAMETERS {
+                ParamSize: std::mem::size_of::<CF_OPERATION_PARAMETERS>() as u32,
+                Anonymous: CF_OPERATION_PARAMETERS_0 {
+                    TransferPlaceholders: windows::Win32::Storage::CloudFilters::CF_OPERATION_PARAMETERS_0_4 {
+                        Flags: CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION,
+                        CompletionStatus: STATUS_SUCCESS,
+                        PlaceholderTotalCount: 0,
+                        PlaceholderArray: std::ptr::null_mut(),
+                        PlaceholderCount: 0,
+                        EntriesProcessed: 0,
+                    },
+                },
+            };
+            let _ = unsafe { CfExecute(&op_info, &mut op_params) };
+            return;
+        }
+
+        let mut used_names = std::collections::HashSet::new();
         let mut wide_names: Vec<Vec<u16>> = Vec::with_capacity(entries.len());
         let mut identities: Vec<Vec<u8>> = Vec::with_capacity(entries.len());
         for entry in entries {
-            let clean_name = nectarlink_core::storable_name(&entry.name);
+            let mut clean_name = nectarlink_core::storable_name(&entry.name);
+            if clean_name.is_empty() {
+                clean_name = "file".to_string();
+            }
+            let lower = clean_name.to_lowercase();
+            if used_names.contains(&lower) {
+                let (stem, ext) = match clean_name.rfind('.') {
+                    Some(idx) if idx > 0 => (&clean_name[..idx], &clean_name[idx..]),
+                    _ => (clean_name.as_str(), ""),
+                };
+                let mut counter = 2;
+                loop {
+                    let candidate = format!("{stem} ({counter}){ext}");
+                    if !used_names.contains(&candidate.to_lowercase()) {
+                        clean_name = candidate;
+                        break;
+                    }
+                    counter += 1;
+                }
+            }
+            used_names.insert(clean_name.to_lowercase());
             wide_names.push(to_wide_null(&clean_name));
             let rel = if parent_rel.is_empty() {
                 entry.name.clone()
@@ -727,27 +768,46 @@ mod imp {
             .map(|(i, entry)| build_placeholder_create_info(entry, &wide_names[i], &identities[i]))
             .collect();
 
+        let total_count = create_infos.len();
         let op_info =
             make_op_info(connection_key, transfer_key, request_key, CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS);
-        let mut op_params = CF_OPERATION_PARAMETERS {
-            ParamSize: std::mem::size_of::<CF_OPERATION_PARAMETERS>() as u32,
-            Anonymous: CF_OPERATION_PARAMETERS_0 {
-                TransferPlaceholders: windows::Win32::Storage::CloudFilters::CF_OPERATION_PARAMETERS_0_4 {
-                    Flags: CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION,
-                    CompletionStatus: STATUS_SUCCESS,
-                    PlaceholderTotalCount: create_infos.len() as i64,
-                    PlaceholderArray: if create_infos.is_empty() {
-                        std::ptr::null_mut()
-                    } else {
-                        create_infos.as_mut_ptr()
+
+        for chunk in create_infos.chunks_mut(64) {
+            let mut op_params = CF_OPERATION_PARAMETERS {
+                ParamSize: std::mem::size_of::<CF_OPERATION_PARAMETERS>() as u32,
+                Anonymous: CF_OPERATION_PARAMETERS_0 {
+                    TransferPlaceholders: windows::Win32::Storage::CloudFilters::CF_OPERATION_PARAMETERS_0_4 {
+                        Flags: CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION,
+                        CompletionStatus: STATUS_SUCCESS,
+                        PlaceholderTotalCount: total_count as i64,
+                        PlaceholderArray: chunk.as_mut_ptr(),
+                        PlaceholderCount: chunk.len() as u32,
+                        EntriesProcessed: 0,
                     },
-                    PlaceholderCount: create_infos.len() as u32,
-                    EntriesProcessed: 0,
                 },
-            },
-        };
-        // SAFETY: op_info and op_params point to valid stack structures and buffers.
-        let _ = unsafe { CfExecute(&op_info, &mut op_params) };
+            };
+            // SAFETY: op_info and op_params point to valid stack structures and buffers.
+            let res = unsafe { CfExecute(&op_info, &mut op_params) };
+            if let Err(e) = res {
+                tracing::warn!("CfExecute batch failed ({e:?}), retrying individually");
+                for single in chunk.iter_mut() {
+                    let mut single_params = CF_OPERATION_PARAMETERS {
+                        ParamSize: std::mem::size_of::<CF_OPERATION_PARAMETERS>() as u32,
+                        Anonymous: CF_OPERATION_PARAMETERS_0 {
+                            TransferPlaceholders: windows::Win32::Storage::CloudFilters::CF_OPERATION_PARAMETERS_0_4 {
+                                Flags: CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION,
+                                CompletionStatus: STATUS_SUCCESS,
+                                PlaceholderTotalCount: total_count as i64,
+                                PlaceholderArray: single as *mut _,
+                                PlaceholderCount: 1,
+                                EntriesProcessed: 0,
+                            },
+                        },
+                    };
+                    let _ = unsafe { CfExecute(&op_info, &mut single_params) };
+                }
+            }
+        }
     }
 
     /// What Explorer is told when the phone couldn't list or read something.

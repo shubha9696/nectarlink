@@ -257,6 +257,18 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Exposes PC storage in Files by Google and Android DocumentsUI -->
+        <provider
+            android:name=".storage.PcDocumentsProvider"
+            android:authorities="${applicationId}.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
         <service
             android:name=".clipboard.ClipboardTileService"
             android:exported="true"

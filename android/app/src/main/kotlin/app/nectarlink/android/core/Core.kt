@@ -2621,6 +2621,17 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             }.getOrDefault(false)
             TransferNotifications.cancel(context, notifId)
             val savedUri = if (ok && tempFile.exists()) {
+                runCatching {
+                    val pcStorageDir = app.nectarlink.android.storage.PhoneStorage.ensurePcStorageDir()
+                    val target = java.io.File(pcStorageDir, safeName)
+                    tempFile.copyTo(target, overwrite = true)
+                    android.media.MediaScannerConnection.scanFile(
+                        context,
+                        arrayOf(target.absolutePath),
+                        null,
+                        null
+                    )
+                }
                 val uri = ReceivedFiles.saveToDownloads(context, tempFile, safeName)
                 if (uri != null) {
                     TransferNotifications.received(context, uri, safeName, pcName)
@@ -2653,6 +2664,29 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
             withContext(Dispatchers.Main) { onResult(false) }
         }
     }
+
+    /** Synchronous remote storage directory listing for DocumentsProvider. */
+    fun listPcFilesBlocking(deviceId: String, path: String): List<app.nectarlink.core.RemoteStorageEntry> {
+        val currentNode = node ?: return emptyList()
+        return runCatching {
+            currentNode.listRemoteStorage(deviceId, path)
+        }.getOrElse { emptyList() }
+    }
+
+    /** Synchronous remote file download for DocumentsProvider. */
+    fun downloadPcFileBlocking(deviceId: String, remotePath: String, destFile: java.io.File): Boolean {
+        val currentNode = node ?: return false
+        return runCatching {
+            currentNode.downloadRemoteStorage(deviceId, remotePath, destFile.absolutePath)
+        }.getOrDefault(false)
+    }
+
+    val onlinePcId: String?
+        get() = _state.value.devices.firstOrNull { !it.isAndroid && it.online }?.id
+            ?: _state.value.devices.firstOrNull { !it.isAndroid }?.id
+
+    val allPcs: List<Device>
+        get() = _state.value.devices.filter { !it.isAndroid }
 
     fun deletePcFile(deviceId: String, path: String, onResult: (Boolean) -> Unit) {
         scope.launch(Dispatchers.IO) {

@@ -539,6 +539,22 @@ class PhoneStorage(
 
         fun sharedRoot(): File = Environment.getExternalStorageDirectory()
 
+        /** Ensures the PC Storage directory exists on phone storage. */
+        fun ensurePcStorageDir(): File {
+            val dir = File(sharedRoot(), "PC Storage")
+            if (!dir.exists()) {
+                dir.mkdirs()
+                runCatching {
+                    File(dir, "README.txt").writeText(
+                        "NectarLink PC Storage\n\n" +
+                        "Files you browse or download from your connected PC are saved here and in your Downloads folder.\n" +
+                        "You can also browse your PC drives and folders directly from Files by Google and system file pickers!\n"
+                    )
+                }
+            }
+            return dir
+        }
+
         /** Whether full shared-storage access (`MANAGE_EXTERNAL_STORAGE` on Android 11+) is granted. */
         fun hasAllFilesAccess(context: Context): Boolean =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

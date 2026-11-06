@@ -7528,6 +7528,10 @@ private fun PcFilesSheet(
 
         "Pictures" to stringResource(R.string.pc_files_folder_pictures),
 
+        "Videos" to "Videos",
+
+        "Music" to "Music",
+
     )
 
 

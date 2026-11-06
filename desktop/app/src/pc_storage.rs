@@ -51,6 +51,12 @@ impl PcStorage {
         if let Some(p) = dirs::picture_dir() {
             roots.push(("Pictures".to_owned(), p));
         }
+        if let Some(p) = dirs::video_dir() {
+            roots.push(("Videos".to_owned(), p));
+        }
+        if let Some(p) = dirs::audio_dir() {
+            roots.push(("Music".to_owned(), p));
+        }
         Self { roots }
     }
 

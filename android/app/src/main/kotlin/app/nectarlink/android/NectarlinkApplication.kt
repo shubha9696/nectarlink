@@ -48,12 +48,14 @@ class NectarlinkApplication : Application(), DefaultLifecycleObserver {
 
     override fun onCreate() {
         super<Application>.onCreate()
+        instance = this
         // Before the core starts: its network code reads the phone's DNS servers.
         app.nectarlink.android.core.AndroidContext.install(this)
         // Before Elevated: it waits while paused for a banking app.
         BankingPause.init(this)
         BankingPause.restoreIfStranded(this)
         Elevated.init(this)
+        runCatching { app.nectarlink.android.storage.PhoneStorage.ensurePcStorageDir() }
         // What the phone offers PCs follows Elevated starting and stopping.
         Elevated.onChange = { core.refreshNotificationAccess() }
         Elevated.onClipboardChanged = { text, html -> core.onElevatedClipboardChanged(text, html) }
@@ -118,5 +120,8 @@ class NectarlinkApplication : Application(), DefaultLifecycleObserver {
     companion object {
         const val STOP_DELAY_MS = 5_000L
         const val STOP_IDLE_DEBOUNCE_MS = 2_000L
+
+        var instance: NectarlinkApplication? = null
+            private set
     }
 }
