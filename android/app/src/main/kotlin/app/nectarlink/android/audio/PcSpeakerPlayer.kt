@@ -221,6 +221,7 @@ class PcSpeakerPlayer(
 ) {
     private val active = AtomicBoolean(false)
     private val packetQueue = ArrayBlockingQueue<ByteArray>(8)
+    @Volatile private var jitterBuffer: AudioJitterBuffer? = null
     private var playbackThread: Thread? = null
     @Volatile private var audioTrack: AudioTrack? = null
 
@@ -279,8 +280,8 @@ class PcSpeakerPlayer(
                     AudioFormat.ENCODING_PCM_16BIT,
                 ) / 4
                 // Low Latency mode: Minimum native burst size (FastMixer active, ~8-10ms buffer)
-                // Dolby Studio mode: 3x buffer (~40ms, full headroom for uninterrupted spatial audio)
-                val targetFrames = if (exact) minFrames * 3 else minOf(minFrames, 384)
+                // HD mode: 2x minFrames (~30-40ms, full headroom for uninterrupted lossless audio)
+                val targetFrames = if (exact) minFrames * 2 else minOf(minFrames, 384)
                 track.setBufferSizeInFrames(minOf(track.bufferCapacityInFrames, targetFrames))
             }
         }
@@ -288,6 +289,9 @@ class PcSpeakerPlayer(
 
     private fun startPlaybackThread(sampleRate: Int) {
         playbackThread?.let { runCatching { it.interrupt() } }
+        val jitter = AudioJitterBuffer(sampleRate, 2, startMs = 10, mostMs = 60, trimToMs = 20)
+        jitterBuffer = jitter
+
         val t = Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
             val isExact = exactQuality
@@ -298,7 +302,7 @@ class PcSpeakerPlayer(
                 AudioFormat.ENCODING_PCM_16BIT,
             ).coerceAtLeast(1920)
 
-            val bufSize = minBuf * 2
+            val bufSize = minBuf * 4
 
             val track = AudioTrack.Builder()
                 .setAudioAttributes(
@@ -327,39 +331,46 @@ class PcSpeakerPlayer(
             audioTrack = track
             updateTrackBuffer(track, isExact, sampleRate)
 
+            val chunkBytes = (sampleRate / 100) * 4 // 10 ms = 1920 bytes for 48kHz stereo
+            val playChunk = ByteArray(chunkBytes)
+
             try {
                 track.play()
                 var hadUnderrun = false
 
                 while (active.get()) {
-                    // Block up to 10 ms in Low Latency (0ms lock), 25 ms in Dolby Studio mode
-                    val pollTimeout = if (exactQuality) 25L else 10L
-                    val packet = packetQueue.poll(pollTimeout, TimeUnit.MILLISECONDS)
-                    if (packet == null) {
-                        hadUnderrun = true
-                        continue
-                    }
-
-                    // Smooth 1 ms micro fade-in on underrun recovery to eliminate clicks
-                    if (hadUnderrun) {
-                        val fadeFrames = minOf(48, packet.size / 4)
-                        for (f in 0 until fadeFrames) {
-                            val factor = f.toFloat() / fadeFrames.toFloat()
-                            val oL = f * 4
-                            val oR = f * 4 + 2
-                            val sL = (packet[oL].toInt() and 0xFF) or (packet[oL + 1].toInt() shl 8)
-                            val sR = (packet[oR].toInt() and 0xFF) or (packet[oR + 1].toInt() shl 8)
-                            val fL = (sL.toShort() * factor).toInt().coerceIn(-32768, 32767).toShort()
-                            val fR = (sR.toShort() * factor).toInt().coerceIn(-32768, 32767).toShort()
-                            packet[oL] = (fL.toInt() and 0xFF).toByte()
-                            packet[oL + 1] = (fL.toInt() shr 8).toByte()
-                            packet[oR] = (fR.toInt() and 0xFF).toByte()
-                            packet[oR + 1] = (fR.toInt() shr 8).toByte()
+                    if (exactQuality) {
+                        jitter.fill(playChunk)
+                        track.write(playChunk, 0, playChunk.size, AudioTrack.WRITE_BLOCKING)
+                    } else {
+                        // In Low Latency (0 ms) mode: poll directly from real-time queue
+                        val packet = packetQueue.poll(10L, TimeUnit.MILLISECONDS)
+                        if (packet == null) {
+                            hadUnderrun = true
+                            continue
                         }
-                        hadUnderrun = false
-                    }
 
-                    track.write(packet, 0, packet.size, AudioTrack.WRITE_BLOCKING)
+                        // Smooth 1 ms micro fade-in on underrun recovery to eliminate clicks
+                        if (hadUnderrun) {
+                            val fadeFrames = minOf(48, packet.size / 4)
+                            for (f in 0 until fadeFrames) {
+                                val factor = f.toFloat() / fadeFrames.toFloat()
+                                val oL = f * 4
+                                val oR = f * 4 + 2
+                                val sL = (packet[oL].toInt() and 0xFF) or (packet[oL + 1].toInt() shl 8)
+                                val sR = (packet[oR].toInt() and 0xFF) or (packet[oR + 1].toInt() shl 8)
+                                val fL = (sL.toShort() * factor).toInt().coerceIn(-32768, 32767).toShort()
+                                val fR = (sR.toShort() * factor).toInt().coerceIn(-32768, 32767).toShort()
+                                packet[oL] = (fL.toInt() and 0xFF).toByte()
+                                packet[oL + 1] = (fL.toInt() shr 8).toByte()
+                                packet[oR] = (fR.toInt() and 0xFF).toByte()
+                                packet[oR + 1] = (fR.toInt() shr 8).toByte()
+                            }
+                            hadUnderrun = false
+                        }
+
+                        track.write(packet, 0, packet.size, AudioTrack.WRITE_BLOCKING)
+                    }
                 }
             } catch (_: InterruptedException) {
             } catch (e: Exception) {
@@ -398,22 +409,24 @@ class PcSpeakerPlayer(
 
     fun enqueueFrame(pcm: ByteArray) {
         if (!active.get()) return
-        // True 0 ms architecture:
-        // In Low Latency mode, keep queue capacity at 1: Stale packets are dropped instantly
-        // so audio is written to the hardware HAL with zero accumulated delay (<15ms total)!
-        // In Dolby Studio mode, keep up to 6 packets (~60ms) for smooth cinematic streaming.
-        val maxQueue = if (exactQuality) 6 else 1
-        while (packetQueue.size >= maxQueue) {
-            packetQueue.poll() // Discard stale packet to stay strictly locked to 0ms real-time
+        if (exactQuality) {
+            // HD Mode: feed the jitter buffer (same pipeline as PC audio_out)
+            jitterBuffer?.push(pcm)
+        } else {
+            // True 0 ms architecture:
+            // In Low Latency mode, keep queue capacity at 1: Stale packets are dropped instantly
+            // so audio is written to the hardware HAL with zero accumulated delay (<15ms total)!
+            while (packetQueue.size >= 1) {
+                packetQueue.poll() // Discard stale packet to stay strictly locked to 0ms real-time
+            }
+            packetQueue.offer(pcm)
         }
-        packetQueue.offer(pcm)
     }
 
     fun updateQuality(exact: Boolean) {
         exactQuality = exact
-        if (!exact) {
-            packetQueue.clear() // Instantly flush any buffered packets on switching to 0ms mode!
-        }
+        packetQueue.clear()
+        jitterBuffer?.clear()
         audioTrack?.let { track ->
             updateTrackBuffer(track, exact, currentSampleRate)
         }
@@ -424,6 +437,8 @@ class PcSpeakerPlayer(
         _playing.value = false
         activity.reset()
         packetQueue.clear()
+        jitterBuffer?.clear()
+        jitterBuffer = null
         playbackThread?.interrupt()
         playbackThread = null
         audioTrack?.let {

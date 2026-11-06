@@ -410,7 +410,6 @@ pub fn run_wasapi_loopback(
         let capture: IAudioCaptureClient = client.GetService()?;
         client.Start()?;
 
-        let mut dsp = DolbyStudioDsp::new();
         let mut staging: Vec<u8> = Vec::with_capacity(CHUNK_BYTES * 2);
 
         while !stop.load(Ordering::Relaxed) {
@@ -436,10 +435,9 @@ pub fn run_wasapi_loopback(
 
                 let is_studio = studio_quality.load(Ordering::Relaxed);
                 if is_studio {
-                    // In Dolby Studio Mode: chunk at 1,920 bytes (10.0 ms = 480 frames) with spatial stereo
+                    // In Exact / HD Mode: chunk at 1,920 bytes (10.0 ms = 480 frames), bit-perfect lossless PCM (exact pipeline as phone->PC)
                     while staging.len() >= CHUNK_BYTES {
-                        let mut chunk: Vec<u8> = staging.drain(..CHUNK_BYTES).collect();
-                        dsp.process(&mut chunk, true);
+                        let chunk: Vec<u8> = staging.drain(..CHUNK_BYTES).collect();
                         let _ = tx.try_send(bytes::Bytes::from(chunk));
                     }
                 } else {
