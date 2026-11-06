@@ -30,13 +30,13 @@ use windows::Win32::{
     },
 };
 
-/// How much sound is gathered before initial playback (ultra-low latency for 0 ms real-time audio).
-const START_MS: u32 = 4;
+/// How much sound is gathered before initial playback.
+const START_MS: u32 = 10;
 /// More than this waiting, and the oldest is dropped down to [`TRIM_TO_MS`].
-const MOST_MS: u32 = 16;
-const TRIM_TO_MS: u32 = 6;
+const MOST_MS: u32 = 60;
+const TRIM_TO_MS: u32 = 20;
 /// The device's buffer.
-const DEVICE_BUFFER: Duration = Duration::from_millis(5);
+const DEVICE_BUFFER: Duration = Duration::from_millis(10);
 
 #[derive(Debug)]
 struct PacketQueue {

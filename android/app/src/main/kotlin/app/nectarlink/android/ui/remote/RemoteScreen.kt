@@ -1056,43 +1056,6 @@ internal sealed interface DictateState {
     data class Error(val kind: DictateError) : DictateState
 }
 
-private fun createWavBytes(pcmData: ByteArray, sampleRate: Int, channels: Int, bitsPerSample: Int): ByteArray {
-    val byteRate = sampleRate * channels * bitsPerSample / 8
-    val blockAlign = channels * bitsPerSample / 8
-    val totalDataLen = pcmData.size + 36
-    val header = ByteArray(44)
-    header[0] = 'R'.code.toByte(); header[1] = 'I'.code.toByte(); header[2] = 'F'.code.toByte(); header[3] = 'F'.code.toByte()
-    header[4] = (totalDataLen and 0xff).toByte()
-    header[5] = ((totalDataLen shr 8) and 0xff).toByte()
-    header[6] = ((totalDataLen shr 16) and 0xff).toByte()
-    header[7] = ((totalDataLen shr 24) and 0xff).toByte()
-    header[8] = 'W'.code.toByte(); header[9] = 'A'.code.toByte(); header[10] = 'V'.code.toByte(); header[11] = 'E'.code.toByte()
-    header[12] = 'f'.code.toByte(); header[13] = 'm'.code.toByte(); header[14] = 't'.code.toByte(); header[15] = ' '.code.toByte()
-    header[16] = 16; header[17] = 0; header[18] = 0; header[19] = 0
-    header[20] = 1; header[21] = 0 // format = 1 (PCM)
-    header[22] = channels.toByte(); header[23] = 0
-    header[24] = (sampleRate and 0xff).toByte()
-    header[25] = ((sampleRate shr 8) and 0xff).toByte()
-    header[26] = ((sampleRate shr 16) and 0xff).toByte()
-    header[27] = ((sampleRate shr 24) and 0xff).toByte()
-    header[28] = (byteRate and 0xff).toByte()
-    header[29] = ((byteRate shr 8) and 0xff).toByte()
-    header[30] = ((byteRate shr 16) and 0xff).toByte()
-    header[31] = ((byteRate shr 24) and 0xff).toByte()
-    header[32] = blockAlign.toByte(); header[33] = 0
-    header[34] = bitsPerSample.toByte(); header[35] = 0
-    header[36] = 'd'.code.toByte(); header[37] = 'a'.code.toByte(); header[38] = 't'.code.toByte(); header[39] = 'a'.code.toByte()
-    header[40] = (pcmData.size and 0xff).toByte()
-    header[41] = ((pcmData.size shr 8) and 0xff).toByte()
-    header[42] = ((pcmData.size shr 16) and 0xff).toByte()
-    header[43] = ((pcmData.size shr 24) and 0xff).toByte()
-
-    val wav = ByteArray(44 + pcmData.size)
-    System.arraycopy(header, 0, wav, 0, 44)
-    System.arraycopy(pcmData, 0, wav, 44, pcmData.size)
-    return wav
-}
-
 @Composable
 internal fun VoiceTypingBar(
     pcId: String,
@@ -1124,129 +1087,9 @@ internal fun VoiceTypingBar(
         }
     }
 
-    var audioRecordJob by remember { mutableStateOf<Job?>(null) }
-    var isAudioRecording by remember { mutableStateOf(false) }
-
-    fun stopAudioRecording() {
-        isAudioRecording = false
-    }
-
     DisposableEffect(pcId) {
         onDispose {
             destroyRecognizer(cancelWatchdog = true)
-            stopAudioRecording()
-            audioRecordJob?.cancel()
-            audioRecordJob = null
-        }
-    }
-
-    fun startAudioRecording() {
-        destroyRecognizer(cancelWatchdog = true)
-        stopAudioRecording()
-
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            state = DictateState.Error(DictateError.PermissionNeeded)
-            return
-        }
-
-        isAudioRecording = true
-        state = DictateState.Listening(partial = "Listening... Speak into phone")
-
-        audioRecordJob?.cancel()
-        audioRecordJob = scope.launch(Dispatchers.IO) {
-            val sampleRate = 16000
-            val minBuf = AudioRecord.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-            ).coerceAtLeast(3200)
-
-            val record = runCatching {
-                AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    sampleRate,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    minBuf,
-                )
-            }.getOrNull()
-
-            if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
-                withContext(Dispatchers.Main) {
-                    state = DictateState.Error(DictateError.Failed)
-                    isAudioRecording = false
-                }
-                return@launch
-            }
-
-            val pcmStream = java.io.ByteArrayOutputStream()
-            val chunk = ByteArray(1600)
-            val startMs = System.currentTimeMillis()
-            var speechDetected = false
-            var silenceCount = 0
-
-            try {
-                record.startRecording()
-                while (isAudioRecording && isActive) {
-                    val read = record.read(chunk, 0, chunk.size)
-                    if (read > 0) {
-                        pcmStream.write(chunk, 0, read)
-
-                        var sum = 0.0
-                        for (i in 0 until read step 2) {
-                            val s = (chunk[i].toInt() and 0xff) or (chunk[i + 1].toInt() shl 8)
-                            sum += s.toShort() * s.toShort()
-                        }
-                        val rms = Math.sqrt(sum / (read / 2))
-                        if (rms > 600.0) {
-                            if (!speechDetected) {
-                                speechDetected = true
-                                withContext(Dispatchers.Main) {
-                                    state = DictateState.Listening(partial = "Hearing your voice...")
-                                }
-                            }
-                            silenceCount = 0
-                        } else if (speechDetected) {
-                            silenceCount++
-                            if (silenceCount >= 36 && System.currentTimeMillis() - startMs > 2500) {
-                                break
-                            }
-                        }
-                    }
-                    if (System.currentTimeMillis() - startMs > 25000) {
-                        break
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w("RemoteScreen", "AudioRecord sound error", e)
-            } finally {
-                runCatching { record.stop() }
-                record.release()
-            }
-
-            val pcmBytes = pcmStream.toByteArray()
-            if (pcmBytes.size < 3200) {
-                withContext(Dispatchers.Main) {
-                    isAudioRecording = false
-                    state = DictateState.Error(DictateError.NoSpeech)
-                }
-                return@launch
-            }
-
-            withContext(Dispatchers.Main) {
-                isAudioRecording = false
-                state = DictateState.Typing("Transcribing on PC...")
-            }
-
-            val wavBytes = createWavBytes(pcmBytes, sampleRate, 1, 16)
-            val b64 = android.util.Base64.encodeToString(wavBytes, android.util.Base64.NO_WRAP)
-            val payload = "__NECTAR_DICTATE_WAV__:$b64"
-            core.remoteText(pcId, payload) { access ->
-                onStatus(access)
-                scope.launch(Dispatchers.Main) {
-                    state = DictateState.Idle(lastTyped = "Sent to PC")
-                }
-            }
         }
     }
 
@@ -1333,10 +1176,12 @@ internal fun VoiceTypingBar(
                 speechLauncher.launch(intent)
                 state = DictateState.Listening(partial = "Listening...")
             } else {
-                startAudioRecording()
+                core.remoteKey(pcId, "h", listOf("win"), onStatus)
+                state = DictateState.Idle(lastTyped = "Voice Typing (Win+H)")
             }
         }.onFailure {
-            startAudioRecording()
+            core.remoteKey(pcId, "h", listOf("win"), onStatus)
+            state = DictateState.Idle(lastTyped = "Voice Typing (Win+H)")
         }
     }
 
@@ -1486,7 +1331,8 @@ internal fun VoiceTypingBar(
                         startInlineSpeechRecognizer(candidateIndex + 1)
                     }
                 } else {
-                    startAudioRecording()
+                    core.remoteKey(pcId, "h", listOf("win"), onStatus)
+                    state = DictateState.Idle(lastTyped = "Voice Typing (Win+H)")
                 }
             }
 
@@ -1535,7 +1381,8 @@ internal fun VoiceTypingBar(
                     delay(150)
                     startInlineSpeechRecognizer(candidateIndex + 1)
                 } else {
-                    startAudioRecording()
+                    core.remoteKey(pcId, "h", listOf("win"), onStatus)
+                    state = DictateState.Idle(lastTyped = "Voice Typing (Win+H)")
                 }
             }
         }
@@ -1562,14 +1409,11 @@ internal fun VoiceTypingBar(
             }
         }
 
-        startAudioRecording()
+        core.remoteKey(pcId, "h", listOf("win"), onStatus)
+        state = DictateState.Idle(lastTyped = "Voice Typing (Win+H)")
     }
 
     fun stopRecognition() {
-        if (isAudioRecording) {
-            stopAudioRecording()
-            return
-        }
         watchdogJob?.cancel()
         watchdogJob = null
         val sr = recognizer

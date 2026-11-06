@@ -372,7 +372,7 @@ object InputServer {
         val rate = 48_000
         val channelMask = android.media.AudioFormat.CHANNEL_IN_STEREO
         val encoding = android.media.AudioFormat.ENCODING_PCM_16BIT
-        val frameBytes = (rate / 200) * 2 * 2 // 960 bytes = 5 ms (ultra-low latency)
+        val frameBytes = (rate / 100) * 2 * 2 // 1920 bytes = 10 ms
         val minBuf = maxOf(
             android.media.AudioRecord.getMinBufferSize(rate, channelMask, encoding),
             frameBytes * 4,
