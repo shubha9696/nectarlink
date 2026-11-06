@@ -121,7 +121,9 @@ class PcDocumentsProvider : DocumentsProvider() {
                     if (remotePath.isEmpty()) entry.name else "$remotePath/${entry.name}"
                 }
                 val docId = "$pcId:$cleanPath"
-                val isDir = entry.isDir
+                val isDir = entry.kind.equals("dir", ignoreCase = true) ||
+                    entry.kind.equals("folder", ignoreCase = true) ||
+                    entry.kind.equals("directory", ignoreCase = true)
                 val row = cursor.newRow()
                 row.add(Document.COLUMN_DOCUMENT_ID, docId)
                 row.add(Document.COLUMN_MIME_TYPE, if (isDir) Document.MIME_TYPE_DIR else mimeOf(entry.name))
@@ -197,3 +199,4 @@ class PcDocumentsProvider : DocumentsProvider() {
         )
     }
 }
+
