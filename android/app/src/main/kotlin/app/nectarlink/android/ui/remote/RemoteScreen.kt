@@ -1117,47 +1117,7 @@ internal fun VoiceTypingBar(
     fun buildCandidateRecognizers(): List<() -> SpeechRecognizer?> {
         val list = mutableListOf<() -> SpeechRecognizer?>()
 
-        // 1. Google Speech Recognition Service explicitly (bypasses broken OEM defaults like com.google.android.as)
-        list.add {
-            runCatching {
-                val comp = ComponentName("com.google.android.googlequicksearchbox", "com.google.android.voicesearch.serviceapi.GoogleRecognitionService")
-                SpeechRecognizer.createSpeechRecognizer(context, comp)
-            }.getOrNull()
-        }
-
-        // 2. Query any RecognitionService specifically inside googlequicksearchbox or tts packages
-        val pm = context.packageManager
-        for (pkg in listOf("com.google.android.googlequicksearchbox", "com.google.android.tts")) {
-            val intent = Intent(RecognitionService.SERVICE_INTERFACE).setPackage(pkg)
-            val services = runCatching { pm.queryIntentServices(intent, 0) }.getOrDefault(emptyList())
-            for (info in services) {
-                list.add {
-                    val comp = ComponentName(info.serviceInfo.packageName, info.serviceInfo.name)
-                    runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
-                }
-            }
-        }
-
-        // 3. Concrete system-registered RecognitionServices dynamically found across all packages
-        val resolveInfos = runCatching {
-            pm.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
-        }.getOrDefault(emptyList())
-        for (info in resolveInfos) {
-            list.add {
-                val comp = ComponentName(info.serviceInfo.packageName, info.serviceInfo.name)
-                runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
-            }
-        }
-
-        // 4. Default system SpeechRecognizer
-        if (SpeechRecognizer.isRecognitionAvailable(context)) {
-            list.add {
-                runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
-                    ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
-            }
-        }
-
-        // 5. Android On-Device Speech Recognizer (if API 33+)
+        // 1. Android On-Device Speech Recognizer (if API 33+ - fastest, offline, instantaneous)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             list.add {
                 runCatching {
@@ -1165,6 +1125,26 @@ internal fun VoiceTypingBar(
                         SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
                     } else null
                 }.getOrNull()
+            }
+        }
+
+        // 2. Default system SpeechRecognizer (clean platform binder, no ComponentName security permission issues)
+        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+            list.add {
+                runCatching { SpeechRecognizer.createSpeechRecognizer(context) }.getOrNull()
+                    ?: runCatching { SpeechRecognizer.createSpeechRecognizer(context.applicationContext) }.getOrNull()
+            }
+        }
+
+        // 3. Concrete system-registered RecognitionServices dynamically found across all packages
+        val pm = context.packageManager
+        val resolveInfos = runCatching {
+            pm.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
+        }.getOrDefault(emptyList())
+        for (info in resolveInfos) {
+            list.add {
+                val comp = ComponentName(info.serviceInfo.packageName, info.serviceInfo.name)
+                runCatching { SpeechRecognizer.createSpeechRecognizer(context, comp) }.getOrNull()
             }
         }
 
@@ -1386,11 +1366,11 @@ internal fun VoiceTypingBar(
             return
         }
 
-        // Safety watchdog: Give the speech service up to 8000ms to bind, initialize and ready microphone.
+        // Safety watchdog: Give the speech service up to 1800ms to bind, initialize and ready microphone.
         // If it hangs silently, automatically try the next speech candidate or system speech dialog!
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
-            delay(8000)
+            delay(1800)
             if (!isReadyForSpeech && recognizer != null) {
                 destroyRecognizer(cancelWatchdog = false)
                 if (candidateIndex + 1 < candidates.size) {

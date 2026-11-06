@@ -2112,6 +2112,29 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         }
     }
 
+    /** Sets audio playback mode (PC only, Both, or Phone only) synchronized with PC */
+    fun setAudioMode(id: String, mode: String) {
+        scope.launch {
+            startJob?.join()
+            app.nectarlink.android.mirror.SoundCapture.setMode(mode)
+            val node = node ?: return@launch
+            try {
+                runCatching { node.pcSetAudioMode(id, mode) }
+                    .onFailure {
+                        runCatching { node.setPcAudio(id, 100u, mode == "phone") }
+                    }
+                val msg = when (mode.lowercase()) {
+                    "phone" -> "Audio: Phone only"
+                    "both" -> "Audio: Playing on Both Phone & PC"
+                    else -> "Audio: PC only"
+                }
+                _messages.tryEmit(msg)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     /** Locks a PC, or puts it to sleep; says how it went. */
     fun pcPower(id: String, sleep: Boolean) {
         scope.launch {

@@ -20,6 +20,8 @@ import app.nectarlink.core.MirrorSendResult
 import app.nectarlink.core.MirrorStream
 import app.nectarlink.core.VideoPacketKind
 import app.nectarlink.core.mirrorAudioConfig
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -27,7 +29,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * The phone's sound while its screen is shared: what apps play (media, games,
  * and apps that don't say), captured via Android 10+
  * [AudioPlaybackCaptureConfiguration] or via the Elevated `shell` helper's
- * internal submix (`"A"` stream) as 48 kHz stereo PCM in 10 ms packets.
+ * internal submix (`"A"` stream) as 48 kHz stereo PCM in 5 ms packets (real-time).
  */
 class SoundCapture(
     private val projection: MediaProjection?,
@@ -44,16 +46,9 @@ class SoundCapture(
     private fun applyVolumeForMode(mode: Int) {
         val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
         try {
-            if (mode == 0) {
-                // In mode 0 (PC only), mute STREAM_MUSIC so only PC plays.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, 0)
-                }
-            } else {
-                // In mode 1 (Both) or mode 2 (Phone only), unmute STREAM_MUSIC so phone speakers play naturally.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
-                }
+            // Unmute STREAM_MUSIC so AudioPlaybackCapture can capture audio without dropping to silence
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, 0)
             }
         } catch (_: Exception) {}
     }
@@ -75,17 +70,9 @@ class SoundCapture(
 
     internal fun onModeChanged(newMode: Int) {
         applyVolumeForMode(newMode)
-        // When switching to mode 2 ("phone only"), immediately close the capture socket / stop AudioRecord.
-        // This releases REMOTE_SUBMIX in InputServer, allowing Android OS to route all audio directly to
-        // the phone's physical speakers.
-        if (newMode == 2) {
-            closeElevatedSocket()
-            if (Elevated.running) {
-                Elevated.stopAudio()
-            }
-            audioRecord?.let { runCatching { it.stop() } }
-        }
-        thread?.interrupt()
+        // Maintain continuous capture without interrupting or stopping AudioRecord.
+        // Stopping AudioRecord or interrupting threads blocked in native read() causes
+        // MediaTek audio HAL deadlocks and device kernel panic/restart.
     }
 
     @SuppressLint("MissingPermission")
@@ -152,39 +139,23 @@ class SoundCapture(
         try {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             val packet = ByteArray(PACKET_BYTES)
-            var recordingStarted = false
             var configSent = false
             var started = 0L
 
+            runCatching { record.startRecording() }
+
             while (running) {
-                if (soundMode == 2) {
-                    if (recordingStarted) {
-                        runCatching { record.stop() }
-                        recordingStarted = false
-                    }
-                    while (running && soundMode == 2) {
-                        try {
-                            Thread.sleep(100)
-                        } catch (_: InterruptedException) {
-                            if (!running) break
-                        }
-                    }
-                    if (!running) break
-                }
-
-                if (!recordingStarted) {
-                    runCatching { record.startRecording() }
-                    recordingStarted = true
-                }
-
                 var filled = 0
-                while (filled < packet.size && running && soundMode != 2) {
+                while (filled < packet.size && running) {
                     val read = record.read(packet, filled, packet.size - filled)
                     if (read < 0) break
                     filled += read
                 }
-                if (!running || soundMode == 2) continue
+                if (!running) break
                 if (filled < packet.size) continue
+
+                // In mode 2 ("Phone only"), audio is for phone speaker only; don't stream to PC
+                if (soundMode == 2) continue
 
                 if (!configSent) {
                     configSent = true
@@ -196,12 +167,9 @@ class SoundCapture(
                 }
 
                 val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
-                if (soundMode != 2) {
-                    // When capturing via MediaProjection (record), Android already plays to the phone's physical speakers natively.
-                    if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) {
-                        running = false
-                        break
-                    }
+                if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) {
+                    running = false
+                    break
                 }
             }
         } catch (e: Exception) {
@@ -221,20 +189,6 @@ class SoundCapture(
         applyVolumeForMode(soundMode)
         try {
             while (running) {
-                // If soundMode is 2 ("phone only"), keep socket closed so InputServer releases REMOTE_SUBMIX,
-                // letting the phone output audio natively to its physical speakers.
-                if (soundMode == 2) {
-                    closeElevatedSocket()
-                    while (running && soundMode == 2) {
-                        try {
-                            Thread.sleep(100)
-                        } catch (_: InterruptedException) {
-                            if (!running) break
-                        }
-                    }
-                    if (!running) break
-                }
-
                 val sock = Elevated.openAudioStream()
                 if (sock == null) {
                     try {
@@ -251,15 +205,17 @@ class SoundCapture(
                 var started = 0L
 
                 try {
-                    while (running && soundMode != 2) {
+                    while (running) {
                         var filled = 0
-                        while (filled < packet.size && running && soundMode != 2) {
+                        while (filled < packet.size && running) {
                             val read = input.read(packet, filled, packet.size - filled)
                             if (read <= 0) break
                             filled += read
                         }
-                        if (!running || soundMode == 2) break
+                        if (!running) break
                         if (filled < packet.size) break
+
+                        if (soundMode == 2) continue
 
                         if (!configSent) {
                             configSent = true
@@ -271,11 +227,9 @@ class SoundCapture(
                         }
 
                         val time = ((SystemClock.elapsedRealtimeNanos() - started) / 1000).toULong()
-                        if (soundMode != 2) {
-                            if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) {
-                                running = false
-                                break
-                            }
+                        if (stream.send(VideoPacketKind.FRAME, time, packet.copyOf()) == MirrorSendResult.CLOSED) {
+                            running = false
+                            break
                         }
                     }
                 } catch (e: Exception) {
@@ -291,10 +245,10 @@ class SoundCapture(
         } finally {
             restoreVolume()
             closeElevatedSocket()
+            activeCaptures.remove(this)
             if (Elevated.running) {
                 Elevated.stopAudio()
             }
-            activeCaptures.remove(this)
             stream.end()
             onEnded()
         }
@@ -313,7 +267,6 @@ class SoundCapture(
             Elevated.stopAudio()
         }
         stream.end()
-        th?.interrupt()
         if (rec != null) {
             Thread({
                 runCatching { rec.stop() }
@@ -326,14 +279,20 @@ class SoundCapture(
         private const val TAG = "SoundCapture"
         private const val RATE = 48_000
         private const val CHANNELS = 2
-        /** 10 ms of 16-bit stereo. */
-        private const val PACKET_BYTES = RATE / 100 * CHANNELS * 2
+        /** 5 ms of 16-bit stereo for real-time 0 ms latency audio. */
+        private const val PACKET_BYTES = RATE / 200 * CHANNELS * 2
         // 0: PC only, 1: Both (PC & Phone), 2: Phone only
         @Volatile var soundMode: Int = 0
 
+        private val _soundModeState = MutableStateFlow(soundMode)
+        val soundModeState = _soundModeState.asStateFlow()
+
         var dualPlayback: Boolean
             get() = soundMode == 1
-            set(v) { soundMode = if (v) 1 else 0 }
+            set(v) { 
+                soundMode = if (v) 1 else 0 
+                _soundModeState.value = soundMode
+            }
 
         private val activeCaptures = CopyOnWriteArrayList<SoundCapture>()
 
@@ -344,9 +303,7 @@ class SoundCapture(
                 else -> 0 // pc
             }
             soundMode = newMode
-            if (newMode == 2 && Elevated.running) {
-                Elevated.stopAudio()
-            }
+            _soundModeState.value = newMode
             Log.i(TAG, "Audio mode set to: $mode (code $soundMode, ${activeCaptures.size} active captures)")
             for (capture in activeCaptures) {
                 capture.onModeChanged(newMode)

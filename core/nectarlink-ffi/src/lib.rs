@@ -3885,6 +3885,14 @@ impl NectarlinkNode {
         }).await
     }
 
+    pub async fn pc_set_audio_mode(&self, id: String, mode: String) -> Result<()> {
+        let id = parse_id(&id)?;
+        let node = self.node.clone();
+        self.run(async move {
+            Ok(node.set_phone_toggle(id, "audio_mode".into(), core::PhoneToggleValue::Mode(mode)).await?)
+        }).await
+    }
+
     /// Sends Wake-on-LAN magic packets for a paired PC over UDP to its stored
     /// subnet broadcasts and `255.255.255.255` on ports 9 and 7, repeated a
     /// few times over ~2 s.

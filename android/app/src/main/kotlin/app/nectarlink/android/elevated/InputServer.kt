@@ -356,15 +356,14 @@ object InputServer {
      */
     @Volatile
     private var activeAudioRecorder: android.media.AudioRecord? = null
+    @Volatile
+    private var activeAudioClient: Socket? = null
 
-    /** Stops and releases any currently running internal audio recorder in the shell process. */
+    /** Stops and releases any currently running internal audio recorder in the shell process safely. */
     fun stopAudio() {
-        val r = activeAudioRecorder
-        activeAudioRecorder = null
-        r?.let {
-            runCatching { it.stop() }
-            runCatching { it.release() }
-        }
+        val c = activeAudioClient
+        activeAudioClient = null
+        runCatching { c?.close() }
     }
 
     @android.annotation.SuppressLint("MissingPermission", "PrivateApi", "DiscouragedPrivateApi")
@@ -373,7 +372,7 @@ object InputServer {
         val rate = 48_000
         val channelMask = android.media.AudioFormat.CHANNEL_IN_STEREO
         val encoding = android.media.AudioFormat.ENCODING_PCM_16BIT
-        val frameBytes = (rate / 100) * 2 * 2 // 1920 bytes = 10 ms
+        val frameBytes = (rate / 200) * 2 * 2 // 960 bytes = 5 ms (ultra-low latency)
         val minBuf = maxOf(
             android.media.AudioRecord.getMinBufferSize(rate, channelMask, encoding),
             frameBytes * 4,
@@ -441,13 +440,13 @@ object InputServer {
 
         val recorder = openRecorder() ?: return
         activeAudioRecorder = recorder
+        activeAudioClient = client
         val disconnectWatcher = Thread {
             try {
                 val inStream = client.getInputStream()
                 while (inStream.read() != -1) {}
             } catch (_: Exception) {}
-            runCatching { recorder.stop() }
-            runCatching { recorder.release() }
+            runCatching { client.close() }
         }.apply { isDaemon = true; start() }
 
         try {
@@ -463,6 +462,7 @@ object InputServer {
             // Client disconnected.
         } finally {
             if (activeAudioRecorder === recorder) activeAudioRecorder = null
+            if (activeAudioClient === client) activeAudioClient = null
             runCatching { recorder.stop() }
             runCatching { recorder.release() }
             runCatching { client.close() }

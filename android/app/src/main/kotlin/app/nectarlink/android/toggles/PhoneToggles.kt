@@ -409,9 +409,6 @@ class PhoneToggles(
                     app.nectarlink.android.core.PcLockManager.setPcBluetooth(on)
                     true
                 }
-                "audio_mode" -> {
-                    true
-                }
                 "audio_quality" -> {
                     val exact = when (value) {
                         is PhoneToggleValue.Mode -> value.mode == "exact"

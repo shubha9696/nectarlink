@@ -138,6 +138,20 @@ impl Platform for DesktopPlatform {
                 tracing::info!(exact, "Audio quality mode updated on PC");
                 Ok(())
             }
+            "audio_mode" | "dual_sound" => {
+                let mode = match value {
+                    nectarlink_core::PhoneToggleValue::Mode(m) => m.clone(),
+                    nectarlink_core::PhoneToggleValue::Bool(b) => if *b { "phone".into() } else { "pc".into() },
+                    _ => return Err("invalid value for audio_mode".into()),
+                };
+                let devices = crate::core_host::host().hub.read(|s| s.devices.iter().map(|d| d.id).collect::<Vec<_>>());
+                for dev in devices {
+                    mirror::set_audio_mode(dev, mode.clone());
+                }
+                crate::core_host::host().hub.changed(crate::state::Changes::MIRROR);
+                tracing::info!(mode, "Audio mode updated from phone on PC");
+                Ok(())
+            }
             _ => Err("unsupported toggle on desktop".into()),
         }
     }

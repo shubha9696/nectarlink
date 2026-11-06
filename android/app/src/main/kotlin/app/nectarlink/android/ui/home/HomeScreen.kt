@@ -4474,11 +4474,12 @@ private fun PcAudioCardSection(
                     .padding(horizontal = 4.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                var currentMode by remember { mutableStateOf(app.nectarlink.android.mirror.SoundCapture.soundMode) }
+                val currentMode by app.nectarlink.android.mirror.SoundCapture.soundModeState.collectAsStateWithLifecycle()
+                val app = context.applicationContext as? app.nectarlink.android.NectarlinkApplication
+
                 Button(
                     onClick = {
-                        currentMode = 0
-                        app.nectarlink.android.mirror.SoundCapture.setMode("pc")
+                        app?.core?.setAudioMode(pcId, "pc")
                     },
                     colors = if (currentMode == 0) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors(),
                     modifier = Modifier.weight(1f),
@@ -4488,14 +4489,23 @@ private fun PcAudioCardSection(
                 }
                 Button(
                     onClick = {
-                        currentMode = 1
-                        app.nectarlink.android.mirror.SoundCapture.setMode("both")
+                        app?.core?.setAudioMode(pcId, "both")
                     },
                     colors = if (currentMode == 1) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors(),
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                 ) {
                     Text("Both", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+                }
+                Button(
+                    onClick = {
+                        app?.core?.setAudioMode(pcId, "phone")
+                    },
+                    colors = if (currentMode == 2) ButtonDefaults.buttonColors() else ButtonDefaults.filledTonalButtonColors(),
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                ) {
+                    Text("Phone only", maxLines = 1, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
