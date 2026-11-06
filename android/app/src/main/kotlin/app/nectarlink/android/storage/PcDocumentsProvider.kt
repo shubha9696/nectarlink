@@ -47,7 +47,7 @@ class PcDocumentsProvider : DocumentsProvider() {
                 row.add(Root.COLUMN_TITLE, if (pc.name.isNotBlank()) "${pc.name} (PC)" else "PC Storage")
                 row.add(Root.COLUMN_SUMMARY, if (pc.online) "Online · Connected" else "Offline")
                 row.add(Root.COLUMN_DOCUMENT_ID, "root:${pc.id}")
-                row.add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_IS_CHILD)
+                row.add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_IS_CHILD or Root.FLAG_SUPPORTS_SEARCH)
                 row.add(Root.COLUMN_MIME_TYPES, "*/*")
             }
         } else {
@@ -59,6 +59,43 @@ class PcDocumentsProvider : DocumentsProvider() {
             row.add(Root.COLUMN_DOCUMENT_ID, "root:default")
             row.add(Root.COLUMN_FLAGS, 0)
             row.add(Root.COLUMN_MIME_TYPES, "*/*")
+        }
+        return cursor
+    }
+
+    override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
+        if (parentDocumentId == documentId) return false
+        val parentPc = parentDocumentId.substringBefore(':')
+        val docPc = documentId.substringBefore(':')
+        if (parentPc != docPc) return false
+        if (parentDocumentId.startsWith("root:")) return true
+        val parentPath = parentDocumentId.substringAfter(':').trimEnd('/', '\\')
+        val docPath = documentId.substringAfter(':').trimEnd('/', '\\')
+        return docPath.startsWith(parentPath)
+    }
+
+    override fun querySearchDocuments(
+        rootId: String,
+        query: String,
+        projection: Array<out String>?,
+    ): Cursor {
+        val cursor = MatrixCursor(projection ?: DEFAULT_DOCUMENT_PROJECTION)
+        val pcId = rootId.removePrefix("pc_")
+        val core = NectarlinkApplication.instance?.core ?: return cursor
+        val entries = core.listPcFilesBlocking(pcId, "")
+        for (entry in entries) {
+            if (entry.name.contains(query, ignoreCase = true)) {
+                val row = cursor.newRow()
+                row.add(Document.COLUMN_DOCUMENT_ID, "$pcId:${entry.name}")
+                val isDir = entry.kind.equals("dir", ignoreCase = true) ||
+                    entry.kind.equals("folder", ignoreCase = true) ||
+                    entry.kind.equals("directory", ignoreCase = true)
+                row.add(Document.COLUMN_MIME_TYPE, if (isDir) Document.MIME_TYPE_DIR else mimeOf(entry.name))
+                row.add(Document.COLUMN_DISPLAY_NAME, entry.name)
+                row.add(Document.COLUMN_LAST_MODIFIED, entry.modified)
+                row.add(Document.COLUMN_FLAGS, 0)
+                row.add(Document.COLUMN_SIZE, entry.size.toLong())
+            }
         }
         return cursor
     }

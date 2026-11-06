@@ -91,22 +91,57 @@ class MicService : Service() {
         job = scope.launch {
             try {
                 val stream = core.micOpen(pcId) ?: return@launch
-                val minimum = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-                val recorder = AudioRecord(
+                
+                // Try multiple audio sources and sample rates for universal compatibility across devices
+                val sources = listOf(
+                    MediaRecorder.AudioSource.MIC,
                     MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-                    RATE,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    maxOf(minimum, CHUNK_BYTES * 4),
+                    MediaRecorder.AudioSource.DEFAULT,
+                    MediaRecorder.AudioSource.CAMCORDER,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 )
-                if (recorder.state != AudioRecord.STATE_INITIALIZED) {
-                    Log.w(TAG, "microphone not available")
-                    recorder.release()
+                val rates = listOf(RATE, 44_100, 16_000)
+                
+                var recorder: AudioRecord? = null
+                var actualRate = RATE
+                var chunkBytes = CHUNK_BYTES
+
+                for (source in sources) {
+                    for (rate in rates) {
+                        try {
+                            val min = AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                            if (min <= 0) continue
+                            val calculatedChunk = (rate / 100) * 2 // 10ms mono 16-bit
+                            val rec = AudioRecord(
+                                source,
+                                rate,
+                                AudioFormat.CHANNEL_IN_MONO,
+                                AudioFormat.ENCODING_PCM_16BIT,
+                                maxOf(min, calculatedChunk * 4),
+                            )
+                            if (rec.state == AudioRecord.STATE_INITIALIZED) {
+                                recorder = rec
+                                actualRate = rate
+                                chunkBytes = calculatedChunk
+                                Log.i(TAG, "AudioRecord initialized with source $source at $rate Hz")
+                                break
+                            }
+                            rec.release()
+                        } catch (e: Exception) {
+                            Log.d(TAG, "Source $source at $rate Hz failed: ${e.message}")
+                        }
+                    }
+                    if (recorder != null) break
+                }
+
+                if (recorder == null) {
+                    Log.w(TAG, "No AudioRecord candidate could be initialized")
                     stream.end()
                     stream.close()
                     core.micStop(pcId)
                     return@launch
                 }
+
                 // Voice calls level the voice on most phones already; ask for it
                 // where the phone offers it, so a quiet voice still comes through.
                 val gain = if (AutomaticGainControl.isAvailable()) {
@@ -116,18 +151,18 @@ class MicService : Service() {
                     null
                 }
                 try {
-                    if (stream.send(VideoPacketKind.CONFIG, 0u, mirrorAudioConfig(RATE.toUInt(), 1u)) ==
+                    if (stream.send(VideoPacketKind.CONFIG, 0u, mirrorAudioConfig(actualRate.toUInt(), 1u)) ==
                         MirrorSendResult.CLOSED
                     ) {
                         return@launch
                     }
                     recorder.startRecording()
-                    val chunk = ByteArray(CHUNK_BYTES)
+                    val chunk = ByteArray(chunkBytes)
                     var samples = 0L
                     while (running) {
                         val read = recorder.read(chunk, 0, chunk.size)
                         if (read <= 0) continue
-                        val timeUs = samples * 1_000_000L / RATE
+                        val timeUs = samples * 1_000_000L / actualRate
                         samples += read / 2
                         // Dropped packets (a slow link) only lose that moment; a closed stream ends it.
                         if (stream.send(VideoPacketKind.FRAME, timeUs.toULong(), chunk.copyOf(read)) ==

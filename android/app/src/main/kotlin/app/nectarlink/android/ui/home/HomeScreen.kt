@@ -452,6 +452,8 @@ fun HomeScreen(
 
     },
 
+    onOpenPcFileManager: (String) -> Unit = {},
+
     mirrorSession: MirrorSession = MirrorSession(),
 
     webcamSession: WebcamSession = WebcamSession(),
@@ -1392,7 +1394,10 @@ fun HomeScreen(
 
                     onSetPcAudio = onSetPcAudio,
 
-                    onBrowsePcFiles = { browseFilesPcId = it },
+                    onBrowsePcFiles = {
+                        onOpenPcFileManager(it)
+                        browseFilesPcId = it
+                    },
 
                     micOn = micStreamingTo == device.id,
 

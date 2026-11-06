@@ -1176,12 +1176,10 @@ internal fun VoiceTypingBar(
                 speechLauncher.launch(intent)
                 state = DictateState.Listening(partial = "Listening...")
             } else {
-                core.remoteKey(pcId, "h", listOf("win"), onStatus)
-                state = DictateState.Idle(lastTyped = "Voice Typing (Win+H)")
+                state = DictateState.Error(DictateError.NoRecognizer)
             }
         }.onFailure {
-            core.remoteKey(pcId, "h", listOf("win"), onStatus)
-            state = DictateState.Idle(lastTyped = "Voice Typing (Win+H)")
+            state = DictateState.Error(DictateError.Failed)
         }
     }
 
@@ -1331,8 +1329,7 @@ internal fun VoiceTypingBar(
                         startInlineSpeechRecognizer(candidateIndex + 1)
                     }
                 } else {
-                    core.remoteKey(pcId, "h", listOf("win"), onStatus)
-                    state = DictateState.Idle(lastTyped = "Voice Typing (Win+H)")
+                    launchSystemSpeechDialog()
                 }
             }
 
@@ -1381,8 +1378,7 @@ internal fun VoiceTypingBar(
                     delay(150)
                     startInlineSpeechRecognizer(candidateIndex + 1)
                 } else {
-                    core.remoteKey(pcId, "h", listOf("win"), onStatus)
-                    state = DictateState.Idle(lastTyped = "Voice Typing (Win+H)")
+                    launchSystemSpeechDialog()
                 }
             }
         }
@@ -1409,8 +1405,7 @@ internal fun VoiceTypingBar(
             }
         }
 
-        core.remoteKey(pcId, "h", listOf("win"), onStatus)
-        state = DictateState.Idle(lastTyped = "Voice Typing (Win+H)")
+        launchSystemSpeechDialog()
     }
 
     fun stopRecognition() {
@@ -1556,13 +1551,25 @@ internal fun VoiceTypingBar(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (!isListening) {
+                    val isMicStreaming = app.nectarlink.android.mic.MicService.streaming.collectAsStateWithLifecycle().value == pcId
                     FilledTonalButton(
-                        onClick = { core.remoteKey(pcId, "h", listOf("win"), onStatus) },
+                        onClick = {
+                            if (isMicStreaming) {
+                                app.nectarlink.android.mic.MicService.stopFromUser(context)
+                            } else {
+                                context.startActivity(
+                                    Intent(context, app.nectarlink.android.mic.MicStartActivity::class.java).apply {
+                                        putExtra(app.nectarlink.android.mic.MicStartActivity.EXTRA_PC, pcId)
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                )
+                            }
+                        },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                         modifier = Modifier.height(36.dp),
                     ) {
                         Text(
-                            text = "Win+H",
+                            text = if (isMicStreaming) "Stop Mic" else "Live Mic",
                             style = MaterialTheme.typography.labelMedium,
                         )
                     }

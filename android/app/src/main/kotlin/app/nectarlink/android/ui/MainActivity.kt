@@ -106,6 +106,7 @@ class MainActivity : ComponentActivity() {
     private var requestedRemoteMode by mutableStateOf(RemoteMode.Screen)
     private var requestedDeckPc by mutableStateOf<String?>(null)
     private var requestedRecordPc by mutableStateOf<String?>(null)
+    private var requestedFilesPc by mutableStateOf<String?>(null)
 
     /**
      * A pairing link that arrived from outside the app (a web page, another app, the system
@@ -146,6 +147,7 @@ class MainActivity : ComponentActivity() {
         }
         if (savedInstanceState == null) {
             handlePairingLink(intent)
+            handleFilesIntent(intent)
             handleRemoteIntent(intent)
             handleDeckIntent(intent)
             handleRecordIntent(intent)
@@ -183,6 +185,8 @@ class MainActivity : ComponentActivity() {
                         onDeckConsumed = { requestedDeckPc = null },
                         requestedRecordPc = requestedRecordPc,
                         onRecordConsumed = { requestedRecordPc = null },
+                        requestedFilesPc = requestedFilesPc,
+                        onFilesConsumed = { requestedFilesPc = null },
                         requestedWebcamPc = requestedWebcamPc,
                         requestedWebcamAutoStart = requestedWebcamAutoStart,
                         requestedWebcamHeight = requestedWebcamHeight,
@@ -238,6 +242,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handlePairingLink(intent)
+        handleFilesIntent(intent)
         handleRemoteIntent(intent)
         handleDeckIntent(intent)
         handleRecordIntent(intent)
@@ -274,13 +279,37 @@ class MainActivity : ComponentActivity() {
         return super.onKeyUp(keyCode, event)
     }
 
+    private fun handleFilesIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action
+        val dataStr = intent.dataString.orEmpty()
+        val isFiles = action == "android.provider.action.MANAGE_ROOT" ||
+            action == "android.intent.action.MANAGE_ROOT" ||
+            action == "app.nectarlink.android.OPEN_FILES" ||
+            (action == Intent.ACTION_VIEW && dataStr.contains(".documents")) ||
+            intent.getBooleanExtra("open_files", false) ||
+            intent.hasExtra("files_pc") ||
+            intent.hasCategory("android.intent.category.APP_FILES")
+        if (isFiles) {
+            val app = application as? NectarlinkApplication
+            val pc = intent.getStringExtra("files_pc")
+                ?: app?.core?.state?.value?.devices?.firstOrNull { it.online }?.id
+                ?: app?.core?.state?.value?.devices?.firstOrNull()?.id
+                ?: "first"
+            requestedFilesPc = pc
+        }
+    }
+
     private fun handleRemoteIntent(intent: Intent?) {
+        if (intent == null) return
+        val hasRemote = intent.hasExtra("remote_pc") || intent.hasExtra("remote_mode") || intent.hasExtra("route")
+        if (!hasRemote) return
         val app = application as? NectarlinkApplication
         val defaultPc = app?.core?.state?.value?.devices?.firstOrNull { it.online }?.id
             ?: app?.core?.state?.value?.devices?.firstOrNull()?.id
-        val pc = intent?.getStringExtra("remote_pc") ?: defaultPc ?: return
-        val mode = intent?.getStringExtra("remote_mode")
-            ?: intent?.getStringExtra("route")
+        val pc = intent.getStringExtra("remote_pc") ?: defaultPc ?: return
+        val mode = intent.getStringExtra("remote_mode")
+            ?: intent.getStringExtra("route")
         requestedRemoteMode = when {
             mode.equals("presentation", ignoreCase = true) -> RemoteMode.Presentation
             mode.equals("air", ignoreCase = true) ||
@@ -340,6 +369,7 @@ private sealed interface ScreenRoute {
     data class Deck(val pcId: String) : ScreenRoute
     data class Desk(val pcId: String) : ScreenRoute
     data class Remote(val pcId: String) : ScreenRoute
+    data class PcFiles(val pcId: String) : ScreenRoute
     data object Main : ScreenRoute
 }
 
@@ -356,6 +386,8 @@ private fun App(
     onDeckConsumed: () -> Unit,
     requestedRecordPc: String?,
     onRecordConsumed: () -> Unit,
+    requestedFilesPc: String?,
+    onFilesConsumed: () -> Unit,
     requestedWebcamPc: String?,
     requestedWebcamAutoStart: Boolean,
     requestedWebcamHeight: Int?,
@@ -368,6 +400,7 @@ private fun App(
     var manualWalkthroughOpen by rememberSaveable { mutableStateOf(false) }
     var featuresGuideOpen by rememberSaveable { mutableStateOf(false) }
     var pendingHighlightTarget by rememberSaveable { mutableStateOf<GuideHighlightTarget?>(null) }
+    var pcFilesPcId by rememberSaveable { mutableStateOf<String?>(null) }
     var remotePcId by rememberSaveable { mutableStateOf<String?>(null) }
     var remoteInitialMode by rememberSaveable { mutableStateOf(RemoteMode.Screen) }
     var remoteSessionId by rememberSaveable { mutableStateOf(0) }
@@ -479,11 +512,26 @@ private fun App(
         }
     }
 
+    LaunchedEffect(requestedFilesPc, state.devices) {
+        val req = requestedFilesPc ?: return@LaunchedEffect
+        val target = if (req == "first") state.devices.firstOrNull()?.id else state.device(req)?.id
+        if (target != null) {
+            remotePcId = null
+            deckPcId = null
+            deskPcId = null
+            webcamPcId = null
+            recordPcId = null
+            pcFilesPcId = target
+            onFilesConsumed()
+        }
+    }
+
     val remoteDevice = remotePcId?.let { state.device(it) }
     val deckDevice = deckPcId?.let { state.device(it) }
     val deskDevice = deskPcId?.let { state.device(it) }
     val recordDevice = recordPcId?.let { state.device(it) }
     val webcamDevice = webcamPcId?.let { state.device(it) }
+    val pcFilesDevice = pcFilesPcId?.let { state.device(it) }
     LaunchedEffect(remoteDevice?.id) {
         onActiveRemoteChanged(remoteDevice?.id)
     }
@@ -522,6 +570,7 @@ private fun App(
         deckDevice != null -> ScreenRoute.Deck(deckDevice.id)
         deskDevice != null -> ScreenRoute.Desk(deskDevice.id)
         remoteDevice != null -> ScreenRoute.Remote(remoteDevice.id)
+        pcFilesDevice != null || pcFilesPcId != null -> ScreenRoute.PcFiles(pcFilesPcId ?: pcFilesDevice?.id.orEmpty())
         else -> ScreenRoute.Main
     }
 
@@ -767,6 +816,15 @@ private fun App(
                     )
                 }
             }
+            is ScreenRoute.PcFiles -> {
+                BackHandler { pcFilesPcId = null }
+                app.nectarlink.android.ui.files.PcFileManagerScreen(
+                    state = state,
+                    core = core,
+                    onBack = { pcFilesPcId = null },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             ScreenRoute.Main -> Box(Modifier.fillMaxSize()) {
                 val isGlass = appearance.theme == "glass"
                 val glassBackdrop = app.nectarlink.android.ui.theme.rememberGlassBackdrop()
@@ -843,6 +901,7 @@ private fun App(
                             Tab.Home -> saveableStateHolder.SaveableStateProvider("tab_home") {
                                 HomeScreen(
                                     state = state,
+                                    onOpenPcFileManager = { pcFilesPcId = it },
                                     onRing = core::ring,
                                     onStopRinging = core::stopRinging,
                                     onPairNew = { pairing = true },

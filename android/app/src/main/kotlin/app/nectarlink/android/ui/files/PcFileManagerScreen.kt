@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.text.format.Formatter
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -99,6 +100,7 @@ fun PcFileManagerScreen(
     state: CoreState,
     core: Core,
     modifier: Modifier = Modifier,
+    onBack: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -109,6 +111,14 @@ fun PcFileManagerScreen(
     val currentPc = state.devices.firstOrNull { it.id == selectedPcId }
 
     var currentPath by remember(selectedPcId) { mutableStateOf("") }
+
+    BackHandler {
+        if (currentPath.isNotEmpty()) {
+            currentPath = parentPath(currentPath)
+        } else {
+            onBack()
+        }
+    }
     var entries by remember(selectedPcId) { mutableStateOf<List<RemoteStorageEntry>>(emptyList()) }
     var availableDrives by remember(selectedPcId) { mutableStateOf<List<String>>(emptyList()) }
     var loading by remember(selectedPcId) { mutableStateOf(false) }
@@ -204,11 +214,22 @@ fun PcFileManagerScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                IconButton(onClick = {
+                    if (currentPath.isNotEmpty()) {
+                        currentPath = parentPath(currentPath)
+                    } else {
+                        onBack()
+                    }
+                }) {
+                    Icon(painterResource(R.drawable.ic_back), contentDescription = "Back")
+                }
+                Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
                     Text(
-                        text = "PC Files",
-                        style = MaterialTheme.typography.headlineSmall,
+                        text = if (currentPath.isEmpty()) "PC Storage" else currentPath.substringAfterLast('/'),
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = currentPc?.name ?: "No PC connected",
