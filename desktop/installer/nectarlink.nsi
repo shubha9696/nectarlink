@@ -134,6 +134,9 @@ FunctionEnd
 ; for it, so its files can be replaced or removed. The setup and uninstall
 ; windows run under other names, so they're left alone.
 !macro QuitRunningApp
+  nsExec::Exec 'schtasks /End /TN "NectarLinkUnlock"'
+  nsExec::Exec 'schtasks /End /TN "NectarLinkHelper"'
+  nsExec::Exec 'taskkill /F /IM unlock_helper.exe'
   ${If} ${FileExists} "$INSTDIR\${EXE}"
     ExecWait '"$INSTDIR\${EXE}" --quit'
   ${EndIf}
@@ -247,7 +250,7 @@ Section "Install"
   FileWriteUTF16LE $0 '    <Principal id="Author"><UserId>S-1-5-18</UserId><RunLevel>HighestAvailable</RunLevel></Principal>$\r$\n'
   FileWriteUTF16LE $0 '  </Principals>$\r$\n'
   FileWriteUTF16LE $0 '  <Settings>$\r$\n'
-  FileWriteUTF16LE $0 '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>$\r$\n'
+  FileWriteUTF16LE $0 '    <MultipleInstancesPolicy>StopExisting</MultipleInstancesPolicy>$\r$\n'
   FileWriteUTF16LE $0 '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>$\r$\n'
   FileWriteUTF16LE $0 '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>$\r$\n'
   FileWriteUTF16LE $0 '    <AllowStartOnDemand>true</AllowStartOnDemand>$\r$\n'
@@ -263,6 +266,10 @@ Section "Install"
   FileWriteUTF16LE $0 '  </Actions>$\r$\n'
   FileWriteUTF16LE $0 '</Task>$\r$\n'
   FileClose $0
+  nsExec::Exec 'schtasks /End /TN "NectarLinkUnlock"'
+  nsExec::Exec 'schtasks /End /TN "NectarLinkHelper"'
+  nsExec::Exec 'taskkill /F /IM unlock_helper.exe'
+  Sleep 300
   nsExec::Exec 'schtasks /Create /TN "NectarLinkHelper" /XML "$PLUGINSDIR\helper-task.xml" /F'
   nsExec::Exec 'schtasks /Run /TN "NectarLinkHelper"'
   nsExec::Exec 'schtasks /Create /TN "NectarLinkUnlock" /XML "$PLUGINSDIR\helper-task.xml" /F'

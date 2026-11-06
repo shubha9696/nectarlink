@@ -21,13 +21,6 @@ internal object OutgoingFiles {
             }
         }
         val fd = runCatching { context.contentResolver.openFileDescriptor(uri, "r") }.getOrNull() ?: return@mapNotNull null
-        val procPath = "/proc/self/fd/${fd.fd}"
-        val realFile = runCatching { java.io.File(procPath).canonicalFile }.getOrNull()
-        if (realFile != null && realFile.exists() && realFile.isFile && realFile.canRead()) {
-            val name = displayName(context, uri)
-            runCatching { fd.close() }
-            return@mapNotNull FileToSend.Path(path = realFile.absolutePath, name = name, folder = null)
-        }
         FileToSend.Fd(name = displayName(context, uri), fd = fd.detachFd(), folder = null)
     }
 
@@ -66,14 +59,7 @@ internal object OutgoingFiles {
                 if (out.size >= maxFiles) throw TooManyFiles()
                 val uri = DocumentsContract.buildDocumentUriUsingTree(tree, child.id)
                 val fd = runCatching { context.contentResolver.openFileDescriptor(uri, "r") }.getOrNull() ?: continue
-                val procPath = "/proc/self/fd/${fd.fd}"
-                val realFile = runCatching { java.io.File(procPath).canonicalFile }.getOrNull()
-                if (realFile != null && realFile.exists() && realFile.isFile && realFile.canRead()) {
-                    runCatching { fd.close() }
-                    out += FileToSend.Path(path = realFile.absolutePath, name = name, folder = folder)
-                } else {
-                    out += FileToSend.Fd(name = name, fd = fd.detachFd(), folder = folder)
-                }
+                out += FileToSend.Fd(name = name, fd = fd.detachFd(), folder = folder)
             }
         }
     }

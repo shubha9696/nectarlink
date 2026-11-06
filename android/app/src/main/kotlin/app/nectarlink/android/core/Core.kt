@@ -1287,6 +1287,15 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
         }
     }
 
+    /**
+     * Sends already opened files directly (e.g. from SendActivity before finishing).
+     */
+    fun sendFilesDirect(pcId: String, files: List<FileToSend>, handoff: Boolean = false) {
+        scope.launch(Dispatchers.IO) {
+            send(pcId, files, handoff)
+        }
+    }
+
     /** Sends a folder the user picked, with everything in it. */
     fun sendFolder(pcId: String, tree: Uri) {
         scope.launch(Dispatchers.IO) {
@@ -1334,10 +1343,14 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                     emitOfflineQueuedNotice(pcId, name, qid)
                 }
             } catch (e: NectarlinkException) {
+                Log.e(TAG, "sendFiles failed for $pcId: ${e.message}", e)
                 val name = _state.value.nameOf(pcId).orEmpty()
                 _messages.tryEmit(
                     if (e is NectarlinkException.Denied) context.getString(R.string.transfer_off_for, name) else describe(e),
                 )
+            } catch (e: Exception) {
+                Log.e(TAG, "sendFiles unexpected error for $pcId: ${e.message}", e)
+                _messages.tryEmit(context.getString(R.string.error_generic))
             }
         }
     }

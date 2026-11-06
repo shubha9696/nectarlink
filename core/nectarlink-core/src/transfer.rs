@@ -580,7 +580,7 @@ async fn enqueue_outgoing(
                 });
             }
             FileSource::File(handle) => {
-                #[cfg(unix)]
+                #[cfg(all(unix, not(target_os = "android")))]
                 {
                     use std::os::unix::io::AsRawFd;
                     let proc_path = format!("/proc/self/fd/{}", handle.as_raw_fd());

@@ -151,7 +151,8 @@ class SendActivity : ComponentActivity() {
      * confirmation show as notifications; an offline one queues, and says so.
      */
     private fun sendFilesTo(pc: Device, uris: List<Uri>, handoff: Boolean) {
-        (application as NectarlinkApplication).core.sendFiles(pc.id, uris, handoff)
+        val files = app.nectarlink.android.files.OutgoingFiles.open(this, uris)
+        (application as NectarlinkApplication).core.sendFilesDirect(pc.id, files, handoff)
         if (pc.online) finish() else finishWith(getString(R.string.send_queue_offline_toast, pc.name))
     }
 
