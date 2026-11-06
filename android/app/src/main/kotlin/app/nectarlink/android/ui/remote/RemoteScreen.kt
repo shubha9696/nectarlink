@@ -18,6 +18,12 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.RecognitionService
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.isActive
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -1049,6 +1055,43 @@ internal sealed interface DictateState {
     data class Error(val kind: DictateError) : DictateState
 }
 
+private fun createWavBytes(pcmData: ByteArray, sampleRate: Int, channels: Int, bitsPerSample: Int): ByteArray {
+    val byteRate = sampleRate * channels * bitsPerSample / 8
+    val blockAlign = channels * bitsPerSample / 8
+    val totalDataLen = pcmData.size + 36
+    val header = ByteArray(44)
+    header[0] = 'R'.code.toByte(); header[1] = 'I'.code.toByte(); header[2] = 'F'.code.toByte(); header[3] = 'F'.code.toByte()
+    header[4] = (totalDataLen and 0xff).toByte()
+    header[5] = ((totalDataLen shr 8) and 0xff).toByte()
+    header[6] = ((totalDataLen shr 16) and 0xff).toByte()
+    header[7] = ((totalDataLen shr 24) and 0xff).toByte()
+    header[8] = 'W'.code.toByte(); header[9] = 'A'.code.toByte(); header[10] = 'V'.code.toByte(); header[11] = 'E'.code.toByte()
+    header[12] = 'f'.code.toByte(); header[13] = 'm'.code.toByte(); header[14] = 't'.code.toByte(); header[15] = ' '.code.toByte()
+    header[16] = 16; header[17] = 0; header[18] = 0; header[19] = 0
+    header[20] = 1; header[21] = 0 // format = 1 (PCM)
+    header[22] = channels.toByte(); header[23] = 0
+    header[24] = (sampleRate and 0xff).toByte()
+    header[25] = ((sampleRate shr 8) and 0xff).toByte()
+    header[26] = ((sampleRate shr 16) and 0xff).toByte()
+    header[27] = ((sampleRate shr 24) and 0xff).toByte()
+    header[28] = (byteRate and 0xff).toByte()
+    header[29] = ((byteRate shr 8) and 0xff).toByte()
+    header[30] = ((byteRate shr 16) and 0xff).toByte()
+    header[31] = ((byteRate shr 24) and 0xff).toByte()
+    header[32] = blockAlign.toByte(); header[33] = 0
+    header[34] = bitsPerSample.toByte(); header[35] = 0
+    header[36] = 'd'.code.toByte(); header[37] = 'a'.code.toByte(); header[38] = 't'.code.toByte(); header[39] = 'a'.code.toByte()
+    header[40] = (pcmData.size and 0xff).toByte()
+    header[41] = ((pcmData.size shr 8) and 0xff).toByte()
+    header[42] = ((pcmData.size shr 16) and 0xff).toByte()
+    header[43] = ((pcmData.size shr 24) and 0xff).toByte()
+
+    val wav = ByteArray(44 + pcmData.size)
+    System.arraycopy(header, 0, wav, 0, 44)
+    System.arraycopy(pcmData, 0, wav, 44, pcmData.size)
+    return wav
+}
+
 @Composable
 internal fun VoiceTypingBar(
     pcId: String,
@@ -1168,17 +1211,11 @@ internal fun VoiceTypingBar(
             if (activities.isNotEmpty()) {
                 speechLauncher.launch(intent)
                 state = DictateState.Listening(partial = "Listening...")
-            } else if (candidates.isNotEmpty()) {
-                state = DictateState.Error(DictateError.Failed)
             } else {
-                state = DictateState.Error(DictateError.NoRecognizer)
+                startAudioRecording()
             }
         }.onFailure {
-            if (candidates.isNotEmpty()) {
-                state = DictateState.Error(DictateError.Failed)
-            } else {
-                state = DictateState.Error(DictateError.NoRecognizer)
-            }
+            startAudioRecording()
         }
     }
 
@@ -1328,7 +1365,7 @@ internal fun VoiceTypingBar(
                         startInlineSpeechRecognizer(candidateIndex + 1)
                     }
                 } else {
-                    launchSystemSpeechDialog()
+                    startAudioRecording()
                 }
             }
 
@@ -1377,7 +1414,124 @@ internal fun VoiceTypingBar(
                     delay(150)
                     startInlineSpeechRecognizer(candidateIndex + 1)
                 } else {
-                    launchSystemSpeechDialog()
+                    startAudioRecording()
+                }
+            }
+        }
+    }
+
+    var audioRecordJob by remember { mutableStateOf<Job?>(null) }
+    var isAudioRecording by remember { mutableStateOf(false) }
+
+    fun stopAudioRecording() {
+        isAudioRecording = false
+    }
+
+    fun startAudioRecording() {
+        destroyRecognizer(cancelWatchdog = true)
+        stopAudioRecording()
+
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            state = DictateState.Error(DictateError.PermissionNeeded)
+            return
+        }
+
+        isAudioRecording = true
+        state = DictateState.Listening(partial = "Listening... Speak into phone")
+
+        audioRecordJob?.cancel()
+        audioRecordJob = scope.launch(Dispatchers.IO) {
+            val sampleRate = 16000
+            val minBuf = AudioRecord.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+            ).coerceAtLeast(3200)
+
+            val record = runCatching {
+                AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    sampleRate,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    minBuf,
+                )
+            }.getOrNull()
+
+            if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
+                withContext(Dispatchers.Main) {
+                    state = DictateState.Error(DictateError.Failed)
+                    isAudioRecording = false
+                }
+                return@launch
+            }
+
+            val pcmStream = java.io.ByteArrayOutputStream()
+            val chunk = ByteArray(1600)
+            val startMs = System.currentTimeMillis()
+            var speechDetected = false
+            var silenceCount = 0
+
+            try {
+                record.startRecording()
+                while (isAudioRecording && isActive) {
+                    val read = record.read(chunk, 0, chunk.size)
+                    if (read > 0) {
+                        pcmStream.write(chunk, 0, read)
+
+                        var sum = 0.0
+                        for (i in 0 until read step 2) {
+                            val s = (chunk[i].toInt() and 0xff) or (chunk[i + 1].toInt() shl 8)
+                            sum += s.toShort() * s.toShort()
+                        }
+                        val rms = Math.sqrt(sum / (read / 2))
+                        if (rms > 600.0) {
+                            if (!speechDetected) {
+                                speechDetected = true
+                                withContext(Dispatchers.Main) {
+                                    state = DictateState.Listening(partial = "Hearing your voice...")
+                                }
+                            }
+                            silenceCount = 0
+                        } else if (speechDetected) {
+                            silenceCount++
+                            if (silenceCount >= 36 && System.currentTimeMillis() - startMs > 2500) {
+                                break
+                            }
+                        }
+                    }
+                    if (System.currentTimeMillis() - startMs > 25000) {
+                        break
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "AudioRecord sound error", e)
+            } finally {
+                runCatching { record.stop() }
+                record.release()
+            }
+
+            val pcmBytes = pcmStream.toByteArray()
+            if (pcmBytes.size < 3200) {
+                withContext(Dispatchers.Main) {
+                    isAudioRecording = false
+                    state = DictateState.Error(DictateError.NoSpeech)
+                }
+                return@launch
+            }
+
+            withContext(Dispatchers.Main) {
+                isAudioRecording = false
+                state = DictateState.Typing("Transcribing on PC...")
+            }
+
+            val wavBytes = createWavBytes(pcmBytes, sampleRate, 1, 16)
+            val b64 = android.util.Base64.encodeToString(wavBytes, android.util.Base64.NO_WRAP)
+            val payload = "__NECTAR_DICTATE_WAV__:$b64"
+            core.remoteText(pcId, payload) { access ->
+                onStatus(access)
+                scope.launch(Dispatchers.Main) {
+                    state = DictateState.Idle(lastTyped = "Sent to PC")
                 }
             }
         }
@@ -1391,15 +1545,27 @@ internal fun VoiceTypingBar(
             return
         }
 
-        val candidates = buildCandidateRecognizers()
-        if (candidates.isNotEmpty()) {
-            startInlineSpeechRecognizer(0)
-        } else {
-            launchSystemSpeechDialog()
+        val pm = context.packageManager
+        val hasSpeechService = runCatching {
+            pm.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0).isNotEmpty()
+        }.getOrDefault(false)
+
+        if (hasSpeechService) {
+            val candidates = buildCandidateRecognizers()
+            if (candidates.isNotEmpty()) {
+                startInlineSpeechRecognizer(0)
+                return
+            }
         }
+
+        startAudioRecording()
     }
 
     fun stopRecognition() {
+        if (isAudioRecording) {
+            stopAudioRecording()
+            return
+        }
         watchdogJob?.cancel()
         watchdogJob = null
         val sr = recognizer
@@ -1537,39 +1703,57 @@ internal fun VoiceTypingBar(
                 if (isListening) R.string.remote_dictate_stop else R.string.remote_dictate,
             )
 
-            Surface(
-                shape = CircleShape,
-                color = buttonBg,
-                contentColor = buttonFg,
-                modifier = Modifier
-                    .height(40.dp)
-                    .clickable(
-                        role = Role.Button,
-                        onClickLabel = dictateLabel,
-                    ) {
-                        if (currentIsListening) {
-                            stopRecognition()
-                        } else if (
-                            ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECORD_AUDIO,
-                            ) == PackageManager.PERMISSION_GRANTED
-                        ) {
-                            startRecognition()
-                        } else {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        }
-                    },
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                if (!isListening) {
+                    FilledTonalButton(
+                        onClick = { core.remoteKey(pcId, "h", listOf("win"), onStatus) },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                        modifier = Modifier.height(36.dp),
+                    ) {
+                        Text(
+                            text = "Win+H",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = CircleShape,
+                    color = buttonBg,
+                    contentColor = buttonFg,
+                    modifier = Modifier
+                        .height(40.dp)
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = dictateLabel,
+                        ) {
+                            if (currentIsListening) {
+                                stopRecognition()
+                            } else if (
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO,
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                startRecognition()
+                            } else {
+                                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        },
                 ) {
-                    Text(
-                        text = dictateLabel,
-                        style = MaterialTheme.typography.labelLarge,
-                        maxLines = 1,
-                    )
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    ) {
+                        Text(
+                            text = dictateLabel,
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
         }

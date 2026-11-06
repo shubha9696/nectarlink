@@ -146,6 +146,22 @@ if (Test-Path $unlockHelperExe) {
     Copy-Item $unlockHelperExe $stage
 }
 
+# Build / stage speech_helper.exe if speech_helper.cs exists
+$speechHelperCs = Join-Path $root 'desktop\speech_helper.cs'
+if (-not (Test-Path $speechHelperCs)) { $speechHelperCs = Join-Path $root 'speech_helper.cs' }
+$speechHelperExe = Join-Path $root 'desktop\speech_helper.exe'
+if (-not (Test-Path $speechHelperExe)) { $speechHelperExe = Join-Path $root 'speech_helper.exe' }
+if (Test-Path $speechHelperCs) {
+    $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    $sysSpeech = 'C:\Windows\Microsoft.Net\assembly\GAC_MSIL\System.Speech\v4.0_4.0.0.0__31bf3856ad364e35\System.Speech.dll'
+    if ((Test-Path $csc) -and (Test-Path $sysSpeech)) {
+        & $csc /optimize+ "/r:$sysSpeech" /target:winexe /out:$speechHelperExe $speechHelperCs 2>$null | Out-Null
+    }
+}
+if (Test-Path $speechHelperExe) {
+    Copy-Item $speechHelperExe $stage
+}
+
 Invoke-Native "windeployqt" {
     $deployArgs = @(
         '--verbose', '0',

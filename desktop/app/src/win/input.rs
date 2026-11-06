@@ -575,6 +575,7 @@ fn resolve_key(key: &str) -> Option<(VIRTUAL_KEY, bool, &'static [KeyMod])> {
         "zoom_in" | "magnify_in" => (VIRTUAL_KEY(0xBB), false, WIN),
         "zoom_out" | "magnify_out" => (VIRTUAL_KEY(0xBD), false, WIN),
         "magnify_exit" => (VK_ESCAPE, false, WIN),
+        "voice_typing" | "dictate" | "win_h" => (VIRTUAL_KEY(0x48), false, WIN),
         s if s.len() == 1 => {
             let b = s.as_bytes()[0];
             if b.is_ascii_lowercase() {

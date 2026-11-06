@@ -41,7 +41,77 @@ class SoundCapture(
     @Volatile private var running = false
     @Volatile private var elevatedSocket: Socket? = null
     @Volatile private var audioRecord: AudioRecord? = null
+    @Volatile private var speakerTrack: AudioTrack? = null
     private var thread: Thread? = null
+
+    private fun ensureSpeakerTrack(): AudioTrack? {
+        val existing = speakerTrack
+        if (existing != null && existing.state == AudioTrack.STATE_INITIALIZED) {
+            if (existing.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                runCatching { existing.play() }
+            }
+            return existing
+        }
+        return runCatching {
+            val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT)
+            val track = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .setFlags(AudioAttributes.FLAG_AUDIBILITY_ENFORCED)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(RATE)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                        .build()
+                )
+                .setBufferSizeInBytes(maxOf(minBuf, PACKET_BYTES * 4))
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                val speaker = am?.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)?.firstOrNull {
+                    it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                }
+                if (speaker != null) {
+                    track.setPreferredDevice(speaker)
+                }
+            }
+            track.play()
+            speakerTrack = track
+            track
+        }.onFailure { Log.w(TAG, "failed to create speaker track", it) }.getOrNull()
+    }
+
+    private fun pauseSpeakerTrack() {
+        speakerTrack?.let {
+            runCatching {
+                if (it.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                    it.pause()
+                    it.flush()
+                }
+            }
+        }
+    }
+
+    private fun releaseSpeakerTrack() {
+        val track = speakerTrack
+        speakerTrack = null
+        track?.let {
+            runCatching {
+                it.pause()
+                it.flush()
+                it.stop()
+                it.release()
+            }
+        }
+    }
 
     private fun applyVolumeForMode(mode: Int) {
         val am = context?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
@@ -70,6 +140,9 @@ class SoundCapture(
 
     internal fun onModeChanged(newMode: Int) {
         applyVolumeForMode(newMode)
+        if (newMode == 0) {
+            pauseSpeakerTrack()
+        }
         // Maintain continuous capture without interrupting or stopping AudioRecord.
         // Stopping AudioRecord or interrupting threads blocked in native read() causes
         // MediaTek audio HAL deadlocks and device kernel panic/restart.
@@ -175,6 +248,7 @@ class SoundCapture(
         } catch (e: Exception) {
             Log.w(TAG, "AudioRecord sound capture stopped", e)
         } finally {
+            releaseSpeakerTrack()
             restoreVolume()
             audioRecord = null
             activeCaptures.remove(this)
@@ -215,6 +289,12 @@ class SoundCapture(
                         if (!running) break
                         if (filled < packet.size) break
 
+                        if (soundMode == 1 || soundMode == 2) {
+                            ensureSpeakerTrack()?.write(packet, 0, packet.size, AudioTrack.WRITE_NON_BLOCKING)
+                        } else {
+                            pauseSpeakerTrack()
+                        }
+
                         if (soundMode == 2) continue
 
                         if (!configSent) {
@@ -243,6 +323,7 @@ class SoundCapture(
         } catch (e: Exception) {
             Log.w(TAG, "Elevated sound capture stopped", e)
         } finally {
+            releaseSpeakerTrack()
             restoreVolume()
             closeElevatedSocket()
             activeCaptures.remove(this)
@@ -256,6 +337,7 @@ class SoundCapture(
 
     fun stop() {
         running = false
+        releaseSpeakerTrack()
         val rec = audioRecord
         audioRecord = null
         val th = thread
