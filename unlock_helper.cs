@@ -792,6 +792,41 @@ namespace NectarLinkUnlockHelper
                     SyncToProgramFiles();
                     break;
 
+                case "INSTALL":
+                    try
+                    {
+                        Log("INSTALL command received. Running silent installer as SYSTEM...");
+                        foreach (var p in Process.GetProcessesByName("nectarlink-desktop"))
+                        {
+                            try { p.Kill(); p.WaitForExit(3000); } catch { }
+                        }
+                        string setupExe = @"C:\nectarlink\Nectarlink-v0.1.51-desktop-setup.exe";
+                        if (File.Exists(setupExe))
+                        {
+                            var psi = new ProcessStartInfo(setupExe, "/S")
+                            {
+                                UseShellExecute = false,
+                                CreateNoWindow = true
+                            };
+                            var proc = Process.Start(psi);
+                            if (proc != null)
+                            {
+                                proc.WaitForExit(60000);
+                                Log("Installer completed with exit code: " + proc.ExitCode);
+                            }
+                            SyncToProgramFiles();
+                        }
+                        else
+                        {
+                            Log("Installer not found: " + setupExe);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("INSTALL command failed: " + ex.Message);
+                    }
+                    break;
+
                 case "PERM":
                     EnsureDesktopsAccessible();
                     if (mySession == 0)

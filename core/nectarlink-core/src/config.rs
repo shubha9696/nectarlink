@@ -81,12 +81,12 @@ pub struct TransportTuning {
 impl Default for TransportTuning {
     fn default() -> Self {
         // High throughput bulk transfers without bufferbloat or latency spikes,
-        // using NewReno congestion control (measured at 300-350 Mbps without dropped packets)
-        // and 16 MiB stream / 32 MiB connection windows.
+        // using Cubic congestion control (better for Wi-Fi jitter and sub-2ms USB latency)
+        // and tuned flight windows.
         TransportTuning {
-            congestion: Congestion::NewReno,
-            stream_window: 16 << 20,
-            connection_window: 32 << 20,
+            congestion: Congestion::Cubic,
+            stream_window: 1 << 20,
+            connection_window: 2 << 20,
         }
     }
 }
@@ -579,7 +579,7 @@ mod tests {
     fn transport_overrides_parse_and_bad_values_keep_the_defaults() {
         let default = TransportTuning::default();
         assert_eq!(TransportTuning::parse(None, None), default);
-        assert_eq!(default.congestion, Congestion::NewReno);
+        assert_eq!(default.congestion, Congestion::Cubic);
         assert_eq!(TransportTuning::parse(Some("cubic"), None).congestion, Congestion::Cubic);
         assert_eq!(TransportTuning::parse(Some(" BBR3 "), None).congestion, Congestion::Bbr3);
         assert_eq!(TransportTuning::parse(Some("bbr"), None).congestion, Congestion::Bbr3);
