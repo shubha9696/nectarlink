@@ -27,8 +27,8 @@ const FILE_NAME: &str = "nectarlink.db";
 
 /// Maximum active (`Waiting` + `Sending`) items in `send_queue` across all peers.
 pub const MAX_QUEUE_ACTIVE_ITEMS: usize = 200;
-/// Maximum pending bytes across all active (`Waiting` + `Sending`) file-based and clipboard-image queue items (10 GiB).
-pub const MAX_QUEUE_ACTIVE_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+/// Maximum pending bytes across all active (`Waiting` + `Sending`) file-based and clipboard-image queue items (1 TiB).
+pub const MAX_QUEUE_ACTIVE_BYTES: u64 = 1024 * 1024 * 1024 * 1024;
 /// Maximum size in bytes of a single queued clipboard image (`payload_blob`) (50 MiB).
 pub const MAX_QUEUE_CLIPBOARD_IMAGE_BYTES: usize = 50 * 1024 * 1024;
 
@@ -1563,7 +1563,7 @@ impl Store {
                     )?;
                     let current_bytes = u64::try_from(active_file_bytes.max(0)).unwrap_or(u64::MAX);
                     if current_bytes.saturating_add(bytes_total) > MAX_QUEUE_ACTIVE_BYTES {
-                        return Err(Error::QueueFull("Queue is full (10 GB of files waiting).".into()));
+                        return Err(Error::QueueFull("Queue is full (1 TB of files waiting).".into()));
                     }
                 }
                 let new_seq: i64 =
@@ -1633,7 +1633,7 @@ impl Store {
             )?;
             let current_bytes = u64::try_from(active_file_bytes.max(0)).unwrap_or(u64::MAX);
             if current_bytes.saturating_add(bytes_total) > MAX_QUEUE_ACTIVE_BYTES {
-                return Err(Error::QueueFull("Queue is full (10 GB of files waiting).".into()));
+                return Err(Error::QueueFull("Queue is full (1 TB of files waiting).".into()));
             }
         }
 

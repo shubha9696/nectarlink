@@ -80,13 +80,13 @@ pub struct TransportTuning {
 
 impl Default for TransportTuning {
     fn default() -> Self {
-        // High throughput bulk transfers without bufferbloat or latency spikes,
+        // High throughput bulk transfers (40+ MB/s) without bufferbloat or latency spikes,
         // using Cubic congestion control (better for Wi-Fi jitter and sub-2ms USB latency)
         // and tuned flight windows.
         TransportTuning {
             congestion: Congestion::Cubic,
-            stream_window: 1 << 20,
-            connection_window: 2 << 20,
+            stream_window: 16 << 20,
+            connection_window: 32 << 20,
         }
     }
 }
