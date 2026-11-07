@@ -600,7 +600,7 @@ async fn enqueue_outgoing(
                     })
                 };
                 #[cfg(not(unix))]
-                let direct_canonical_path = None;
+                let direct_canonical_path: Option<std::path::PathBuf> = None;
 
                 if let Some(real_path) = direct_canonical_path {
                     let meta = match real_path.metadata() {
