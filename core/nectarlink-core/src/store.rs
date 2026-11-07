@@ -154,6 +154,9 @@ impl QueuedFileSpec {
     /// Verifies that the file still exists on disk and has the exact same `size` and `mtime_ms`
     /// recorded when it was enqueued.
     pub fn verify_integrity(&self) -> std::result::Result<(), String> {
+        if self.path.to_str().is_some_and(|s| s.starts_with("active_handle:")) {
+            return Ok(());
+        }
         let meta = std::fs::metadata(&self.path)
             .map_err(|_| format!("File was deleted before sending: {}", self.name))?;
         if meta.len() != self.size || file_mtime_ms(&meta) != self.mtime_ms {

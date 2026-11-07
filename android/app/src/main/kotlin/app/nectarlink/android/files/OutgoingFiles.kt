@@ -14,13 +14,14 @@ import app.nectarlink.core.FileToSend
 internal object OutgoingFiles {
     /** Skips items that can't be opened (the result says how many were). */
     fun open(context: Context, uris: List<Uri>): List<FileToSend> = uris.mapNotNull { uri ->
-        if (uri.scheme == "file") {
-            val path = uri.path
-            if (path != null && java.io.File(path).exists()) {
-                return@mapNotNull FileToSend.Path(path = path, name = displayName(context, uri), folder = null)
-            }
-        }
         val fd = runCatching { context.contentResolver.openFileDescriptor(uri, "r") }.getOrNull() ?: return@mapNotNull null
+        val procPath = "/proc/self/fd/${fd.fd}"
+        val realFile = runCatching { java.io.File(procPath).canonicalFile }.getOrNull()
+        if (realFile != null && realFile.exists() && realFile.isFile && realFile.canRead()) {
+            val name = displayName(context, uri)
+            runCatching { fd.close() }
+            return@mapNotNull FileToSend.Path(path = realFile.absolutePath, name = name, folder = null)
+        }
         FileToSend.Fd(name = displayName(context, uri), fd = fd.detachFd(), folder = null)
     }
 
@@ -59,7 +60,14 @@ internal object OutgoingFiles {
                 if (out.size >= maxFiles) throw TooManyFiles()
                 val uri = DocumentsContract.buildDocumentUriUsingTree(tree, child.id)
                 val fd = runCatching { context.contentResolver.openFileDescriptor(uri, "r") }.getOrNull() ?: continue
-                out += FileToSend.Fd(name = name, fd = fd.detachFd(), folder = folder)
+                val procPath = "/proc/self/fd/${fd.fd}"
+                val realFile = runCatching { java.io.File(procPath).canonicalFile }.getOrNull()
+                if (realFile != null && realFile.exists() && realFile.isFile && realFile.canRead()) {
+                    runCatching { fd.close() }
+                    out += FileToSend.Path(path = realFile.absolutePath, name = name, folder = folder)
+                } else {
+                    out += FileToSend.Fd(name = name, fd = fd.detachFd(), folder = folder)
+                }
             }
         }
     }

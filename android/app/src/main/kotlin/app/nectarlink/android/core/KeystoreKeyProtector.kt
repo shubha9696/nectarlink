@@ -34,18 +34,7 @@ class KeystoreKeyProtector(private val context: Context? = null) : KeyProtector 
 
     override fun unprotect(ciphertext: ByteArray): ByteArray = guard {
         require(ciphertext.size > IV_LENGTH) { "protected key is too short" }
-        // Try Keystore key first if available
-        val keystoreKey = runCatching { getKeystoreKey(allowGenerate = false) }.getOrNull()
-        if (keystoreKey != null) {
-            val result = runCatching {
-                val cipher = Cipher.getInstance(TRANSFORMATION)
-                cipher.init(Cipher.DECRYPT_MODE, keystoreKey, GCMParameterSpec(TAG_BITS, ciphertext, 0, IV_LENGTH))
-                cipher.doFinal(ciphertext, IV_LENGTH, ciphertext.size - IV_LENGTH)
-            }.getOrNull()
-            if (result != null) return@guard result
-        }
-
-        // Try software fallback key
+        // Try software fallback key first (avoids TEE deadlock on MediaTek/TrustKernel)
         val fallbackKey = runCatching { getSoftwareFallbackKey(allowGenerate = false) }.getOrNull()
         if (fallbackKey != null) {
             val result = runCatching {
@@ -56,20 +45,32 @@ class KeystoreKeyProtector(private val context: Context? = null) : KeyProtector 
             if (result != null) return@guard result
         }
 
+        // Try Keystore key if fallback was not used
+        val keystoreKey = runCatching { getKeystoreKey(allowGenerate = false) }.getOrNull()
+        if (keystoreKey != null) {
+            val result = runCatching {
+                val cipher = Cipher.getInstance(TRANSFORMATION)
+                cipher.init(Cipher.DECRYPT_MODE, keystoreKey, GCMParameterSpec(TAG_BITS, ciphertext, 0, IV_LENGTH))
+                cipher.doFinal(ciphertext, IV_LENGTH, ciphertext.size - IV_LENGTH)
+            }.getOrNull()
+            if (result != null) return@guard result
+        }
+
         throw java.security.GeneralSecurityException("Failed to decrypt identity key with either Keystore or fallback key")
     }
 
     private fun getKeyForEncryption(): SecretKey {
-        // Try hardware/system Keystore first
-        runCatching {
-            getKeystoreKey(allowGenerate = true)
-        }.onSuccess { return it }
-        .onFailure {
-            Log.w(TAG, "AndroidKeyStore key retrieval/generation failed; falling back to software key", it)
+        // Prefer software fallback key first to avoid TEE deadlocks on TrustKernel / MediaTek devices
+        val existingFallback = runCatching { getSoftwareFallbackKey(allowGenerate = false) }.getOrNull()
+        if (existingFallback != null) {
+            return existingFallback
         }
 
-        // Fallback to software-backed AES key in app-private storage
-        return getSoftwareFallbackKey(allowGenerate = true)
+        return runCatching {
+            getSoftwareFallbackKey(allowGenerate = true)
+        }.getOrElse {
+            getKeystoreKey(allowGenerate = true)
+        }
     }
 
     private fun getKeystoreKey(allowGenerate: Boolean): SecretKey {

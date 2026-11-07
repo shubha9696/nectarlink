@@ -14,11 +14,34 @@ namespace NectarLinkUnlockHelper
 {
     class Program
     {
-        [DllImport("wtsapi32.dll", SetLastError = true)]
+        [DllImport("kernel32.dll", SetLastError = true)]
         static extern uint WTSGetActiveConsoleSessionId();
+
+        static uint GetActiveConsoleSession()
+        {
+            try
+            {
+                uint s = WTSGetActiveConsoleSessionId();
+                if (s != 0xFFFFFFFF) return s;
+            }
+            catch { }
+            return 1;
+        }
 
         [DllImport("wtsapi32.dll", SetLastError = true)]
         static extern bool WTSQueryUserToken(uint SessionId, out IntPtr phToken);
+
+        [DllImport("userenv.dll", SetLastError = true)]
+        static extern bool CreateEnvironmentBlock(out IntPtr lpEnvironment, IntPtr hToken, bool bInherit);
+
+        [DllImport("userenv.dll", SetLastError = true)]
+        static extern bool DestroyEnvironmentBlock(IntPtr lpEnvironment);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
@@ -28,6 +51,43 @@ namespace NectarLinkUnlockHelper
 
         [DllImport("advapi32.dll", SetLastError = true)]
         static extern bool DuplicateTokenEx(IntPtr hExistingToken, uint dwDesiredAccess, IntPtr lpTokenAttributes, int ImpersonationLevel, int TokenType, out IntPtr phNewToken);
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        static extern bool CreateProcessWithTokenW(IntPtr hToken, uint dwLogonFlags, string lpApplicationName, string lpCommandLine, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct LUID { public uint LowPart; public int HighPart; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        struct TOKEN_PRIVILEGES { public uint PrivilegeCount; public LUID Luid; public uint Attributes; }
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        static extern bool AdjustTokenPrivileges(IntPtr TokenHandle, bool DisableAllPrivileges, ref TOKEN_PRIVILEGES NewState, uint BufferLengthInBytes, IntPtr PreviousState, IntPtr ReturnLengthInBytes);
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        static extern bool LookupPrivilegeValue(string lpSystemName, string lpName, out LUID lpLuid);
+
+        static void EnablePrivilege(string privName)
+        {
+            try
+            {
+                IntPtr hToken;
+                if (OpenProcessToken(Process.GetCurrentProcess().Handle, 0x0020 | 0x0008, out hToken))
+                {
+                    LUID luid;
+                    if (LookupPrivilegeValue(null, privName, out luid))
+                    {
+                        TOKEN_PRIVILEGES tp = new TOKEN_PRIVILEGES();
+                        tp.PrivilegeCount = 1;
+                        tp.Luid = luid;
+                        tp.Attributes = 0x00000002;
+                        AdjustTokenPrivileges(hToken, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+                    }
+                    CloseHandle(hToken);
+                }
+            }
+            catch { }
+        }
 
         [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         static extern bool CreateProcessAsUser(IntPtr hToken, string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
@@ -121,11 +181,19 @@ namespace NectarLinkUnlockHelper
 
         static void Log(string msg)
         {
-            try
+            for (int retry = 0; retry < 5; retry++)
             {
-                File.AppendAllText(@"C:\nectarlink\unlock.log", string.Format("[{0:yyyy-MM-dd HH:mm:ss.fff}] (PID:{1} S:{2}) {3}\r\n", DateTime.Now, Process.GetCurrentProcess().Id, Process.GetCurrentProcess().SessionId, msg));
+                try
+                {
+                    using (var fs = new FileStream(@"C:\nectarlink\unlock.log", FileMode.Append, FileAccess.Write, FileShare.ReadWrite))
+                    using (var sw = new StreamWriter(fs))
+                    {
+                        sw.WriteLine(string.Format("[{0:yyyy-MM-dd HH:mm:ss.fff}] (PID:{1} S:{2}) {3}", DateTime.Now, Process.GetCurrentProcess().Id, Process.GetCurrentProcess().SessionId, msg));
+                    }
+                    break;
+                }
+                catch { Thread.Sleep(15); }
             }
-            catch { }
         }
 
         static void GrantDesktopAccess(IntPtr handle)
@@ -133,7 +201,6 @@ namespace NectarLinkUnlockHelper
             if (handle == IntPtr.Zero) return;
             try
             {
-                // NULL DACL grants full unrestricted access to all users & processes
                 SetSecurityInfo(handle, SE_WINDOW_OBJECT, DACL_SECURITY_INFORMATION, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             }
             catch { }
@@ -206,7 +273,6 @@ namespace NectarLinkUnlockHelper
                 IntPtr hdesk = OpenInputDesktop(0, false, 0x0001);
                 if (hdesk == IntPtr.Zero)
                 {
-                    // If OpenInputDesktop failed, likely on secure desktop
                     return true;
                 }
                 byte[] buf = new byte[256];
@@ -248,7 +314,6 @@ namespace NectarLinkUnlockHelper
 
             if (hdesk == IntPtr.Zero)
             {
-                // Fallback to explicit Winlogon
                 hdesk = OpenDesktopW("Winlogon", 0, false, 0x01FF);
             }
 
@@ -282,9 +347,9 @@ namespace NectarLinkUnlockHelper
         static void SendKey(byte vk, byte scan)
         {
             keybd_event(vk, scan, 0, UIntPtr.Zero);
-            Thread.Sleep(20);
+            Thread.Sleep(15);
             keybd_event(vk, scan, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            Thread.Sleep(20);
+            Thread.Sleep(15);
         }
 
         static void TypeChar(char c)
@@ -347,6 +412,7 @@ namespace NectarLinkUnlockHelper
         {
             string[] candidatePaths = new string[] {
                 @"C:\nectarlink\saved_pin.txt",
+                @"C:\Program Files\Nectarlink\saved_pin.txt",
                 @"C:\nectarlink-app\saved_pin.txt"
             };
             foreach (var path in candidatePaths)
@@ -363,37 +429,95 @@ namespace NectarLinkUnlockHelper
             return "9500";
         }
 
-        static void TypePin(string pin)
+        static void SyncToProgramFiles()
         {
-            if (string.IsNullOrEmpty(pin)) return;
-            AttachInputDesktop();
+            try
+            {
+                string srcExe = Assembly.GetExecutingAssembly().Location;
+                string pfDir = @"C:\Program Files\Nectarlink";
+                string dstExe = Path.Combine(pfDir, "unlock_helper.exe");
 
-            // Escape any existing error message or camera/lock prompt
-            SendKey(0x1B, 0x01); // VK_ESCAPE
-            Thread.Sleep(80);
+                if (!Directory.Exists(pfDir))
+                {
+                    Directory.CreateDirectory(pfDir);
+                }
 
-            // Select all (Ctrl+A) and clear with backspaces to guarantee empty field
-            keybd_event(0x11, 0x1D, 0, UIntPtr.Zero); // Ctrl down
-            Thread.Sleep(20);
-            SendKey(0x41, 0x1E); // 'A'
-            Thread.Sleep(20);
-            keybd_event(0x11, 0x1D, KEYEVENTF_KEYUP, UIntPtr.Zero); // Ctrl up
+                if (!string.Equals(srcExe, dstExe, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Copy(srcExe, dstExe, true);
+                    Log("SyncToProgramFiles: copied updated binary to " + dstExe);
+                }
+
+                string srcPin = @"C:\nectarlink\saved_pin.txt";
+                string dstPin = Path.Combine(pfDir, "saved_pin.txt");
+                if (File.Exists(srcPin))
+                {
+                    File.Copy(srcPin, dstPin, true);
+                    Log("SyncToProgramFiles: copied saved_pin.txt to " + dstPin);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("SyncToProgramFiles error: " + ex.Message);
+            }
+        }
+
+        static void ClickNormalized(uint nx, uint ny)
+        {
+            mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, nx, ny, 0, UIntPtr.Zero);
+            Thread.Sleep(15);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+            Thread.Sleep(25);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
+        }
+
+        static void TypePinFast(string pin)
+        {
+            // Focus PIN text box: X=50% (32768), Y=41.5% (27197)
+            // Notice: Y=41.5% is well ABOVE 'I forgot my PIN' (at Y=46.5%), so it can NEVER mis-click!
+            ClickNormalized(32768, 27197);
             Thread.Sleep(30);
 
-            for (int i = 0; i < 8; i++)
-            {
-                SendKey(0x08, 0x0E); // VK_BACK
-                Thread.Sleep(15);
-            }
-            Thread.Sleep(60);
+            // Clear any text: Ctrl+A + Backspace
+            keybd_event(0x11, 0x1D, 0, UIntPtr.Zero); // Ctrl down
+            Thread.Sleep(15);
+            SendKey(0x41, 0x1E); // 'A'
+            Thread.Sleep(15);
+            keybd_event(0x11, 0x1D, KEYEVENTF_KEYUP, UIntPtr.Zero); // Ctrl up
+            Thread.Sleep(20);
 
+            for (int i = 0; i < 6; i++)
+            {
+                SendKey(0x08, 0x0E); // Backspace
+                Thread.Sleep(10);
+            }
+            Thread.Sleep(25);
+
+            // Type digits with 20ms delay (fast & responsive)
             foreach (char c in pin)
             {
                 TypeChar(c);
-                Thread.Sleep(35);
+                Thread.Sleep(20);
             }
-            Thread.Sleep(120);
-            SendKey(0x0D, 0x1C); // VK_RETURN
+            Thread.Sleep(40);
+
+            // Submit
+            SendKey(0x0D, 0x1C); // Enter
+        }
+
+        static bool WaitForUnlock(int maxMs)
+        {
+            int iterations = Math.Max(1, maxMs / 80);
+            for (int i = 0; i < iterations; i++)
+            {
+                Thread.Sleep(80);
+                if (!IsWorkstationLocked())
+                {
+                    Log("WaitForUnlock: Workstation unlocked successfully!");
+                    return true;
+                }
+            }
+            return false;
         }
 
         static void ExecuteUnlock(string pin)
@@ -403,63 +527,93 @@ namespace NectarLinkUnlockHelper
                 pin = ReadSavedPin();
             }
 
-            Log("ExecuteUnlock: starting unlock sequence with PIN len " + pin.Length);
+            Log("ExecuteUnlock: starting fast intelligent unlock (pin len: " + pin.Length + ")");
             AttachInputDesktop();
             EnsureDesktopsAccessible();
 
-            string desk = GetActiveDesktopName();
-            Log("Active desktop before unlock: " + desk);
+            if (!IsWorkstationLocked())
+            {
+                Log("ExecuteUnlock: Workstation is already unlocked; aborting.");
+                return;
+            }
 
-            // Stage 1: Wake display and dismiss lock curtain
-            Log("Stage 1: Waking display and dismissing lock curtain...");
-            SendKey(0x20, 0x39); // VK_SPACE
-            Thread.Sleep(100);
-            SendKey(0x0D, 0x1C); // VK_RETURN
-            Thread.Sleep(850);   // Wait for curtain slide-up animation to complete
-
-            AttachInputDesktop();
-            EnsureDesktopsAccessible();
-
-            // Clear any stale error popup or Windows Hello camera prompt
+            // Dismiss any previously stuck modal dialogs (such as 'Verify your email' or error banners)
             SendKey(0x1B, 0x01); // VK_ESCAPE
+            Thread.Sleep(50);
+
+            // Step 1: Wake display and dismiss lock curtain smoothly via keyboard
+            Log("ExecuteUnlock: Waking display and dismissing lock curtain...");
+            SendKey(0x20, 0x39); // Space
+            Thread.Sleep(25);
+            SendKey(0x26, 0x48); // Up Arrow
+            Thread.Sleep(25);
+            SendKey(0x0D, 0x1C); // Enter
+            Thread.Sleep(300);
+
+            AttachInputDesktop();
+            if (!IsWorkstationLocked())
+            {
+                Log("ExecuteUnlock: Unlocked via Face Unlock during curtain lift; done.");
+                return;
+            }
+
+            // Step 2: Intelligent Direct PIN Entry
+            // After restart, or if PIN was already showing, or face recognition failed ("Couldn't recognize you."),
+            // the PIN input box is ALREADY OPEN at X=50% (32768), Y=41.5% (27197).
+            // NOTE: Y=41.5% is well ABOVE 'I forgot my PIN' (at Y=46.5%), so clicking here can NEVER trigger account recovery!
+            Log("ExecuteUnlock: Attempting direct PIN entry into PIN box...");
+            TypePinFast(pin);
+
+            if (WaitForUnlock(650))
+            {
+                Log("ExecuteUnlock: Workstation successfully unlocked directly with PIN!");
+                return;
+            }
+
+            // Step 3: If still locked, Face Unlock was waiting (camera icon) and PIN box wasn't open yet.
+            // In Face Unlock mode, 'Sign-in options' is at X=50% (32768), Y=45.5% (29818).
+            Log("ExecuteUnlock: Direct PIN did not unlock; switching from Face Unlock to PIN...");
+            SendKey(0x1B, 0x01); // VK_ESCAPE
+            Thread.Sleep(50);
+            ClickNormalized(32768, 29818); // Click 'Sign-in options'
             Thread.Sleep(100);
 
-            Log("Stage 2: Entering PIN...");
-            TypePin(pin);
+            // Select PIN tile (X=52.5% = 34406, Y=49% = 32112) + keyboard Right Arrow + Space
+            ClickNormalized(34406, 32112);
+            SendKey(0x27, 0x4D); // Right Arrow
+            Thread.Sleep(20);
+            SendKey(0x20, 0x39); // Space
+            Thread.Sleep(120);
 
-            Thread.Sleep(1200);
-            if (IsWorkstationLocked())
+            // Now PIN box is guaranteed to be open; type PIN
+            Log("ExecuteUnlock: Typing PIN after switching credential provider...");
+            TypePinFast(pin);
+
+            if (WaitForUnlock(1200))
             {
-                Log("Stage 3: Screen still locked, executing retry PIN entry...");
-                AttachInputDesktop();
-                EnsureDesktopsAccessible();
-
-                SendKey(0x20, 0x39); // VK_SPACE
-                Thread.Sleep(120);
-                SendKey(0x1B, 0x01); // VK_ESCAPE
-                Thread.Sleep(100);
-
-                TypePin(pin);
-
-                Thread.Sleep(1200);
-                if (IsWorkstationLocked())
-                {
-                    Log("Workstation unlock attempt completed; still locked.");
-                }
-                else
-                {
-                    Log("Workstation unlocked successfully on retry!");
-                }
+                Log("ExecuteUnlock: Workstation successfully unlocked after provider switch!");
+                return;
             }
-            else
-            {
-                Log("Workstation unlocked successfully!");
-            }
+
+            // Step 4: Final fast retry if still locked
+            Log("ExecuteUnlock: Still locked; executing final fast retry...");
+            SendKey(0x1B, 0x01); // VK_ESCAPE
+            Thread.Sleep(40);
+            SendKey(0x20, 0x39); // Space
+            Thread.Sleep(40);
+            TypePinFast(pin);
+            WaitForUnlock(1000);
         }
 
         static bool LaunchInSession(uint sessionId, string arguments)
         {
             Log("LaunchInSession: targeting session " + sessionId + " with args: " + arguments);
+            EnablePrivilege("SeDebugPrivilege");
+            EnablePrivilege("SeAssignPrimaryTokenPrivilege");
+            EnablePrivilege("SeIncreaseQuotaPrivilege");
+            EnablePrivilege("SeTcbPrivilege");
+            EnablePrivilege("SeImpersonatePrivilege");
+
             IntPtr hPrimaryToken = IntPtr.Zero;
 
             // Strategy 1: Find winlogon.exe in target session (runs as SYSTEM directly on target session's desktop)
@@ -470,13 +624,13 @@ namespace NectarLinkUnlockHelper
                 {
                     if (p.SessionId == (int)sessionId)
                     {
-                        IntPtr hProc = OpenProcess(0x1400 /* PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION */, false, p.Id);
+                        IntPtr hProc = OpenProcess(0x1FFFFF /* PROCESS_ALL_ACCESS */, false, p.Id);
                         if (hProc != IntPtr.Zero)
                         {
                             IntPtr hToken;
-                            if (OpenProcessToken(hProc, 0x0002 | 0x0008 | 0x0001, out hToken))
+                            if (OpenProcessToken(hProc, 0x000F01FF /* TOKEN_ALL_ACCESS */, out hToken))
                             {
-                                DuplicateTokenEx(hToken, 0x10000000, IntPtr.Zero, 2, 1, out hPrimaryToken);
+                                DuplicateTokenEx(hToken, 0x000F01FF, IntPtr.Zero, 2, 1, out hPrimaryToken);
                                 CloseHandle(hToken);
                             }
                             CloseHandle(hProc);
@@ -502,7 +656,7 @@ namespace NectarLinkUnlockHelper
                     IntPtr hUserToken;
                     if (WTSQueryUserToken(sessionId, out hUserToken))
                     {
-                        DuplicateTokenEx(hUserToken, 0x10000000, IntPtr.Zero, 2, 1, out hPrimaryToken);
+                        DuplicateTokenEx(hUserToken, 0x000F01FF, IntPtr.Zero, 2, 1, out hPrimaryToken);
                         CloseHandle(hUserToken);
                         if (hPrimaryToken != IntPtr.Zero)
                         {
@@ -526,7 +680,9 @@ namespace NectarLinkUnlockHelper
             {
                 STARTUPINFO si = new STARTUPINFO();
                 si.cb = Marshal.SizeOf(si);
-                si.lpDesktop = @"WinSta0\Winlogon";
+                si.lpDesktop = null;
+                si.dwFlags = 1; // STARTF_USESHOWWINDOW
+                si.wShowWindow = 0; // SW_HIDE
 
                 PROCESS_INFORMATION pi;
                 string exePath = Assembly.GetExecutingAssembly().Location;
@@ -544,19 +700,49 @@ namespace NectarLinkUnlockHelper
                 }
                 string cmdLine = "\"" + exePath + "\" " + arguments;
 
-                bool ok = CreateProcessAsUser(hPrimaryToken, null, cmdLine, IntPtr.Zero, IntPtr.Zero, false, 0x08000000 /* CREATE_NO_WINDOW */, IntPtr.Zero, null, ref si, out pi);
+                IntPtr lpEnv = IntPtr.Zero;
+                uint creationFlags = 0x08000000 /* CREATE_NO_WINDOW */;
+                try
+                {
+                    bool envOk = CreateEnvironmentBlock(out lpEnv, hPrimaryToken, false);
+                    if (envOk && lpEnv != IntPtr.Zero)
+                    {
+                        creationFlags |= 0x00000400 /* CREATE_UNICODE_ENVIRONMENT */;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log("LaunchInSession: CreateEnvironmentBlock ex=" + ex.Message);
+                }
+
+                bool ok = CreateProcessAsUser(hPrimaryToken, null, cmdLine, IntPtr.Zero, IntPtr.Zero, false, creationFlags, lpEnv, @"C:\nectarlink", ref si, out pi);
+                if (!ok)
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    Log("LaunchInSession: CreateProcessAsUser failed with error " + err + ". Trying CreateProcessWithTokenW...");
+                    ok = CreateProcessWithTokenW(hPrimaryToken, 0, null, cmdLine, creationFlags, lpEnv, @"C:\nectarlink", ref si, out pi);
+                    if (!ok)
+                    {
+                        Log("LaunchInSession: CreateProcessWithTokenW failed with error " + Marshal.GetLastWin32Error());
+                    }
+                }
+
+                if (lpEnv != IntPtr.Zero)
+                {
+                    try { DestroyEnvironmentBlock(lpEnv); } catch { }
+                }
                 CloseHandle(hPrimaryToken);
 
                 if (ok)
                 {
                     Log("LaunchInSession: successfully spawned PID " + pi.dwProcessId + " into session " + sessionId);
+                    WaitForSingleObject(pi.hProcess, 15000);
+                    uint exitCode = 0;
+                    GetExitCodeProcess(pi.hProcess, out exitCode);
+                    Log("LaunchInSession: PID " + pi.dwProcessId + " exited with code 0x" + exitCode.ToString("X"));
                     CloseHandle(pi.hProcess);
                     CloseHandle(pi.hThread);
                     return true;
-                }
-                else
-                {
-                    Log("LaunchInSession: CreateProcessAsUser failed with error " + Marshal.GetLastWin32Error());
                 }
             }
             catch (Exception ex)
@@ -602,11 +788,15 @@ namespace NectarLinkUnlockHelper
                 case "PING":
                     break;
 
+                case "SYNC":
+                    SyncToProgramFiles();
+                    break;
+
                 case "PERM":
                     EnsureDesktopsAccessible();
                     if (mySession == 0)
                     {
-                        uint activeSession = WTSGetActiveConsoleSessionId();
+                        uint activeSession = GetActiveConsoleSession();
                         LaunchInSession(activeSession, "--perm");
                     }
                     break;
@@ -615,8 +805,7 @@ namespace NectarLinkUnlockHelper
                     string pin = parts.Length > 1 ? parts[1] : ReadSavedPin();
                     if (mySession == 0)
                     {
-                        // In Session 0, we must launch injector into active user session!
-                        uint activeSession = WTSGetActiveConsoleSessionId();
+                        uint activeSession = GetActiveConsoleSession();
                         Log("Session 0 received UNLOCK; spawning injector into session " + activeSession);
                         LaunchInSession(activeSession, "--inject-pin " + pin);
                     }
@@ -627,10 +816,9 @@ namespace NectarLinkUnlockHelper
                     break;
 
                 case "TOUCH":
-                    // TOUCH down 0.5 0.5
                     if (mySession == 0)
                     {
-                        uint activeSession = WTSGetActiveConsoleSessionId();
+                        uint activeSession = GetActiveConsoleSession();
                         LaunchInSession(activeSession, line);
                     }
                     else if (parts.Length >= 4)
@@ -658,7 +846,7 @@ namespace NectarLinkUnlockHelper
                 case "CLICK":
                     if (mySession == 0)
                     {
-                        uint activeSession = WTSGetActiveConsoleSessionId();
+                        uint activeSession = GetActiveConsoleSession();
                         LaunchInSession(activeSession, line);
                     }
                     else if (parts.Length >= 3)
@@ -681,7 +869,7 @@ namespace NectarLinkUnlockHelper
                 case "MOUSE":
                     if (mySession == 0)
                     {
-                        uint activeSession = WTSGetActiveConsoleSessionId();
+                        uint activeSession = GetActiveConsoleSession();
                         LaunchInSession(activeSession, line);
                     }
                     else if (parts.Length >= 5)
@@ -700,7 +888,7 @@ namespace NectarLinkUnlockHelper
                 case "KEY":
                     if (mySession == 0)
                     {
-                        uint activeSession = WTSGetActiveConsoleSessionId();
+                        uint activeSession = GetActiveConsoleSession();
                         LaunchInSession(activeSession, line);
                     }
                     else if (parts.Length >= 4)
@@ -719,7 +907,7 @@ namespace NectarLinkUnlockHelper
                 case "ENTER":
                     if (mySession == 0)
                     {
-                        uint activeSession = WTSGetActiveConsoleSessionId();
+                        uint activeSession = GetActiveConsoleSession();
                         LaunchInSession(activeSession, "--enter");
                     }
                     else
@@ -732,7 +920,7 @@ namespace NectarLinkUnlockHelper
                 case "BACKSPACE":
                     if (mySession == 0)
                     {
-                        uint activeSession = WTSGetActiveConsoleSessionId();
+                        uint activeSession = GetActiveConsoleSession();
                         LaunchInSession(activeSession, line);
                     }
                     else
@@ -751,7 +939,7 @@ namespace NectarLinkUnlockHelper
                 case "TYPE":
                     if (mySession == 0)
                     {
-                        uint activeSession = WTSGetActiveConsoleSessionId();
+                        uint activeSession = GetActiveConsoleSession();
                         LaunchInSession(activeSession, line);
                     }
                     else if (parts.Length > 1)
@@ -772,8 +960,8 @@ namespace NectarLinkUnlockHelper
         {
             Log("=== NectarLink Input Service Pipe Server started ===");
             CleanRegistryDuplicates();
+            SyncToProgramFiles();
 
-            // Background thread ensuring all desktops remain accessible to user capture
             var secThread = new Thread(() =>
             {
                 while (true)
@@ -789,8 +977,10 @@ namespace NectarLinkUnlockHelper
             secThread.Start();
 
             PipeSecurity ps = new PipeSecurity();
-            ps.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
+            ps.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
+            ps.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
             ps.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
+            ps.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
 
             while (true)
             {
@@ -834,14 +1024,13 @@ namespace NectarLinkUnlockHelper
                         }
                         catch (IOException)
                         {
-                            // Client disconnected cleanly. Normal pipe lifecycle.
+                            // Client disconnected cleanly
                         }
                     }
                 }
                 catch (Exception ex)
                 {
                     Log("Pipe Server exception: " + ex.Message);
-                    // Crucial: sleep 2000ms so we do not spam CPU if another instance holds the pipe!
                     Thread.Sleep(2000);
                 }
             }
@@ -890,8 +1079,25 @@ namespace NectarLinkUnlockHelper
                     }
                 }
 
-                // If args contain --service or running as service/task:
-                RunServer();
+                // The pipe server MUST ONLY run in Session 0 as SYSTEM.
+                if (mySession != 0)
+                {
+                    Log("unlock_helper: process is in user session " + mySession + "; pipe server must only run as SYSTEM in session 0. Exiting.");
+                    return;
+                }
+
+                // Global Mutex to guarantee only one service pipe server runs in Session 0
+                bool createdNew;
+                using (var mutex = new Mutex(true, @"Global\NectarLinkUnlockServiceMutex", out createdNew))
+                {
+                    if (!createdNew)
+                    {
+                        Log("Another instance of unlock_helper pipe service is already running. Exiting PID " + Process.GetCurrentProcess().Id);
+                        return;
+                    }
+
+                    RunServer();
+                }
             }
             catch (Exception ex)
             {

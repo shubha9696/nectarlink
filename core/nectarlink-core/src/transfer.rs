@@ -41,14 +41,14 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(200);
 const QUEUE_PROGRESS_EVERY: Duration = Duration::from_millis(1000);
 /// Partly received files are kept this long for resuming.
 const KEEP_PARTIAL: Duration = Duration::from_secs(60 * 60);
-const CHUNK: usize = 1024 * 1024;
+const CHUNK: usize = 2 * 1024 * 1024;
 /// The sender reads ahead in blocks of this size, this many at a time, so
 /// the disk is read while the network sends.
-const BLOCK: usize = 1024 * 1024;
+const BLOCK: usize = 2 * 1024 * 1024;
 const READ_AHEAD: usize = 16;
 /// The receiver writes the disk in pieces this large (QUIC delivers a few
 /// kilobytes at a time).
-const WRITE_BUFFER: usize = 2 * 1024 * 1024;
+const WRITE_BUFFER: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -284,9 +284,20 @@ pub(crate) fn new_id() -> String {
     (0..24).map(|_| ALPHABET[rand::random_range(0..ALPHABET.len())] as char).collect()
 }
 
+static ACTIVE_FILE_HANDLES: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, std::fs::File>>> =
+    std::sync::OnceLock::new();
+
+fn active_file_handles() -> &'static std::sync::Mutex<std::collections::HashMap<String, std::fs::File>> {
+    ACTIVE_FILE_HANDLES.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 pub(crate) fn cleanup_staging_id(shared: &Shared, id: &str) {
     let dir = shared.queue_staging_dir().join(id);
     let _ = std::fs::remove_dir_all(&dir);
+    let prefix = format!("active_handle:{id}_");
+    if let Ok(mut map) = active_file_handles().lock() {
+        map.retain(|k, _| !k.starts_with(&prefix));
+    }
 }
 
 /// Publishes a transfer's progress, at most every [`PROGRESS_EVERY`].
@@ -580,75 +591,111 @@ async fn enqueue_outgoing(
                 });
             }
             FileSource::File(handle) => {
-                #[cfg(all(unix, not(target_os = "android")))]
-                {
-                    use std::os::unix::io::AsRawFd;
+                #[cfg(unix)]
+                let direct_canonical_path = {
+                    use std::os::fd::AsRawFd;
                     let proc_path = format!("/proc/self/fd/{}", handle.as_raw_fd());
-                    if let Ok(real_path) = std::fs::read_link(&proc_path) {
-                        if real_path.is_file() {
-                            if let Ok(meta) = real_path.metadata() {
-                                let size = meta.len();
-                                let mtime_ms = crate::file_mtime_ms(&meta);
-                                specs.push(crate::QueuedFileSpec {
-                                    path: real_path,
-                                    name: clean_name.clone(),
-                                    folder: file.folder.clone(),
-                                    size,
-                                    mtime_ms,
-                                    staged: false,
-                                });
-                                entries.push(FileEntry {
-                                    name: clean_name,
-                                    size,
-                                    folder: file.folder,
-                                    blake3: Some("0".repeat(64)),
-                                });
-                                continue;
-                            }
-                        }
-                    }
-                }
-                let stage_dir = shared.queue_staging_dir().join(&id);
-                let stage_path = stage_dir.join(format!("{idx}_{}", storable_name(&clean_name)));
-                let stage_path_clone = stage_path.clone();
-                let staged_res = tokio::task::spawn_blocking(move || -> std::io::Result<(u64, i64)> {
-                    use std::io::{Seek, SeekFrom, Write};
-                    std::fs::create_dir_all(&stage_dir)?;
-                    let mut src = handle;
-                    let _ = src.seek(SeekFrom::Start(0));
-                    let mut dst = std::fs::File::create(&stage_path_clone)?;
-                    std::io::copy(&mut src, &mut dst)?;
-                    dst.flush()?;
-                    let meta = dst.metadata()?;
-                    Ok((meta.len(), crate::file_mtime_ms(&meta)))
-                })
-                .await
-                .map_err(|e| Error::Internal(e.to_string()));
-                let (size, mtime_ms) = match staged_res {
-                    Ok(Ok(v)) => v,
-                    Ok(Err(e)) => {
-                        cleanup_staging_id(shared, &id);
-                        return Err(e.into());
-                    }
-                    Err(e) => {
-                        cleanup_staging_id(shared, &id);
-                        return Err(e);
-                    }
+                    std::fs::read_link(&proc_path).ok().filter(|target| {
+                        target.is_file() && std::fs::File::open(target).is_ok()
+                    })
                 };
-                specs.push(crate::QueuedFileSpec {
-                    path: stage_path,
-                    name: clean_name.clone(),
-                    folder: file.folder.clone(),
-                    size,
-                    mtime_ms,
-                    staged: true,
-                });
-                entries.push(FileEntry {
-                    name: clean_name,
-                    size,
-                    folder: file.folder,
-                    blake3: Some("0".repeat(64)),
-                });
+                #[cfg(not(unix))]
+                let direct_canonical_path = None;
+
+                if let Some(real_path) = direct_canonical_path {
+                    let meta = match real_path.metadata() {
+                        Ok(m) => m,
+                        Err(e) => {
+                            cleanup_staging_id(shared, &id);
+                            return Err(e.into());
+                        }
+                    };
+                    let size = meta.len();
+                    let mtime_ms = crate::file_mtime_ms(&meta);
+                    specs.push(crate::QueuedFileSpec {
+                        path: real_path,
+                        name: clean_name.clone(),
+                        folder: file.folder.clone(),
+                        size,
+                        mtime_ms,
+                        staged: false,
+                    });
+                    entries.push(FileEntry {
+                        name: clean_name,
+                        size,
+                        folder: file.folder,
+                        blake3: Some("0".repeat(64)),
+                    });
+                } else {
+                    let meta = match handle.metadata() {
+                        Ok(m) => m,
+                        Err(e) => {
+                            cleanup_staging_id(shared, &id);
+                            return Err(e.into());
+                        }
+                    };
+                    let size = meta.len();
+                    let mtime_ms = crate::file_mtime_ms(&meta);
+
+                    // For small files (<= 25 MiB), stage to staging dir for offline persistence.
+                    // For larger files (e.g. 2.5 GB movies), keep in active_file_handles to avoid copying to flash.
+                    if size <= 25 * 1024 * 1024 {
+                        let stage_dir = shared.queue_staging_dir().join(&id);
+                        let stage_path = stage_dir.join(format!("{idx}_{}", storable_name(&clean_name)));
+                        let stage_path_clone = stage_path.clone();
+                        let staged_res = tokio::task::spawn_blocking(move || -> std::io::Result<(u64, i64)> {
+                            use std::io::{Seek, SeekFrom, Write};
+                            std::fs::create_dir_all(&stage_dir)?;
+                            let mut src = handle;
+                            let _ = src.seek(SeekFrom::Start(0));
+                            let mut dst = std::fs::File::create(&stage_path_clone)?;
+                            std::io::copy(&mut src, &mut dst)?;
+                            dst.flush()?;
+                            let meta = dst.metadata()?;
+                            Ok((meta.len(), crate::file_mtime_ms(&meta)))
+                        })
+                        .await
+                        .map_err(|e| Error::Internal(e.to_string()));
+                        let (size, mtime_ms) = match staged_res {
+                            Ok(Ok(v)) => v,
+                            Ok(Err(e)) => {
+                                cleanup_staging_id(shared, &id);
+                                return Err(e.into());
+                            }
+                            Err(e) => {
+                                cleanup_staging_id(shared, &id);
+                                return Err(e);
+                            }
+                        };
+                        specs.push(crate::QueuedFileSpec {
+                            path: stage_path,
+                            name: clean_name.clone(),
+                            folder: file.folder.clone(),
+                            size,
+                            mtime_ms,
+                            staged: true,
+                        });
+                    } else {
+                        let handle_key = format!("active_handle:{id}_{idx}");
+                        if let Ok(mut map) = active_file_handles().lock() {
+                            map.insert(handle_key.clone(), handle);
+                        }
+                        specs.push(crate::QueuedFileSpec {
+                            path: PathBuf::from(handle_key),
+                            name: clean_name.clone(),
+                            folder: file.folder.clone(),
+                            size,
+                            mtime_ms,
+                            staged: false,
+                        });
+                    }
+                    entries.push(FileEntry {
+                        name: clean_name,
+                        size,
+                        folder: file.folder,
+                        blake3: Some("0".repeat(64)),
+                    });
+                }
             }
         }
     }
@@ -817,23 +864,43 @@ pub(crate) async fn deliver_queued_files(
     let mut source_targets: Vec<String> = Vec::new();
     for spec in &specs {
         let path = &spec.path;
-        if !spec.staged {
+        let is_active_handle = path.to_str().is_some_and(|s| s.starts_with("active_handle:"));
+        if !spec.staged && !is_active_handle {
             let target = outgoing_target_path(path, spec.folder.as_deref());
             if !source_targets.contains(&target) {
                 source_targets.push(target);
             }
         }
-        let handle = match std::fs::File::open(path) {
-            Ok(h) => h,
-            Err(_) => {
-                let reason = format!("File was deleted before sending: {}", spec.name);
-                let _ = shared.store.mark_queue_failed(&item.id, &reason);
-                shared.emit(NodeEvent::QueueChanged);
-                let mut t = transfer;
-                t.state = TransferState::Failed(TransferFailure::Other(reason));
-                shared.emit(NodeEvent::Transfer(t));
-                shared.unregister_transfer(&item.id);
-                return;
+        let handle = if is_active_handle {
+            let key = path.to_str().unwrap();
+            let map = active_file_handles().lock().map_err(|e| e.to_string());
+            let found = map.ok().and_then(|g| g.get(key).and_then(|f| f.try_clone().ok()));
+            match found {
+                Some(h) => h,
+                None => {
+                    let reason = format!("File handle no longer available: {}", spec.name);
+                    let _ = shared.store.mark_queue_failed(&item.id, &reason);
+                    shared.emit(NodeEvent::QueueChanged);
+                    let mut t = transfer;
+                    t.state = TransferState::Failed(TransferFailure::Other(reason));
+                    shared.emit(NodeEvent::Transfer(t));
+                    shared.unregister_transfer(&item.id);
+                    return;
+                }
+            }
+        } else {
+            match std::fs::File::open(path) {
+                Ok(h) => h,
+                Err(_) => {
+                    let reason = format!("File was deleted before sending: {}", spec.name);
+                    let _ = shared.store.mark_queue_failed(&item.id, &reason);
+                    shared.emit(NodeEvent::QueueChanged);
+                    let mut t = transfer;
+                    t.state = TransferState::Failed(TransferFailure::Other(reason));
+                    shared.emit(NodeEvent::Transfer(t));
+                    shared.unregister_transfer(&item.id);
+                    return;
+                }
             }
         };
         let name_for_err = spec.name.clone();
