@@ -621,6 +621,36 @@ fn mod_vk(m: KeyMod) -> (VIRTUAL_KEY, bool) {
     }
 }
 
+fn is_task_manager_shortcut(key: &str, mods: &[KeyMod]) -> bool {
+    key == "task_manager"
+        || (key == "escape"
+            && mods.contains(&KeyMod::Ctrl)
+            && mods.contains(&KeyMod::Shift)
+            && !mods.contains(&KeyMod::Alt)
+            && !mods.contains(&KeyMod::Win))
+}
+
+/// Launches or focuses Windows Task Manager directly so UIPI does not block
+/// `Ctrl+Shift+Esc` when an elevated window holds foreground focus.
+fn launch_task_manager() -> bool {
+    // SAFETY: static wide literals passed to ShellExecuteW with no parameters.
+    let result = unsafe {
+        windows::Win32::UI::Shell::ShellExecuteW(
+            None,
+            windows::core::w!("open"),
+            windows::core::w!("taskmgr.exe"),
+            None,
+            None,
+            windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+        )
+    };
+    let ok = result.0 as isize > 32;
+    if !ok {
+        tracing::warn!(code = result.0 as isize, "ShellExecuteW(taskmgr.exe) failed");
+    }
+    ok
+}
+
 /// Presses a named key or shortcut with optional modifiers.
 pub fn press_key(key: &str, mods: &[KeyMod]) {
     if key == "lock" {
@@ -646,6 +676,11 @@ pub fn press_key(key: &str, mods: &[KeyMod]) {
         if key == "escape" {
             let _ = send_to_lock_pipe("KEY 27 1 0\n");
             let _ = send_to_lock_pipe("KEY 27 1 2\n");
+            return;
+        }
+    }
+    if !is_screen_locked() && is_task_manager_shortcut(key, mods) {
+        if launch_task_manager() || key == "task_manager" {
             return;
         }
     }

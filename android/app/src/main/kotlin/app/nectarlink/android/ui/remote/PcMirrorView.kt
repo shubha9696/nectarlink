@@ -826,6 +826,7 @@ fun PcMirrorView(
     val fullScreenLabel = stringResource(R.string.pc_mirror_fullscreen)
     val exitFullScreenLabel = stringResource(R.string.pc_mirror_exit_fullscreen)
     val rightClickLabel = stringResource(R.string.pc_mirror_right_click)
+    val taskManagerLabel = stringResource(R.string.pc_mirror_task_manager)
     val taskViewLabel = stringResource(R.string.pc_mirror_task_view)
     val keyboardLabel = stringResource(
         if (showKeyboardBar) R.string.pc_mirror_hide_keyboard else R.string.pc_mirror_keyboard,
@@ -1303,6 +1304,23 @@ fun PcMirrorView(
                             TextButton(
                                 onClick = {
                                     bumpOverlay()
+                                    core.remoteKey(pcId, "escape", listOf("ctrl", "shift"), onStatus)
+                                },
+                                colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .height(36.dp)
+                                    .semantics { contentDescription = taskManagerLabel },
+                            ) {
+                                Text(
+                                    taskManagerLabel,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1,
+                                )
+                            }
+                            TextButton(
+                                onClick = {
+                                    bumpOverlay()
                                     showKeyboardBar = !showKeyboardBar
                                 },
                                 colors = ButtonDefaults.textButtonColors(
@@ -1603,51 +1621,51 @@ fun PcMirrorView(
                     .then(if (imeVisible) Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()) else Modifier),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // Row 1: Mouse click buttons + Keyboard toggle
+                // Row 1: Quick system actions + Right click + Keyboard toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     FilledTonalButton(
-                        onClick = { core.remoteButton(pcId, "left", "click", onStatus) },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                        modifier = Modifier.weight(0.88f).height(44.dp),
+                        onClick = { core.remoteKey(pcId, "escape", listOf("ctrl", "shift"), onStatus) },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(1.38f).height(44.dp),
                     ) {
                         Text(
-                            stringResource(R.string.remote_left_click),
-                            style = MaterialTheme.typography.labelLarge,
+                            taskManagerLabel,
+                            style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    OutlinedButton(
-                        onClick = { core.remoteButton(pcId, "middle", "click", onStatus) },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                        modifier = Modifier.weight(1.04f).height(44.dp),
+                    FilledTonalButton(
+                        onClick = { core.sendPcMirrorInput(pcId, MirrorInputEvent.Key("recents")) },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(1.08f).height(44.dp),
                     ) {
                         Text(
-                            stringResource(R.string.remote_middle_click),
-                            style = MaterialTheme.typography.labelLarge,
+                            taskViewLabel,
+                            style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
                     FilledTonalButton(
                         onClick = { core.remoteButton(pcId, "right", "click", onStatus) },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                        modifier = Modifier.weight(0.94f).height(44.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(0.80f).height(44.dp),
                     ) {
                         Text(
                             stringResource(R.string.remote_right_click),
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
                     Button(
                         onClick = { showKeyboardBar = !showKeyboardBar },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                        modifier = Modifier.weight(1.26f).height(44.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                        modifier = Modifier.weight(1.04f).height(44.dp),
                         colors = if (showKeyboardBar) {
                             ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
@@ -1659,7 +1677,7 @@ fun PcMirrorView(
                     ) {
                         Text(
                             stringResource(R.string.remote_keyboard),
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )

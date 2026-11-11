@@ -374,6 +374,7 @@
     <string name="pc_mirror_fullscreen">Full screen</string>
     <string name="pc_mirror_exit_fullscreen">Exit full screen</string>
     <string name="pc_mirror_right_click">Right click</string>
+    <string name="pc_mirror_task_manager">Task Manager</string>
     <string name="pc_mirror_task_view">Task View</string>
     <string name="pc_mirror_keyboard">Keyboard</string>
     <string name="pc_mirror_hide_keyboard">Hide keys</string>

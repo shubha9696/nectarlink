@@ -36,6 +36,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -431,25 +432,42 @@ class TouchControlOverlayService : Service() {
         contentColumn.addView(kbBar)
 
         // 4. Quick Actions Toolbar
-        val toolbar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        val toolbarScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(34)
             )
             setBackgroundColor(Color.parseColor("#222125"))
             setPadding(dp(4), 0, dp(28), 0) // extra padding on right for resize handle
+            clipToPadding = false
+        }
+        val toolbar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
         }
 
-        toolbar.addView(createToolbarButton("Left") { core?.remoteButton(pcId, "left", "click") })
-        toolbar.addView(createToolbarButton("Mid") { core?.remoteButton(pcId, "middle", "click") })
+        toolbar.addView(
+            createToolbarButton(getString(R.string.pc_mirror_task_manager)) {
+                core?.remoteKey(pcId, "escape", listOf("ctrl", "shift"))
+            }
+        )
+        toolbar.addView(
+            createToolbarButton(getString(R.string.pc_mirror_task_view)) {
+                core?.remoteKey(pcId, "task_view", emptyList())
+            }
+        )
         toolbar.addView(createToolbarButton("Right") { core?.remoteButton(pcId, "right", "click") })
         toolbar.addView(createToolbarButton("Esc") { core?.remoteKey(pcId, "escape", emptyList()) })
         toolbar.addView(createToolbarButton("Win") { core?.remoteKey(pcId, "meta", emptyList()) })
         toolbar.addView(createToolbarButton("Kb") { toggleKeyboard() })
 
-        contentColumn.addView(toolbar)
+        toolbarScroll.addView(toolbar)
+        contentColumn.addView(toolbarScroll)
 
         // 5. Corner Resize Handle (bottom-right)
         val resizeHandle = TextView(this).apply {
@@ -522,6 +540,8 @@ class TouchControlOverlayService : Service() {
     private fun createToolbarButton(label: String, onClick: () -> Unit): Button {
         return Button(this).apply {
             text = label
+            isAllCaps = false
+            maxLines = 1
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             val btnBg = GradientDrawable().apply {
@@ -529,10 +549,15 @@ class TouchControlOverlayService : Service() {
                 cornerRadius = dp(6).toFloat()
             }
             background = btnBg
-            setPadding(dp(4), 0, dp(4), 0)
-            minWidth = dp(32)
+            setPadding(dp(8), 0, dp(8), 0)
+            minWidth = dp(40)
+            minimumWidth = dp(40)
             minHeight = dp(26)
-            layoutParams = LinearLayout.LayoutParams(0, dp(26), 1f).apply {
+            minimumHeight = dp(26)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(26),
+            ).apply {
                 marginStart = dp(2)
                 marginEnd = dp(2)
             }
