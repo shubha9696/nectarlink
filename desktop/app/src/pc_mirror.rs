@@ -2482,10 +2482,10 @@ mod imp {
 
         #[cfg(windows)]
         unsafe {
-            extern "system" {
+            unsafe extern "system" {
                 fn timeBeginPeriod(uPeriod: u32) -> u32;
             }
-            timeBeginPeriod(1);
+            let _ = timeBeginPeriod(1);
         }
 
         let mut codec = if node.mirror_codecs(peer).is_ok_and(|codecs| codecs.iter().any(|c| c == "h265")) {
@@ -2736,10 +2736,10 @@ mod imp {
 
         #[cfg(windows)]
         unsafe {
-            extern "system" {
+            unsafe extern "system" {
                 fn timeEndPeriod(uPeriod: u32) -> u32;
             }
-            timeEndPeriod(1);
+            let _ = timeEndPeriod(1);
             windows::Win32::System::Power::SetThreadExecutionState(
                 windows::Win32::System::Power::ES_CONTINUOUS,
             );
