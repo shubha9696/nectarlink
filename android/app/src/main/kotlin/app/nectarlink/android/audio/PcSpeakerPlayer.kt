@@ -344,7 +344,7 @@ class PcSpeakerPlayer(
                         track.write(playChunkHd, 0, playChunkHd.size, AudioTrack.WRITE_BLOCKING)
                     } else {
                         // In Low Latency (0 ms) mode: poll directly from real-time queue
-                        val packet = packetQueue.poll(4L, TimeUnit.MILLISECONDS)
+                        val packet = packetQueue.poll(15L, TimeUnit.MILLISECONDS)
                         if (packet == null) {
                             hadUnderrun = true
                             continue
@@ -412,11 +412,40 @@ class PcSpeakerPlayer(
         if (exactQuality) {
             jitterBuffer?.push(pcm)
         } else {
-            // True 0 ms architecture:
-            // Keep up to 3 packets in flight (~6-9ms max buffer) so minor jitter never drops packets,
-            // while discarding any older packets if network latency spikes, locking strictly to 0ms!
-            while (packetQueue.size >= 3) {
-                packetQueue.poll()
+            // True 0 ms real-time latency (identical latency to v54):
+            // Queue capacity is strictly 1 packet so audio is played instantly without delay.
+            while (packetQueue.size >= 1) {
+                val stale = packetQueue.poll()
+                if (stale != null && stale.size + pcm.size <= 1920) {
+                    // Wi-Fi burst delivered small slices together: combine seamlessly so no audio is lost!
+                    val merged = ByteArray(stale.size + pcm.size)
+                    System.arraycopy(stale, 0, merged, 0, stale.size)
+                    System.arraycopy(pcm, 0, merged, stale.size, pcm.size)
+                    packetQueue.offer(merged)
+                    return
+                }
+                // When purging a stale packet to stay strictly locked to 0 ms real-time,
+                // smoothly crossfade over 32 frames (0.6 ms) to prevent clicks/cracks.
+                if (stale != null) {
+                    val fadeFrames = minOf(32, minOf(stale.size / 4, pcm.size / 4))
+                    val stStart = stale.size - (fadeFrames * 4)
+                    for (f in 0 until fadeFrames) {
+                        val alpha = f.toFloat() / fadeFrames.toFloat()
+                        val oSt = stStart + f * 4
+                        val oP = f * 4
+                        val sL = (stale[oSt].toInt() and 0xFF) or (stale[oSt + 1].toInt() shl 8)
+                        val pL = (pcm[oP].toInt() and 0xFF) or (pcm[oP + 1].toInt() shl 8)
+                        val mixL = ((sL.toShort() * (1f - alpha)) + (pL.toShort() * alpha)).toInt().coerceIn(-32768, 32767).toShort()
+                        pcm[oP] = (mixL.toInt() and 0xFF).toByte()
+                        pcm[oP + 1] = (mixL.toInt() shr 8).toByte()
+
+                        val sR = (stale[oSt + 2].toInt() and 0xFF) or (stale[oSt + 3].toInt() shl 8)
+                        val pR = (pcm[oP + 2].toInt() and 0xFF) or (pcm[oP + 3].toInt() shl 8)
+                        val mixR = ((sR.toShort() * (1f - alpha)) + (pR.toShort() * alpha)).toInt().coerceIn(-32768, 32767).toShort()
+                        pcm[oP + 2] = (mixR.toInt() and 0xFF).toByte()
+                        pcm[oP + 3] = (mixR.toInt() shr 8).toByte()
+                    }
+                }
             }
             packetQueue.offer(pcm)
         }

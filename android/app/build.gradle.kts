@@ -48,6 +48,15 @@ android {
     // release workflow refuses to run without the key and verifies the signature.
     val keystore = System.getenv("NECTARLINK_KEYSTORE")?.let(::file)?.takeIf { it.exists() }
     signingConfigs {
+        getByName("debug") {
+            val dbg = rootProject.file("debug.keystore")
+            if (dbg.exists()) {
+                storeFile = dbg
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         if (keystore != null) {
             create("release") {
                 storeFile = keystore
