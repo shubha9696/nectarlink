@@ -441,11 +441,11 @@ pub fn run_wasapi_loopback(
                         let _ = tx.try_send(bytes::Bytes::from(chunk));
                     }
                 } else {
-                    // In Low Latency Mode: chunk at 5.0 ms (960 bytes = 240 frames)
-                    // Prevents packet fragmentation churn while keeping audio locked to near-0ms real-time
-                    const LOW_LATENCY_CHUNK_BYTES: usize = 960;
-                    while staging.len() >= LOW_LATENCY_CHUNK_BYTES {
-                        let chunk: Vec<u8> = staging.drain(..LOW_LATENCY_CHUNK_BYTES).collect();
+                    // In Low Latency Mode (0 ms real-time): zero staging delay!
+                    // Drains and sends any available frames immediately as WASAPI yields them.
+                    let whole_frames_len = (staging.len() / BYTES_PER_FRAME) * BYTES_PER_FRAME;
+                    if whole_frames_len > 0 {
+                        let chunk: Vec<u8> = staging.drain(..whole_frames_len).collect();
                         let _ = tx.try_send(bytes::Bytes::from(chunk));
                     }
                 }
