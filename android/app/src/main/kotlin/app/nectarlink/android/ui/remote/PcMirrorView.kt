@@ -422,9 +422,11 @@ fun PcMirrorView(
     val bitrate = currentQuality.third
     val qualityShortLabel = currentQuality.first
 
-    var mirrorFpsIndex by rememberSaveable { mutableIntStateOf(1) }
-    val fpsModes = remember { listOf(30, 60, 120) }
-    val currentFps = fpsModes[mirrorFpsIndex.coerceIn(0, 2)]
+    var mirrorFpsIndex by rememberSaveable { mutableIntStateOf(0) }
+    val fpsModes = remember { listOf(0, 30, 60) }
+    val currentFpsSetting = fpsModes[mirrorFpsIndex.coerceIn(0, fpsModes.size - 1)]
+    val currentFps = if (currentFpsSetting == 0) 60 else currentFpsSetting
+    val fpsShortLabel = if (currentFpsSetting == 0) "Auto" else "${currentFpsSetting}fps"
 
     var showFloatingTouchpad by rememberSaveable { mutableStateOf(false) }
     var zoomScale by rememberSaveable { mutableFloatStateOf(1.0f) }
@@ -1051,30 +1053,12 @@ fun PcMirrorView(
                             core.remoteButton(pcId, "right", "click")
                             lastTapUpTimeMs = 0L
                         } else if (maxPointers == 1 && elapsed <= tapTimeoutMs && totalMoved <= tapSlop * 1.5f && touchStartedInVideo) {
-                            if (upTime - lastTapUpTimeMs <= doubleTapWindowMs && hypot(downPos.x - lastTapPos.x, downPos.y - lastTapPos.y) <= tapSlop * 2.5f) {
-                                // Double tap: toggle zoom between 1.0x and 2.5x centered at the tapped spot
-                                if (zoomScale > 1.1f) {
-                                    zoomScale = 1.0f
-                                    zoomOffsetX = 0f
-                                    zoomOffsetY = 0f
-                                } else {
-                                    val targetScale = 2.5f
-                                    val centerX = viewport.left + viewport.width * 0.5f
-                                    val centerY = viewport.top + viewport.height * 0.5f
-                                    zoomScale = targetScale
-                                    val maxOffsetX = ((viewport.width * targetScale - cw) * 0.5f).coerceAtLeast(0f)
-                                    val maxOffsetY = ((viewport.height * targetScale - ch) * 0.5f).coerceAtLeast(0f)
-                                    zoomOffsetX = ((centerX - downPos.x) * (targetScale - 1f)).coerceIn(-maxOffsetX, maxOffsetX)
-                                    zoomOffsetY = ((centerY - downPos.y) * (targetScale - 1f)).coerceIn(-maxOffsetY, maxOffsetY)
-                                }
-                                lastTapUpTimeMs = 0L
-                            } else {
-                                // Single tap: clean single left-click directly on PC
-                                core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.DOWN, lastX, lastY))
-                                core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.UP, lastX, lastY))
-                                lastTapUpTimeMs = upTime
-                                lastTapPos = downPos
-                            }
+                            // Tap: clean left-click directly on PC. Two taps in rapid succession natively register as double-click on Windows.
+                            // Zooming is handled via two-finger pinch.
+                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.DOWN, lastX, lastY))
+                            core.sendPcMirrorInput(pcId, MirrorInputEvent.Touch(TouchPhase.UP, lastX, lastY))
+                            lastTapUpTimeMs = upTime
+                            lastTapPos = downPos
                         } else if (maxPointers == 1 && elapsed > 400 && totalMoved <= tapSlop * 2f && touchStartedInVideo) {
                             // Long press: Right click with haptic feedback
                             view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
@@ -1391,7 +1375,7 @@ fun PcMirrorView(
                                 modifier = Modifier.height(36.dp),
                             ) {
                                 Text(
-                                    "${currentFps}fps",
+                                    fpsShortLabel,
                                     style = MaterialTheme.typography.labelLarge,
                                     maxLines = 1,
                                 )
@@ -1790,7 +1774,7 @@ fun PcMirrorView(
                         modifier = Modifier.weight(0.9f).height(38.dp),
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
                     ) {
-                        Text("${currentFps}fps", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+                        Text(fpsShortLabel, maxLines = 1, style = MaterialTheme.typography.labelSmall)
                     }
                     OutlinedButton(
                         onClick = {

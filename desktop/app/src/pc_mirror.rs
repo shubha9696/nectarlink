@@ -25,8 +25,8 @@ mod imp {
         Foundation::{E_INVALIDARG, E_NOTIMPL, ERROR_TIMEOUT, POINT, RECT},
         Graphics::Gdi::{
             BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleBitmap, CreateCompatibleDC, DESKTOPHORZRES,
-            DESKTOPVERTRES, DeleteDC, DeleteObject, GetDC, GetDIBits, GetDeviceCaps, HALFTONE, ReleaseDC,
-            SRCCOPY, SelectObject, SetStretchBltMode, StretchBlt,
+            DESKTOPVERTRES, DeleteDC, DeleteObject, GetDC, GetDIBits, GetDeviceCaps, HALFTONE, HBITMAP, HDC,
+            HGDIOBJ, ReleaseDC, SRCCOPY, SelectObject, SetStretchBltMode, StretchBlt,
         },
         Media::MediaFoundation::{
             CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncMPVGOPSize, CODECAPI_AVEncVideoForceKeyFrame,
@@ -303,7 +303,7 @@ mod imp {
                 let g = i32::from(bgra[px + 1]);
                 let r = i32::from(bgra[px + 2]);
                 let y = ((47 * r + 157 * g + 16 * b + 128) >> 8) + 16;
-                y_plane[y_row + col] = y.clamp(16, 235) as u8;
+                y_plane[y_row + col] = y as u8;
             }
         }
 
@@ -338,8 +338,8 @@ mod imp {
 
                 let u = ((-26 * r - 87 * g + 112 * b + 128) >> 8) + 128;
                 let v = ((112 * r - 102 * g - 10 * b + 128) >> 8) + 128;
-                uv_plane[uv_row + col] = u.clamp(16, 240) as u8;
-                uv_plane[uv_row + col + 1] = v.clamp(16, 240) as u8;
+                uv_plane[uv_row + col] = u as u8;
+                uv_plane[uv_row + col + 1] = v as u8;
             }
         }
     }
@@ -1521,6 +1521,54 @@ mod imp {
         }
     }
 
+    #[cfg(windows)]
+    struct GdiCapturer {
+        hdc_mem: HDC,
+        hbm: HBITMAP,
+        old: HGDIOBJ,
+        cached_w: u32,
+        cached_h: u32,
+    }
+
+    #[cfg(windows)]
+    impl GdiCapturer {
+        fn new() -> Self {
+            Self {
+                hdc_mem: Default::default(),
+                hbm: Default::default(),
+                old: Default::default(),
+                cached_w: 0,
+                cached_h: 0,
+            }
+        }
+
+        fn cleanup(&mut self) {
+            unsafe {
+                if !self.hdc_mem.is_invalid() {
+                    if !self.old.is_invalid() {
+                        let _ = SelectObject(self.hdc_mem, self.old);
+                        self.old = Default::default();
+                    }
+                    if !self.hbm.is_invalid() {
+                        let _ = DeleteObject(self.hbm.into());
+                        self.hbm = Default::default();
+                    }
+                    let _ = DeleteDC(self.hdc_mem);
+                    self.hdc_mem = Default::default();
+                }
+                self.cached_w = 0;
+                self.cached_h = 0;
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for GdiCapturer {
+        fn drop(&mut self) {
+            self.cleanup();
+        }
+    }
+
     /// Captures the primary desktop monitor into `bgra` scaled to `(dst_w, dst_h)`,
     /// with the pointer, and returns the current physical screen dimensions
     /// `(src_w, src_h)`. With `region` (physical screen pixels), captures only
@@ -1532,7 +1580,7 @@ mod imp {
         dst_h: u32,
         bgra: &mut Vec<u8>,
     ) -> Option<(u32, u32)> {
-        // SAFETY: Win32 GDI device context and bitmap calls with balanced cleanup.
+        // SAFETY: Win32 GDI device context and bitmap calls with persistent caching across frames.
         unsafe {
             crate::win::input::sync_input_desktop();
             let hdc_screen = GetDC(None);
@@ -1552,94 +1600,108 @@ mod imp {
                 }
             };
 
-            let hdc_mem = CreateCompatibleDC(Some(hdc_screen));
-            if hdc_mem.is_invalid() {
-                let _ = ReleaseDC(None, hdc_screen);
-                return None;
-            }
-            let hbm = CreateCompatibleBitmap(hdc_screen, dst_w as i32, dst_h as i32);
-            if hbm.is_invalid() {
-                let _ = DeleteDC(hdc_mem);
-                let _ = ReleaseDC(None, hdc_screen);
-                return None;
-            }
-            let old = SelectObject(hdc_mem, hbm.into());
-            let ok = if dst_w == src_w && dst_h == src_h && src_x == 0 && src_y == 0 {
-                windows::Win32::Graphics::Gdi::BitBlt(
-                    hdc_mem,
-                    0,
-                    0,
-                    dst_w as i32,
-                    dst_h as i32,
-                    Some(hdc_screen),
-                    0,
-                    0,
-                    SRCCOPY,
-                ).is_ok()
-            } else {
-                let _ = SetStretchBltMode(hdc_mem, windows::Win32::Graphics::Gdi::COLORONCOLOR);
-                StretchBlt(
-                    hdc_mem,
-                    0,
-                    0,
-                    dst_w as i32,
-                    dst_h as i32,
-                    Some(hdc_screen),
-                    src_x,
-                    src_y,
-                    src_w as i32,
-                    src_h as i32,
-                    SRCCOPY,
-                ).as_bool()
-            };
-
-
-            // Draw the mouse cursor at its scaled position so the phone user sees where they point.
-            let mut ci = CURSORINFO {
-                cbSize: size_of::<CURSORINFO>() as u32,
-                flags: Default::default(),
-                hCursor: Default::default(),
-                ptScreenPos: POINT::default(),
-            };
-            if region.is_none() && GetCursorInfo(&mut ci).is_ok() && (ci.flags.0 & CURSOR_SHOWING.0) != 0 {
-                let cx = ((ci.ptScreenPos.x as i64) * (dst_w as i64) / (src_w as i64)) as i32;
-                let cy = ((ci.ptScreenPos.y as i64) * (dst_h as i64) / (src_h as i64)) as i32;
-                let _ = DrawIconEx(hdc_mem, cx, cy, ci.hCursor.into(), 0, 0, 0, None, DI_NORMAL);
+            thread_local! {
+                static CACHED: std::cell::RefCell<GdiCapturer> = std::cell::RefCell::new(GdiCapturer::new());
             }
 
-            let needed = (dst_w as usize) * (dst_h as usize) * 4;
-            bgra.resize(needed, 0);
+            let res = CACHED.with(|cell| {
+                let mut c = cell.borrow_mut();
+                if c.cached_w != dst_w || c.cached_h != dst_h || c.hdc_mem.is_invalid() {
+                    c.cleanup();
+                    let mem = CreateCompatibleDC(Some(hdc_screen));
+                    if mem.is_invalid() {
+                        return None;
+                    }
+                    let bm = CreateCompatibleBitmap(hdc_screen, dst_w as i32, dst_h as i32);
+                    if bm.is_invalid() {
+                        let _ = DeleteDC(mem);
+                        return None;
+                    }
+                    let old = SelectObject(mem, bm.into());
+                    c.hdc_mem = mem;
+                    c.hbm = bm;
+                    c.old = old;
+                    c.cached_w = dst_w;
+                    c.cached_h = dst_h;
+                }
 
-            let mut bmi = BITMAPINFO {
-                bmiHeader: BITMAPINFOHEADER {
-                    biSize: size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: dst_w as i32,
-                    biHeight: -(dst_h as i32), // Top-down DIB.
-                    biPlanes: 1,
-                    biBitCount: 32,
-                    biCompression: BI_RGB.0,
-                    biSizeImage: needed as u32,
+                let hdc_mem = c.hdc_mem;
+                let hbm = c.hbm;
+
+                let ok = if dst_w == src_w && dst_h == src_h && src_x == 0 && src_y == 0 {
+                    windows::Win32::Graphics::Gdi::BitBlt(
+                        hdc_mem,
+                        0,
+                        0,
+                        dst_w as i32,
+                        dst_h as i32,
+                        Some(hdc_screen),
+                        0,
+                        0,
+                        SRCCOPY,
+                    ).is_ok()
+                } else {
+                    let _ = SetStretchBltMode(hdc_mem, windows::Win32::Graphics::Gdi::COLORONCOLOR);
+                    StretchBlt(
+                        hdc_mem,
+                        0,
+                        0,
+                        dst_w as i32,
+                        dst_h as i32,
+                        Some(hdc_screen),
+                        src_x,
+                        src_y,
+                        src_w as i32,
+                        src_h as i32,
+                        SRCCOPY,
+                    ).as_bool()
+                };
+
+                // Draw the mouse cursor at its scaled position so the phone user sees where they point.
+                let mut ci = CURSORINFO {
+                    cbSize: size_of::<CURSORINFO>() as u32,
+                    flags: Default::default(),
+                    hCursor: Default::default(),
+                    ptScreenPos: POINT::default(),
+                };
+                if region.is_none() && GetCursorInfo(&mut ci).is_ok() && (ci.flags.0 & CURSOR_SHOWING.0) != 0 {
+                    let cx = ((ci.ptScreenPos.x as i64) * (dst_w as i64) / (src_w as i64)) as i32;
+                    let cy = ((ci.ptScreenPos.y as i64) * (dst_h as i64) / (src_h as i64)) as i32;
+                    let _ = DrawIconEx(hdc_mem, cx, cy, ci.hCursor.into(), 0, 0, 0, None, DI_NORMAL);
+                }
+
+                let needed = (dst_w as usize) * (dst_h as usize) * 4;
+                bgra.resize(needed, 0);
+
+                let mut bmi = BITMAPINFO {
+                    bmiHeader: BITMAPINFOHEADER {
+                        biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                        biWidth: dst_w as i32,
+                        biHeight: -(dst_h as i32), // Top-down DIB.
+                        biPlanes: 1,
+                        biBitCount: 32,
+                        biCompression: BI_RGB.0,
+                        biSizeImage: needed as u32,
+                        ..Default::default()
+                    },
                     ..Default::default()
-                },
-                ..Default::default()
-            };
+                };
 
-            let lines = GetDIBits(
-                hdc_mem,
-                hbm,
-                0,
-                dst_h,
-                Some(bgra.as_mut_ptr().cast()),
-                &mut bmi,
-                windows::Win32::Graphics::Gdi::DIB_RGB_COLORS,
-            );
+                let lines = GetDIBits(
+                    hdc_mem,
+                    hbm,
+                    0,
+                    dst_h,
+                    Some(bgra.as_mut_ptr().cast()),
+                    &mut bmi,
+                    windows::Win32::Graphics::Gdi::DIB_RGB_COLORS,
+                );
 
-            let _ = SelectObject(hdc_mem, old);
-            let _ = DeleteObject(hbm.into());
-            let _ = DeleteDC(hdc_mem);
+                if ok && lines > 0 { Some((src_w, src_h)) } else { None }
+            });
+
             let _ = ReleaseDC(None, hdc_screen);
-
-            if ok && lines > 0 { Some((src_w, src_h)) } else { None }
+            res
         }
     }
 
@@ -2418,6 +2480,14 @@ mod imp {
         let frame_interval = Duration::from_micros(1_000_000 / u64::from(fps));
         let dur_hns = (10_000_000 / u64::from(fps)) as i64;
 
+        #[cfg(windows)]
+        unsafe {
+            extern "system" {
+                fn timeBeginPeriod(uPeriod: u32) -> u32;
+            }
+            timeBeginPeriod(1);
+        }
+
         let mut codec = if node.mirror_codecs(peer).is_ok_and(|codecs| codecs.iter().any(|c| c == "h265")) {
             "h265".to_owned()
         } else {
@@ -2666,6 +2736,10 @@ mod imp {
 
         #[cfg(windows)]
         unsafe {
+            extern "system" {
+                fn timeEndPeriod(uPeriod: u32) -> u32;
+            }
+            timeEndPeriod(1);
             windows::Win32::System::Power::SetThreadExecutionState(
                 windows::Win32::System::Power::ES_CONTINUOUS,
             );

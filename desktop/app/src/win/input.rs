@@ -151,7 +151,7 @@ pub fn is_screen_locked() -> bool {
         ) -> i32;
     }
 
-    let hdesk = unsafe { OpenInputDesktop(0, 0, 0x01FF) };
+    let hdesk = unsafe { OpenInputDesktop(0, 0, 0x0001 /* DESKTOP_READOBJECTS */) };
     if hdesk == 0 {
         // Access denied or cannot open input desktop -> secure desktop (Winlogon / UAC) is active!
         return true;
@@ -175,7 +175,9 @@ pub fn is_screen_locked() -> bool {
 pub fn send_to_lock_pipe(cmd: &str) -> bool {
     use std::fs::OpenOptions;
     use std::io::{BufRead, BufReader, Write};
-    for attempt in 0..2 {
+    let is_realtime = cmd.starts_with("TOUCH") || cmd.starts_with("MOVE");
+    let max_attempts = if is_realtime { 1 } else { 2 };
+    for attempt in 0..max_attempts {
         if let Ok(file) = OpenOptions::new().read(true).write(true).open(r"\\.\pipe\nectarlink_lock_input") {
             let mut writer = std::io::BufWriter::new(&file);
             if writer.write_all(cmd.as_bytes()).is_ok() && writer.flush().is_ok() {
@@ -185,7 +187,7 @@ pub fn send_to_lock_pipe(cmd: &str) -> bool {
                 return true;
             }
         }
-        if attempt == 0 {
+        if attempt == 0 && !is_realtime {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             let _ = std::process::Command::new("schtasks")

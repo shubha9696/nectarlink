@@ -50,9 +50,9 @@ fn pc_mirror_allowed(shared: &Shared, peer: &DeviceId) -> bool {
         || shared.pc_mirror_sessions.lock().unwrap_or_else(|e| e.into_inner()).contains(peer)
         || shared.store.is_paired(peer).unwrap_or(false)
 }
-/// Packets waiting to go out, at most. 16 packets (~500 ms at 30 fps) absorbs cellular/WAN
-/// latency jitter and relay roundtrips without queue stalls or frame starving.
-const QUEUE: usize = 16;
+/// Packets waiting to go out, at most. 64 packets (~1s at 60 fps) absorbs WAN/Wi-Fi
+/// jitter and relay roundtrips without queue stalls or frame starving.
+const QUEUE: usize = 64;
 /// Sound packets waiting to go out, at most (each is 10 ms).
 const AUDIO_QUEUE: usize = 24;
 /// Icons in a `mirror.apps` answer, at most, in bytes: the rest go without
