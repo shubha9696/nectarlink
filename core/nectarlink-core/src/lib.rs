@@ -93,10 +93,10 @@ pub use nectarlink_protocol::{
     messages::{
         AudioOutputDevice, Battery, CLIP_MAX_BYTES, CallControls, CallLogEntry, CallState,
         CameraCaptureCancel, CameraCaptureMode, CameraCaptureOk, CameraCaptureRequest,
-        CameraCaptureResultMeta, Contact, ContactNumber, DeviceInfo, DeviceKind, LivePoint, LiveSegment,
+        CameraCaptureResultMeta, Contact, ContactNumber, DeviceInfo, DeviceKind, GuardAlert, GuardConfig, LivePoint, LiveSegment,
         MediaPlayer, MirrorAudioConfig, MirrorConfig, MirrorInput, MirrorPower, MirrorResize, MirrorStart,
         Notification, NotificationAction, NotificationChatMessage, NotificationConversation,
-        NotificationLive, PcAudioSet, PcWakeInfo, PhoneApp, PhoneToggleSet, PhoneToggleValue, PhoneToggles,
+        NotificationLive, PcAudioSet, PcHwStats, PcWakeInfo, PhoneApp, PhoneToggleSet, PhoneToggleValue, PhoneToggles,
         PhotoAlbum, PhotoItem, PhotoNew as Photo, PhotoThumb, PowerLevel, ScreenCorners, ScreenRect,
         ScreenShape, SmsAttachment, SmsMessage, SmsPart, SmsThread, StorageChanged, StorageDelete,
         StorageEntries, StorageEntry, StorageList, StorageMkdir, StorageRead, StorageReadMeta, StorageRename,

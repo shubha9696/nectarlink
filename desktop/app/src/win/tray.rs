@@ -774,6 +774,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             }
             // Plugged in or out, or battery saver turned on or off.
             if wparam.0 == PBT_APMPOWERSTATUSCHANGE {
+                super::hw_mon::on_power_broadcast();
                 emit(TrayEvent::AppearanceChanged);
             }
             LRESULT(1)

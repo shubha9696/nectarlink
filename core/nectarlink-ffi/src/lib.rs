@@ -113,6 +113,24 @@ pub struct Battery {
     pub wifi_bars: Option<u8>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct PcHwStats {
+    pub cpu: u8,
+    pub ram: u8,
+    #[uniffi(default = None)]
+    pub temp: Option<u8>,
+    #[uniffi(default = None)]
+    pub battery: Option<u8>,
+    pub charging: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct GuardAlert {
+    pub reason: String,
+    pub detail: String,
+    pub timestamp_ms: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum Link {
     /// `last_seen` is in Unix seconds.
@@ -597,6 +615,14 @@ pub enum Event {
     Battery {
         id: String,
         battery: Battery,
+    },
+    PcHwStats {
+        id: String,
+        stats: PcHwStats,
+    },
+    GuardAlert {
+        id: String,
+        alert: GuardAlert,
     },
     /// A device asked this one to start (or stop) ringing.
     Ring {
@@ -2038,6 +2064,52 @@ impl From<Battery> for core::Battery {
     }
 }
 
+impl From<core::PcHwStats> for PcHwStats {
+    fn from(s: core::PcHwStats) -> Self {
+        PcHwStats {
+            cpu: s.cpu,
+            ram: s.ram,
+            temp: s.temp,
+            battery: s.battery,
+            charging: s.charging,
+        }
+    }
+}
+
+impl From<PcHwStats> for core::PcHwStats {
+    fn from(s: PcHwStats) -> Self {
+        core::PcHwStats {
+            cpu: s.cpu,
+            ram: s.ram,
+            temp: s.temp,
+            battery: s.battery,
+            charging: s.charging,
+        }
+        .sanitized()
+    }
+}
+
+impl From<core::GuardAlert> for GuardAlert {
+    fn from(a: core::GuardAlert) -> Self {
+        GuardAlert {
+            reason: a.reason,
+            detail: a.detail,
+            timestamp_ms: a.timestamp_ms,
+        }
+    }
+}
+
+impl From<GuardAlert> for core::GuardAlert {
+    fn from(a: GuardAlert) -> Self {
+        core::GuardAlert {
+            reason: a.reason,
+            detail: a.detail,
+            timestamp_ms: a.timestamp_ms,
+        }
+        .sanitized()
+    }
+}
+
 impl From<LinkState> for Link {
     fn from(l: LinkState) -> Self {
         match l {
@@ -2403,6 +2475,12 @@ impl Event {
             }
             NodeEvent::Battery { device, battery } => {
                 Event::Battery { id: device.to_string(), battery: battery.into() }
+            }
+            NodeEvent::PcHwStats { device, stats } => {
+                Event::PcHwStats { id: device.to_string(), stats: stats.into() }
+            }
+            NodeEvent::GuardAlert { device, alert } => {
+                Event::GuardAlert { id: device.to_string(), alert: alert.into() }
             }
             NodeEvent::Ring { device, on } => Event::Ring { id: device.to_string(), on },
             NodeEvent::Discovered(device) => Event::Discovered { device: device.into() },
@@ -3804,6 +3882,16 @@ impl NectarlinkNode {
     pub async fn update_battery(&self, battery: Battery) {
         let node = self.node.clone();
         self.run(async move { node.update_battery(battery.into()).await }).await;
+    }
+
+    pub async fn update_pc_hw_stats(&self, stats: PcHwStats) {
+        let node = self.node.clone();
+        self.run(async move { node.update_pc_hw_stats(stats.into()).await }).await;
+    }
+
+    pub async fn send_guard_alert(&self, alert: GuardAlert) {
+        let node = self.node.clone();
+        self.run(async move { node.send_guard_alert(alert.into()).await }).await;
     }
 
     pub async fn update_device_info(&self, info: DeviceInfo) {

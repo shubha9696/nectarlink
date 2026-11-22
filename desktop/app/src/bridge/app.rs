@@ -93,6 +93,14 @@ pub mod qobject {
         #[qproperty(QString, pc_mirror_prompt_device_name)]
         #[qproperty(bool, pc_mirror_active)]
         #[qproperty(QString, pc_mirror_device_name)]
+        /// PC Hardware metrics and Perimeter Guard
+        #[qproperty(i32, pc_cpu_usage)]
+        #[qproperty(i32, pc_ram_usage)]
+        #[qproperty(i32, pc_temperature)]
+        #[qproperty(i32, pc_battery_level)]
+        #[qproperty(bool, pc_battery_charging)]
+        #[qproperty(bool, pc_has_battery)]
+        #[qproperty(bool, perimeter_guard_enabled)]
         /// Whether the presentation laser pointer overlay is showing, and its
         /// normalized position on the primary screen (`0.0..=1.0`).
         #[qproperty(bool, laser_active)]
@@ -158,6 +166,12 @@ pub mod qobject {
         /// Triggers an immediate LocalSend multicast/HTTP discovery announcement.
         #[qinvokable]
         fn refresh_localsend(self: Pin<&mut AppController>);
+
+        /// Toggles or sets Perimeter Guard state (Smart Anchor).
+        #[qinvokable]
+        fn toggle_perimeter_guard(self: Pin<&mut AppController>);
+        #[qinvokable]
+        fn set_perimeter_guard(self: Pin<&mut AppController>, enabled: bool);
 
         /// The primary display's work area in physical pixels: `{x, y, width, height}`
         /// (empty when unknown). QML divides by `Screen.devicePixelRatio`.
@@ -1370,6 +1384,16 @@ impl qobject::AppController {
             node.refresh_localsend();
         }
         self.as_mut().refresh_localsend_state();
+    }
+
+    pub fn toggle_perimeter_guard(self: Pin<&mut Self>) {
+        #[cfg(windows)]
+        win::hw_mon::toggle_guard();
+    }
+
+    pub fn set_perimeter_guard(self: Pin<&mut Self>, enabled: bool) {
+        #[cfg(windows)]
+        win::hw_mon::set_guard_enabled(enabled);
     }
 
     fn refresh_appearance(mut self: Pin<&mut Self>) {

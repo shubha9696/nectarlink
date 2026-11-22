@@ -108,6 +108,9 @@ pub mod types {
     pub const FILES_CANCEL: &str = "files.cancel";
     pub const WAKE_RELAY: &str = "wake.relay";
     pub const AUDIO_PCM: &str = "audio.pcm";
+    pub const PC_HW_STATS: &str = "pc.hw_stats";
+    pub const GUARD_ALERT: &str = "guard.alert";
+    pub const GUARD_CONFIG: &str = "guard.config";
 }
 
 /// What kind of device this is.
@@ -463,6 +466,62 @@ pub struct ErrorBody {
     pub code: ErrorCode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub msg: Option<String>,
+}
+
+/// Live PC hardware statistics: CPU load, RAM usage, thermal temperature, and battery.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PcHwStats {
+    /// CPU usage percentage (0..=100).
+    pub cpu: u8,
+    /// RAM usage percentage (0..=100).
+    pub ram: u8,
+    /// Temperature in degrees Celsius, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temp: Option<u8>,
+    /// Battery level percentage (0..=100), if laptop has battery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battery: Option<u8>,
+    /// Whether battery is currently plugged in / charging.
+    pub charging: bool,
+}
+
+impl PcHwStats {
+    pub fn sanitized(mut self) -> Self {
+        self.cpu = self.cpu.min(100);
+        self.ram = self.ram.min(100);
+        self.temp = self.temp.map(|t| t.min(125));
+        self.battery = self.battery.map(|b| b.min(100));
+        self
+    }
+}
+
+/// Security alert dispatched when PC movement, displacement, or tamper is detected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuardAlert {
+    /// Alert reason code: "moved", "unplugged", "tamper", "outage".
+    pub reason: String,
+    /// Human-readable explanation.
+    pub detail: String,
+    /// Timestamp when alert occurred (ms since UNIX epoch).
+    pub timestamp_ms: u64,
+}
+
+impl GuardAlert {
+    pub fn sanitized(mut self) -> Self {
+        self.reason.truncate(32);
+        self.detail.truncate(256);
+        self
+    }
+}
+
+/// Remote configuration / toggle for Perimeter Guard.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuardConfig {
+    pub enabled: bool,
+    #[serde(default)]
+    pub auto_lock: bool,
+    #[serde(default)]
+    pub alarm_sound: bool,
 }
 
 /// First frame of every non-control stream.
@@ -5875,5 +5934,19 @@ mod tests {
         let env = crate::Envelope::new(types::AUDIO_PCM, &frame).unwrap();
         let decoded: AudioPcmFrame = crate::Envelope::from_cbor(&env.to_cbor()).unwrap().body().unwrap();
         assert_eq!(decoded, frame);
+
+        let hw = PcHwStats { cpu: 15, ram: 42, temp: Some(48), battery: Some(92), charging: true };
+        let env_hw = crate::Envelope::new(types::PC_HW_STATS, &hw).unwrap();
+        let dec_hw: PcHwStats = crate::Envelope::from_cbor(&env_hw.to_cbor()).unwrap().body().unwrap();
+        assert_eq!(dec_hw, hw);
+
+        let alert = GuardAlert {
+            reason: "moved".into(),
+            detail: "PC moved >20ft from anchor".into(),
+            timestamp_ms: 1700000000000,
+        };
+        let env_alert = crate::Envelope::new(types::GUARD_ALERT, &alert).unwrap();
+        let dec_alert: GuardAlert = crate::Envelope::from_cbor(&env_alert.to_cbor()).unwrap().body().unwrap();
+        assert_eq!(dec_alert, alert);
     }
 }

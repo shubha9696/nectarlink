@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use nectarlink_protocol::{
     DeviceId,
-    messages::{Battery, CameraCaptureMode, DeviceInfo, MediaPlayer, Notification, PowerLevel},
+    messages::{Battery, CameraCaptureMode, DeviceInfo, GuardAlert, MediaPlayer, Notification, PcHwStats, PowerLevel},
 };
 
 use crate::{features::CapabilityMatrix, transfer::Transfer};
@@ -103,6 +103,14 @@ pub enum NodeEvent {
     Battery {
         device: DeviceId,
         battery: Battery,
+    },
+    PcHwStats {
+        device: DeviceId,
+        stats: PcHwStats,
+    },
+    GuardAlert {
+        device: DeviceId,
+        alert: GuardAlert,
     },
     Ring {
         device: DeviceId,

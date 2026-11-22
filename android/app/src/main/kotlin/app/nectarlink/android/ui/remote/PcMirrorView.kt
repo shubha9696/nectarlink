@@ -403,6 +403,7 @@ fun PcMirrorView(
     val keyboardController = LocalSoftwareKeyboardController.current
     val keyboardFocusRequester = remember { FocusRequester() }
 
+    val coreState by core.state.collectAsStateWithLifecycle()
     val mirrorConfig by core.pcMirrorConfig.collectAsStateWithLifecycle()
     val activeConfig = mirrorConfig?.takeIf { it.pcId == pcId }
     val effectiveCodec = activeConfig?.codec ?: "h264"
@@ -1238,6 +1239,13 @@ fun PcMirrorView(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            val targetDev = coreState.devices.firstOrNull { it.id == pcId }
+                            if (targetDev?.pcHwStats != null) {
+                                app.nectarlink.android.ui.components.PcHwStatusPill(
+                                    stats = targetDev.pcHwStats,
+                                    pcName = pcName,
+                                )
+                            }
                             if (isPcLocked) {
                                 TextButton(
                                     onClick = {

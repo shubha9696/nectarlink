@@ -955,6 +955,10 @@ class Core(context: Context, private val scope: CoroutineScope) : EventListener 
                 }
                 refreshSendQueue()
             }
+            is Event.GuardAlert -> {
+                val pcName = _state.value.nameOf(event.id).orEmpty().ifEmpty { context.getString(R.string.your_pc) }
+                GuardAlertNotifier.post(context, pcName, event.alert)
+            }
             else -> {}
         }
     }

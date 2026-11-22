@@ -524,6 +524,14 @@ async fn handle(shared: &Arc<Shared>, session: &Arc<Session>, env: Envelope) -> 
             let battery = env.body::<Battery>()?.sanitized();
             shared.emit(NodeEvent::Battery { device: peer, battery });
         }
+        types::PC_HW_STATS => {
+            let stats = env.body::<PcHwStats>()?.sanitized();
+            shared.emit(NodeEvent::PcHwStats { device: peer, stats });
+        }
+        types::GUARD_ALERT => {
+            let alert = env.body::<GuardAlert>()?.sanitized();
+            shared.emit(NodeEvent::GuardAlert { device: peer, alert });
+        }
         types::EVENT_DEVICE => {
             let info = env.body::<DeviceInfo>()?.sanitized();
             shared.store.update_info(&peer, &info)?;

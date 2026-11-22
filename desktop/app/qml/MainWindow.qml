@@ -809,7 +809,13 @@ NativeWindow {
                 anchors.right: parent.right
                 anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 4
+                spacing: 8
+
+                HwStatusPill {
+                    id: hwPill
+                    anchors.verticalCenter: parent.verticalCenter
+                    Component.onCompleted: window.addCaptionHole(hwPill)
+                }
 
                 IconButton {
                     id: paletteTopBtn

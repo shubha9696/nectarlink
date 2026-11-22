@@ -3001,6 +3001,14 @@ private fun PcCard(
 
                 )
 
+                if (device.online && device.pcHwStats != null) {
+                    Spacer(Modifier.width(8.dp))
+                    app.nectarlink.android.ui.components.PcHwStatusPill(
+                        stats = device.pcHwStats,
+                        pcName = device.name,
+                    )
+                }
+
                 if (!device.online && !device.reconnect) {
 
                     Spacer(Modifier.width(8.dp))

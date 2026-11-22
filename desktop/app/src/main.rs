@@ -627,6 +627,8 @@ fn main() -> ExitCode {
     });
     notification_store::start(data_dir.clone());
     std::thread::spawn(notifications::prune_images);
+    #[cfg(windows)]
+    win::hw_mon::start();
     watch_network();
     start_toasts();
     clipboard::start();

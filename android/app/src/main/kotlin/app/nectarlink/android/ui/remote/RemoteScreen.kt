@@ -230,6 +230,13 @@ fun RemoteScreen(
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
+                if (device.pcHwStats != null) {
+                    app.nectarlink.android.ui.components.PcHwStatusPill(
+                        stats = device.pcHwStats,
+                        pcName = device.name,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
                 val pcBtState by app.nectarlink.android.core.PcLockManager.pcBluetooth.collectAsStateWithLifecycle()
                 val btOn = pcBtState == true
                 IconButton(

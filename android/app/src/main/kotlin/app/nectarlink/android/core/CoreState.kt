@@ -147,6 +147,8 @@ data class Device(
     val storageEnabled: Boolean = false,
     /** Whether this PC may ask for this phone's microphone (on by default). */
     val micEnabled: Boolean = true,
+    val pcHwStats: app.nectarlink.core.PcHwStats? = null,
+    val lastGuardAlert: app.nectarlink.core.GuardAlert? = null,
 ) {
     /** A paired phone or tablet rather than a PC. */
     val isAndroid: Boolean
@@ -375,6 +377,8 @@ data class CoreState(
         }
         is Event.ReconnectChanged -> update(event.id) { it.copy(reconnect = event.on) }
         is Event.Battery -> update(event.id) { it.copy(battery = event.battery) }
+        is Event.PcHwStats -> update(event.id) { it.copy(pcHwStats = event.stats) }
+        is Event.GuardAlert -> update(event.id) { it.copy(lastGuardAlert = event.alert) }
         is Event.Capabilities -> update(event.id) { it.copy(features = event.features) }
         is Event.DeckLayout -> update(event.id) { it.copy(deckLayout = event.layout) }
         is Event.DeckState -> update(event.id) { it.copy(deckState = event.state) }

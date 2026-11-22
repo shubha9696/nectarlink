@@ -20,8 +20,8 @@ use iroh_mdns_address_lookup::{DiscoveryEvent, MdnsAddressLookup};
 use nectarlink_protocol::{
     ALPN_PAIR, ALPN_SESSION, DeviceId, Envelope, ErrorCode,
     messages::{
-        Battery, ClipSet, DeviceInfo, DeviceKind, HelloUpdate, MediaCommand, MediaPlayer, Notification,
-        NotifyAction, NotifyKey, PowerLevel, Ring, types,
+        Battery, ClipSet, DeviceInfo, DeviceKind, GuardAlert, HelloUpdate, MediaCommand, MediaPlayer, Notification,
+        NotifyAction, NotifyKey, PcHwStats, PowerLevel, Ring, types,
     },
     pairing::PairingUri,
 };
@@ -85,6 +85,7 @@ pub(crate) struct LocalState {
     pub power: PowerLevel,
     pub extra_capabilities: Vec<String>,
     pub battery: Option<Battery>,
+    pub pc_hw_stats: Option<PcHwStats>,
     /// Watching adb for USB phones: can start a phone's Elevated helper over USB.
     pub adb: bool,
 }
@@ -1178,12 +1179,20 @@ impl Shared {
         self.queue_notify.notify_waiters();
 
         // Bring the peer up to date with state it may have missed.
-        let battery = self.local.read().unwrap_or_else(|e| e.into_inner()).battery.clone();
+        let local_snap = self.local.read().unwrap_or_else(|e| e.into_inner());
+        let battery = local_snap.battery.clone();
+        let pc_hw_stats = local_snap.pc_hw_stats.clone();
+        drop(local_snap);
         let shared = self.clone();
         let s = session.clone();
         tokio::spawn(async move {
             if let Some(battery) = battery
                 && let Ok(env) = Envelope::new(types::EVENT_BATTERY, &battery)
+            {
+                let _ = s.send(env).await;
+            }
+            if let Some(stats) = pc_hw_stats
+                && let Ok(env) = Envelope::new(types::PC_HW_STATS, &stats)
             {
                 let _ = s.send(env).await;
             }
@@ -1582,6 +1591,7 @@ impl Node {
                 power: config.power,
                 extra_capabilities: config.capabilities.clone(),
                 battery: None,
+                pc_hw_stats: None,
                 adb: config.adb_server.is_some(),
             }),
             pairing: PairingState::default(),
@@ -3531,6 +3541,28 @@ impl Node {
             changed
         };
         if changed && let Ok(env) = Envelope::new(types::EVENT_BATTERY, &battery) {
+            self.shared.broadcast(env).await;
+        }
+    }
+
+    /// Reports this PC's live hardware statistics (CPU, RAM, thermals, battery); forwarded to connected devices.
+    pub async fn update_pc_hw_stats(&self, stats: PcHwStats) {
+        let stats = stats.sanitized();
+        let changed = {
+            let mut local = self.shared.local.write().unwrap_or_else(|e| e.into_inner());
+            let changed = local.pc_hw_stats.as_ref() != Some(&stats);
+            local.pc_hw_stats = Some(stats.clone());
+            changed
+        };
+        if changed && let Ok(env) = Envelope::new(types::PC_HW_STATS, &stats) {
+            self.shared.broadcast(env).await;
+        }
+    }
+
+    /// Broadcasts a perimeter displacement / anti-theft security alert.
+    pub async fn send_guard_alert(&self, alert: GuardAlert) {
+        let alert = alert.sanitized();
+        if let Ok(env) = Envelope::new(types::GUARD_ALERT, &alert) {
             self.shared.broadcast(env).await;
         }
     }
