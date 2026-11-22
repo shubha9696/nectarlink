@@ -569,7 +569,9 @@ impl AppState {
             }
             NodeEvent::Transfer(transfer) => self.update_transfer(transfer.clone(), Instant::now()),
             // With artwork saved first (see crate::media).
-            NodeEvent::MediaChanged { .. } => Changes::NONE,
+            NodeEvent::MediaChanged { .. }
+            | NodeEvent::PcHwStats { .. }
+            | NodeEvent::GuardAlert { .. } => Changes::NONE,
         }
     }
 

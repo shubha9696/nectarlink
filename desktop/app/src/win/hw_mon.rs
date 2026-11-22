@@ -25,16 +25,14 @@ use windows::Win32::{
     Foundation::FILETIME,
     System::{
         Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS},
+        Shutdown::LockWorkStation,
         SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX, GetTickCount},
         Threading::GetSystemTimes,
     },
-    UI::{
-        Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO},
-        WindowsAndMessaging::LockWorkStation,
-    },
+    UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO},
 };
 
-use crate::{bridge::app::CONTROLLER, core_host};
+use crate::{bridge::app::controller, core_host};
 
 static PREV_CPU_TIMES: Mutex<Option<(u64, u64, u64)>> = Mutex::new(None);
 static GUARD_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -150,9 +148,9 @@ pub fn toggle_guard() {
 }
 
 fn update_qml_guard_state() {
-    if let Some(controller) = CONTROLLER.get().and_then(|c| c.lock().ok()).and_then(|c| c.clone()) {
+    if let Some(c) = controller() {
         let armed = is_guard_enabled();
-        let _ = controller.queue(move |mut app| {
+        let _ = c.queue(move |mut app| {
             app.as_mut().set_perimeter_guard_enabled(armed);
         });
     }
@@ -221,9 +219,9 @@ pub fn start() {
                 check_guard_movement_or_unplug();
 
                 // 1. Update QML UI
-                if let Some(controller) = CONTROLLER.get().and_then(|c| c.lock().ok()).and_then(|c| c.clone()) {
+                if let Some(c) = controller() {
                     let bat_level = battery.unwrap_or(0) as i32;
-                    let _ = controller.queue(move |mut app| {
+                    let _ = c.queue(move |mut app| {
                         app.as_mut().set_pc_cpu_usage(cpu as i32);
                         app.as_mut().set_pc_ram_usage(ram as i32);
                         app.as_mut().set_pc_temperature(temp as i32);

@@ -462,6 +462,13 @@ pub struct AppControllerRust {
     pc_mirror_prompt_device_name: QString,
     pc_mirror_active: bool,
     pc_mirror_device_name: QString,
+    pc_cpu_usage: i32,
+    pc_ram_usage: i32,
+    pc_temperature: i32,
+    pc_battery_level: i32,
+    pc_battery_charging: bool,
+    pc_has_battery: bool,
+    perimeter_guard_enabled: bool,
     laser_active: bool,
     laser_x: f32,
     laser_y: f32,
@@ -616,7 +623,7 @@ fn diagnose_in_background(mut object: Pin<&mut qobject::AppController>, fix: Opt
     }
 }
 
-fn controller() -> Option<CxxQtThread<qobject::AppController>> {
+pub(crate) fn controller() -> Option<CxxQtThread<qobject::AppController>> {
     CONTROLLER.get()?.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
