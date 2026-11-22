@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import app.nectarlink
 
 // Top bar status pill showing PC CPU load, temperature, RAM usage, laptop battery level,
-// and Smart Anchor / Perimeter Guard status.
+// and Smart Anchor / Perimeter Guard status with crystal-clear high-contrast styling.
 Rectangle {
     id: hwPill
 
@@ -22,17 +22,22 @@ Rectangle {
                                      : temp < 75 ? "#FF9800"
                                      : "#F44336"
 
+    // Crisp high-contrast color roles to guarantee readability across Hive, Bloom, Graphite, etc.
+    readonly property color labelColor: Theme.dark ? "#C4C8D0" : "#4A505A"
+    readonly property color valueColor: Theme.dark ? "#FFFFFF" : "#1A1C1E"
+    readonly property color sepColor: Theme.dark ? Qt.rgba(1, 1, 1, 0.35) : Qt.rgba(0, 0, 0, 0.30)
+
     height: 28
     width: contentRow.implicitWidth + 24
     radius: 14
 
     color: pillMouse.containsMouse
-        ? (Theme.dark ? Qt.rgba(0, 0, 0, 0.45) : Qt.rgba(0, 0, 0, 0.09))
+        ? (Theme.dark ? Qt.rgba(0, 0, 0, 0.48) : Qt.rgba(0, 0, 0, 0.10))
         : (Theme.dark ? Qt.rgba(0, 0, 0, 0.32) : Qt.rgba(0, 0, 0, 0.05))
     border.width: 1
     border.color: guardArmed
-        ? Qt.rgba(0.29, 0.69, 0.31, 0.6)
-        : (Theme.dark ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(0, 0, 0, 0.12))
+        ? Qt.rgba(0.29, 0.69, 0.31, 0.8)
+        : (Theme.dark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.14))
 
     Behavior on color { ColorAnimation { duration: 150 } }
     Behavior on border.color { ColorAnimation { duration: 150 } }
@@ -56,8 +61,7 @@ Rectangle {
                 text: "•"
                 role: "body"
                 size: 10
-                color: Theme.surfaceVariantContent
-                opacity: 0.40
+                color: hwPill.sepColor
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
@@ -71,8 +75,7 @@ Rectangle {
                 role: "caption"
                 size: 10
                 weight: Font.Bold
-                color: Theme.surfaceVariantContent
-                opacity: 0.70
+                color: hwPill.labelColor
                 anchors.verticalCenter: parent.verticalCenter
             }
             Txt {
@@ -80,7 +83,7 @@ Rectangle {
                 role: "caption"
                 size: 11
                 weight: Font.Bold
-                color: hwPill.cpu > 80 ? Theme.error : Theme.surfaceContent
+                color: hwPill.cpu > 80 ? Theme.error : hwPill.valueColor
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
@@ -89,8 +92,7 @@ Rectangle {
             text: "•"
             role: "body"
             size: 10
-            color: Theme.surfaceVariantContent
-            opacity: 0.40
+            color: hwPill.sepColor
             anchors.verticalCenter: parent.verticalCenter
         }
 
@@ -103,8 +105,7 @@ Rectangle {
                 role: "caption"
                 size: 10
                 weight: Font.Bold
-                color: Theme.surfaceVariantContent
-                opacity: 0.70
+                color: hwPill.labelColor
                 anchors.verticalCenter: parent.verticalCenter
             }
             Txt {
@@ -112,7 +113,7 @@ Rectangle {
                 role: "caption"
                 size: 11
                 weight: Font.Bold
-                color: hwPill.ram > 85 ? Theme.error : Theme.surfaceContent
+                color: hwPill.ram > 85 ? Theme.error : hwPill.valueColor
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
@@ -121,8 +122,7 @@ Rectangle {
             text: "•"
             role: "body"
             size: 10
-            color: Theme.surfaceVariantContent
-            opacity: 0.40
+            color: hwPill.sepColor
             anchors.verticalCenter: parent.verticalCenter
         }
 
@@ -149,15 +149,14 @@ Rectangle {
                 text: "•"
                 role: "body"
                 size: 10
-                color: Theme.surfaceVariantContent
-                opacity: 0.40
+                color: hwPill.sepColor
                 anchors.verticalCenter: parent.verticalCenter
             }
 
             Txt {
                 text: hwPill.charging ? "⚡" : "🔋"
                 size: hwPill.charging ? 11 : 10
-                color: hwPill.charging ? "#FFC107" : Theme.surfaceContent
+                color: hwPill.charging ? "#FFC107" : hwPill.valueColor
                 anchors.verticalCenter: parent.verticalCenter
             }
 
@@ -168,7 +167,7 @@ Rectangle {
                 role: "caption"
                 size: 11
                 weight: Font.Bold
-                color: (hwPill.hasBattery && !hwPill.charging && hwPill.battery < 20) ? Theme.error : Theme.surfaceContent
+                color: (hwPill.hasBattery && !hwPill.charging && hwPill.battery < 20) ? Theme.error : hwPill.valueColor
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
@@ -193,7 +192,7 @@ Rectangle {
         radius: 12
         color: Theme.dark ? "#23262A" : "#FFFFFF"
         border.width: 1
-        border.color: Theme.dark ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(0, 0, 0, 0.12)
+        border.color: Theme.dark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.14)
 
         Column {
             id: popupCol
@@ -224,22 +223,23 @@ Rectangle {
                 rowSpacing: 8
                 width: parent.width
 
-                Txt { text: qsTr("CPU Load:"); color: Theme.surfaceVariantContent; size: 12 }
-                Txt { text: hwPill.cpu + "%"; weight: Font.DemiBold; size: 12 }
+                Txt { text: qsTr("CPU Load:"); color: hwPill.labelColor; size: 12 }
+                Txt { text: hwPill.cpu + "%"; color: hwPill.valueColor; weight: Font.DemiBold; size: 12 }
 
-                Txt { text: qsTr("Memory (RAM):"); color: Theme.surfaceVariantContent; size: 12 }
-                Txt { text: hwPill.ram + "% in use"; weight: Font.DemiBold; size: 12 }
+                Txt { text: qsTr("Memory (RAM):"); color: hwPill.labelColor; size: 12 }
+                Txt { text: hwPill.ram + "% in use"; color: hwPill.valueColor; weight: Font.DemiBold; size: 12 }
 
-                Txt { text: qsTr("Temperature:"); color: Theme.surfaceVariantContent; size: 12 }
+                Txt { text: qsTr("Temperature:"); color: hwPill.labelColor; size: 12 }
                 Txt { text: hwPill.temp + " °C"; color: hwPill.tempColor; weight: Font.DemiBold; size: 12 }
 
                 Txt {
                     visible: hwPill.hasBattery
-                    text: qsTr("Battery:"); color: Theme.surfaceVariantContent; size: 12
+                    text: qsTr("Battery:"); color: hwPill.labelColor; size: 12
                 }
                 Txt {
                     visible: hwPill.hasBattery
                     text: hwPill.battery + "% " + (hwPill.charging ? qsTr("(Plugged in / Charging)") : qsTr("(On battery)"));
+                    color: hwPill.valueColor
                     weight: Font.DemiBold
                     size: 12
                 }
@@ -248,7 +248,7 @@ Rectangle {
             Rectangle {
                 width: parent.width
                 height: 1
-                color: Theme.dark ? Qt.rgba(1, 1, 1, 0.1) : Qt.rgba(0, 0, 0, 0.08)
+                color: Theme.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08)
             }
 
             // Perimeter Guard (20-ft Smart Anchor) toggle
@@ -273,7 +273,7 @@ Rectangle {
                         size: 10
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
-                        color: Theme.surfaceVariantContent
+                        color: hwPill.labelColor
                     }
                 }
 

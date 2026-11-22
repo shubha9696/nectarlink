@@ -3158,16 +3158,12 @@ private fun PcCard(
             }
 
             if (device.online && device.pcHwStats != null) {
-                Spacer(Modifier.height(10.dp))
-                Row(
+                Spacer(Modifier.height(12.dp))
+                app.nectarlink.android.ui.components.PcHwStatusPill(
+                    stats = device.pcHwStats,
+                    pcName = device.name,
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    app.nectarlink.android.ui.components.PcHwStatusPill(
-                        stats = device.pcHwStats,
-                        pcName = device.name,
-                    )
-                }
+                )
             }
 
             Spacer(Modifier.height(16.dp))

@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package app.nectarlink.android.ui.components
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -31,8 +32,8 @@ import androidx.compose.ui.unit.sp
 import app.nectarlink.core.PcHwStats
 
 /**
- * Compact Status Pill in the top bar showing PC CPU load, temperature, RAM usage,
- * and laptop battery level.
+ * Integrated Bento Hardware & Thermal Status Strip showing PC CPU load, temperature,
+ * RAM usage, and laptop battery / AC level.
  */
 @Composable
 fun PcHwStatusPill(
@@ -52,91 +53,119 @@ fun PcHwStatusPill(
         else -> Color(0xFFF44336)
     }
 
+    val ink = MaterialTheme.colorScheme.onPrimaryContainer
+    val labelColor = ink.copy(alpha = 0.65f)
+    val valueColor = ink
+    val sepColor = ink.copy(alpha = 0.22f)
+
     Surface(
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+        shape = RoundedCornerShape(14.dp),
+        color = ink.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, ink.copy(alpha = 0.14f)),
         modifier = modifier
-            .clip(CircleShape)
+            .clip(RoundedCornerShape(14.dp))
             .clickable {
                 if (onClick != null) onClick() else showDetails = true
             },
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
             // CPU
-            Text(
-                text = "CPU",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f),
-            )
-            Text(
-                text = "${stats.cpu}%",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                color = if (stats.cpu > 80u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = "CPU",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                    color = labelColor,
+                )
+                Text(
+                    text = "${stats.cpu}%",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                    color = if (stats.cpu > 80u) MaterialTheme.colorScheme.error else valueColor,
+                )
+            }
 
             Text(
                 text = "•",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                color = sepColor,
             )
 
             // RAM
-            Text(
-                text = "RAM",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f),
-            )
-            Text(
-                text = "${stats.ram}%",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                color = if (stats.ram > 85u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = "RAM",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                    color = labelColor,
+                )
+                Text(
+                    text = "${stats.ram}%",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                    color = if (stats.ram > 85u) MaterialTheme.colorScheme.error else valueColor,
+                )
+            }
 
             Text(
                 text = "•",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                color = sepColor,
             )
 
             // Temp
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text = "$temp°C",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                    color = tempColor,
+                )
+            }
+
             Text(
-                text = "$temp°C",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                color = tempColor,
+                text = "•",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                color = sepColor,
             )
 
             // Battery / Power
-            Text(
-                text = "•",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f),
-            )
-            if (stats.charging) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                if (stats.charging) {
+                    Text(
+                        text = "⚡",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                        color = Color(0xFFFFC107),
+                    )
+                } else {
+                    Text(
+                        text = "🔋",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    )
+                }
                 Text(
-                    text = "⚡",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                    color = Color(0xFFFFC107),
-                )
-            } else {
-                Text(
-                    text = "🔋",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    text = if (stats.battery != null) {
+                        "${stats.battery}%"
+                    } else {
+                        if (stats.charging) "AC" else "Plugged"
+                    },
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                    color = if (stats.battery != null && !stats.charging && stats.battery!! < 20u) MaterialTheme.colorScheme.error else valueColor,
                 )
             }
-            Text(
-                text = if (stats.battery != null) {
-                    "${stats.battery}%"
-                } else {
-                    if (stats.charging) "AC" else "Plugged"
-                },
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
-                color = if (stats.battery != null && !stats.charging && stats.battery!! < 20u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-            )
         }
     }
 
