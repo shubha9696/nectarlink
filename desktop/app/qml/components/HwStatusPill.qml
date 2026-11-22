@@ -17,21 +17,21 @@ Rectangle {
     readonly property bool hasBattery: AppController.pcHasBattery
     readonly property bool guardArmed: AppController.perimeterGuardEnabled
 
-    readonly property color tempColor: temp < 60 ? (Theme.dark ? "#81C784" : "#2E7D32")
-                                     : temp < 75 ? (Theme.dark ? "#FFB74D" : "#EF6C00")
-                                     : (Theme.dark ? "#E57373" : "#C62828")
+    readonly property color tempColor: temp < 60 ? "#4CAF50"
+                                     : temp < 75 ? "#FF9800"
+                                     : "#F44336"
 
-    height: 30
-    width: contentRow.implicitWidth + 20
-    radius: height / 2
+    height: 28
+    width: contentRow.implicitWidth + 24
+    radius: 14
 
     color: pillMouse.containsMouse
-        ? (Theme.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.08))
-        : (Theme.dark ? Qt.rgba(1, 1, 1, 0.07) : Qt.rgba(0, 0, 0, 0.04))
+        ? (Theme.dark ? Qt.rgba(0, 0, 0, 0.45) : Qt.rgba(0, 0, 0, 0.09))
+        : (Theme.dark ? Qt.rgba(0, 0, 0, 0.32) : Qt.rgba(0, 0, 0, 0.05))
     border.width: 1
     border.color: guardArmed
-        ? Qt.rgba(0.2, 0.7, 0.4, 0.5)
-        : (Theme.dark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.10))
+        ? Qt.rgba(0.29, 0.69, 0.31, 0.6)
+        : (Theme.dark ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(0, 0, 0, 0.12))
 
     Behavior on color { ColorAnimation { duration: 150 } }
     Behavior on border.color { ColorAnimation { duration: 150 } }
@@ -39,7 +39,7 @@ Rectangle {
     Row {
         id: contentRow
         anchors.centerIn: parent
-        spacing: 6
+        spacing: 5
 
         // Perimeter guard indicator if armed
         Row {
@@ -54,9 +54,9 @@ Rectangle {
             Txt {
                 text: "•"
                 role: "body"
-                size: 11
+                size: 10
                 color: Theme.surfaceVariantContent
-                opacity: 0.5
+                opacity: 0.40
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
@@ -69,15 +69,16 @@ Rectangle {
                 text: qsTr("CPU")
                 role: "caption"
                 size: 10
+                weight: Font.Bold
                 color: Theme.surfaceVariantContent
-                opacity: 0.75
+                opacity: 0.70
                 anchors.verticalCenter: parent.verticalCenter
             }
             Txt {
                 text: hwPill.cpu + "%"
                 role: "caption"
                 size: 11
-                weight: Font.DemiBold
+                weight: Font.Bold
                 color: hwPill.cpu > 80 ? Theme.error : Theme.surfaceContent
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -86,9 +87,9 @@ Rectangle {
         Txt {
             text: "•"
             role: "body"
-            size: 11
+            size: 10
             color: Theme.surfaceVariantContent
-            opacity: 0.5
+            opacity: 0.40
             anchors.verticalCenter: parent.verticalCenter
         }
 
@@ -100,15 +101,16 @@ Rectangle {
                 text: qsTr("RAM")
                 role: "caption"
                 size: 10
+                weight: Font.Bold
                 color: Theme.surfaceVariantContent
-                opacity: 0.75
+                opacity: 0.70
                 anchors.verticalCenter: parent.verticalCenter
             }
             Txt {
                 text: hwPill.ram + "%"
                 role: "caption"
                 size: 11
-                weight: Font.DemiBold
+                weight: Font.Bold
                 color: hwPill.ram > 85 ? Theme.error : Theme.surfaceContent
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -117,9 +119,9 @@ Rectangle {
         Txt {
             text: "•"
             role: "body"
-            size: 11
+            size: 10
             color: Theme.surfaceVariantContent
-            opacity: 0.5
+            opacity: 0.40
             anchors.verticalCenter: parent.verticalCenter
         }
 
@@ -131,7 +133,7 @@ Rectangle {
                 text: hwPill.temp + "°C"
                 role: "caption"
                 size: 11
-                weight: Font.DemiBold
+                weight: Font.Bold
                 color: hwPill.tempColor
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -139,25 +141,32 @@ Rectangle {
 
         // Power / Battery (shows percentage if laptop battery exists, or AC state if desktop)
         Row {
-            spacing: 4
+            spacing: 3
             anchors.verticalCenter: parent.verticalCenter
 
             Txt {
                 text: "•"
                 role: "body"
-                size: 11
+                size: 10
                 color: Theme.surfaceVariantContent
-                opacity: 0.5
+                opacity: 0.40
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Txt {
+                text: hwPill.charging ? "⚡" : "🔋"
+                size: hwPill.charging ? 11 : 10
+                color: hwPill.charging ? "#FFC107" : Theme.surfaceContent
                 anchors.verticalCenter: parent.verticalCenter
             }
 
             Txt {
                 text: hwPill.hasBattery
-                    ? ((hwPill.charging ? "⚡ " : "🔋 ") + hwPill.battery + "%")
-                    : (hwPill.charging ? "⚡ AC" : "⚡ Plugged")
+                    ? (hwPill.battery + "%")
+                    : (hwPill.charging ? "AC" : "Plugged")
                 role: "caption"
                 size: 11
-                weight: Font.DemiBold
+                weight: Font.Bold
                 color: (hwPill.hasBattery && !hwPill.charging && hwPill.battery < 20) ? Theme.error : Theme.surfaceContent
                 anchors.verticalCenter: parent.verticalCenter
             }

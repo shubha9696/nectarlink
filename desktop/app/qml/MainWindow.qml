@@ -3,6 +3,7 @@ import QtQuick
 import QtQuick.Window
 import QtQuick.Effects
 import app.nectarlink
+import "components"
 
 // The main window: navigation rail, title bar and pages. Before any device
 // is paired it shows the welcome (pairing) screen instead.

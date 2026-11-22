@@ -54,7 +54,8 @@ fun PcHwStatusPill(
 
     Surface(
         shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
         modifier = modifier
             .clip(CircleShape)
             .clickable {
@@ -62,34 +63,44 @@ fun PcHwStatusPill(
             },
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             // CPU
             Text(
-                text = "CPU ${stats.cpu}%",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                color = if (stats.cpu > 80u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                text = "CPU",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f),
+            )
+            Text(
+                text = "${stats.cpu}%",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                color = if (stats.cpu > 80u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
             )
 
             Text(
                 text = "•",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f),
             )
 
             // RAM
             Text(
-                text = "RAM ${stats.ram}%",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                color = if (stats.ram > 85u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                text = "RAM",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f),
+            )
+            Text(
+                text = "${stats.ram}%",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                color = if (stats.ram > 85u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
             )
 
             Text(
                 text = "•",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f),
             )
 
             // Temp
@@ -103,16 +114,28 @@ fun PcHwStatusPill(
             Text(
                 text = "•",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f),
             )
+            if (stats.charging) {
+                Text(
+                    text = "⚡",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                    color = Color(0xFFFFC107),
+                )
+            } else {
+                Text(
+                    text = "🔋",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                )
+            }
             Text(
                 text = if (stats.battery != null) {
-                    if (stats.charging) "⚡${stats.battery}%" else "🔋${stats.battery}%"
+                    "${stats.battery}%"
                 } else {
-                    if (stats.charging) "⚡AC" else "⚡Plugged"
+                    if (stats.charging) "AC" else "Plugged"
                 },
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                color = if (stats.battery != null && !stats.charging && stats.battery!! < 20u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                color = if (stats.battery != null && !stats.charging && stats.battery!! < 20u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
             )
         }
     }

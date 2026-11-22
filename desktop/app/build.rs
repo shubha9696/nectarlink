@@ -35,6 +35,7 @@ const QML: &[&str] = &[
     "qml/components/GlassRim.qml",
     "qml/components/DoctorSheet.qml",
     "qml/components/HistoryItem.qml",
+    "qml/components/HwStatusPill.qml",
     "qml/components/Icon.qml",
     "qml/components/IconButton.qml",
     "qml/components/ListRow.qml",

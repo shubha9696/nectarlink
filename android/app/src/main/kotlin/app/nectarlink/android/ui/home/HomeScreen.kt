@@ -3101,19 +3101,6 @@ private fun PcCard(
 
             }
 
-            if (device.online && device.pcHwStats != null) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    app.nectarlink.android.ui.components.PcHwStatusPill(
-                        stats = device.pcHwStats,
-                        pcName = device.name,
-                    )
-                }
-            }
-
             Spacer(Modifier.height(10.dp))
 
             Row(
@@ -3128,7 +3115,7 @@ private fun PcCard(
 
                 Column(modifier = Modifier.weight(1f)) {
 
-                    Text(device.name, style = MaterialTheme.typography.headlineLarge)
+                    Text(device.name, style = MaterialTheme.typography.headlineLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
 
                     device.model?.let {
 
@@ -3138,34 +3125,49 @@ private fun PcCard(
 
                 }
 
-                device.battery?.let { battery ->
+                if (device.pcHwStats == null) {
+                    device.battery?.let { battery ->
 
-                    Text(
+                        Text(
 
-                        text = if (battery.charging) stringResource(R.string.battery_charging, battery.level.toInt())
+                            text = if (battery.charging) stringResource(R.string.battery_charging, battery.level.toInt())
 
-                        else stringResource(R.string.battery_level, battery.level.toInt()),
+                            else stringResource(R.string.battery_level, battery.level.toInt()),
 
-                        style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelMedium,
 
-                        color = ink,
+                            color = ink,
 
-                        modifier = Modifier
+                            modifier = Modifier
 
-                            .bentoWell(
+                                .bentoWell(
 
-                                cornerRadius = 14.dp,
+                                    cornerRadius = 14.dp,
 
-                                fillColor = ink.copy(alpha = 0.10f),
+                                    fillColor = ink.copy(alpha = 0.10f),
 
-                            )
+                                )
 
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
 
-                    )
+                        )
 
+                    }
                 }
 
+            }
+
+            if (device.online && device.pcHwStats != null) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    app.nectarlink.android.ui.components.PcHwStatusPill(
+                        stats = device.pcHwStats,
+                        pcName = device.name,
+                    )
+                }
             }
 
             Spacer(Modifier.height(16.dp))
