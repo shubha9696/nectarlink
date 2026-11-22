@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import app.nectarlink
 
@@ -8,6 +7,8 @@ import app.nectarlink
 // and Smart Anchor / Perimeter Guard status.
 Rectangle {
     id: hwPill
+
+    property bool popupVisible: false
 
     readonly property int cpu: Math.max(0, Math.min(100, AppController.pcCpuUsage))
     readonly property int ram: Math.max(0, Math.min(100, AppController.pcRamUsage))
@@ -178,34 +179,42 @@ Rectangle {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: hwPopup.open()
+        onClicked: hwPill.popupVisible = !hwPill.popupVisible
     }
 
-    Popup {
+    Rectangle {
         id: hwPopup
+        visible: hwPill.popupVisible
+        z: 9999
         y: hwPill.height + 6
         x: Math.min(0, -(width - hwPill.width))
-        width: 260
-        padding: 14
-        modal: false
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        width: 270
+        height: popupCol.implicitHeight + 28
+        radius: 12
+        color: Theme.dark ? "#23262A" : "#FFFFFF"
+        border.width: 1
+        border.color: Theme.dark ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(0, 0, 0, 0.12)
 
-        background: Rectangle {
-            color: Theme.surfaceContentElevated || (Theme.dark ? "#23262A" : "#FFFFFF")
-            radius: 12
-            border.width: 1
-            border.color: Theme.dark ? Qt.rgba(1, 1, 1, 0.15) : Qt.rgba(0, 0, 0, 0.12)
-        }
-
-        contentItem: Column {
+        Column {
+            id: popupCol
+            anchors.fill: parent
+            anchors.margins: 14
             spacing: 12
 
-            Txt {
-                text: qsTr("PC Hardware & Security")
-                role: "headline"
-                size: 14
-                weight: Font.Bold
+            RowLayout {
+                width: parent.width
+                Txt {
+                    text: qsTr("PC Hardware & Security")
+                    role: "headline"
+                    size: 13
+                    weight: Font.Bold
+                    Layout.fillWidth: true
+                }
+                IconButton {
+                    iconPath: Icons.close
+                    iconSize: 14
+                    onClicked: hwPill.popupVisible = false
+                }
             }
 
             // Stats grid
