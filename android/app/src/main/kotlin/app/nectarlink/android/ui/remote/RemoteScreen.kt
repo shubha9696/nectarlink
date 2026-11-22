@@ -228,15 +228,10 @@ fun RemoteScreen(
                 Text(
                     device.name,
                     style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (device.pcHwStats != null) {
-                    app.nectarlink.android.ui.components.PcHwStatusPill(
-                        stats = device.pcHwStats,
-                        pcName = device.name,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                }
                 val pcBtState by app.nectarlink.android.core.PcLockManager.pcBluetooth.collectAsStateWithLifecycle()
                 val btOn = pcBtState == true
                 IconButton(
@@ -279,6 +274,21 @@ fun RemoteScreen(
                     color = if (device.online) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                     modifier = Modifier.size(10.dp),
                 ) {}
+            }
+
+            if (device.pcHwStats != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    app.nectarlink.android.ui.components.PcHwStatusPill(
+                        stats = device.pcHwStats,
+                        pcName = device.name,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
             }
 
             // Mode switcher: Touchpad | Air mouse | Presentation | Screen

@@ -1182,6 +1182,9 @@ Item {
                                 text: home.online ? qsTr("Disconnect") : qsTr("Stop reconnecting")
                                 onClicked: AppController.setReconnect(home.deviceId, false)
                             }
+                            HwStatusPill {
+                                id: heroHwPill
+                            }
                         }
                         Button {
                             visible: !home.online
@@ -1284,6 +1287,50 @@ Item {
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            // ---- PC Hardware & Thermal Dashboard Bar ----
+            Rectangle {
+                width: parent.width
+                height: 44
+                radius: Theme.radiusMd
+                color: Theme.glass ? Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, Theme.dark ? 0.35 : 0.50) : Theme.surfaceContainerHighest
+                border.width: 1
+                border.color: Theme.outlineVariant
+
+                Row {
+                    anchors.fill: parent
+                    anchors.leftMargin: 16
+                    anchors.rightMargin: 16
+                    spacing: 12
+
+                    Row {
+                        spacing: 8
+                        anchors.verticalCenter: parent.verticalCenter
+                        Icon {
+                            path: Icons.laptop
+                            width: 18; height: 18
+                            color: Theme.primary
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Txt {
+                            text: qsTr("PC Battery & Thermals")
+                            role: "label"
+                            weight: Font.DemiBold
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    Item {
+                        width: Math.max(10, parent.width - 32 - 180 - dashboardHwPill.width)
+                        height: 1
+                    }
+
+                    HwStatusPill {
+                        id: dashboardHwPill
+                        anchors.verticalCenter: parent.verticalCenter
                     }
                 }
             }

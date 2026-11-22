@@ -99,19 +99,21 @@ fun PcHwStatusPill(
                 color = tempColor,
             )
 
-            // Battery
-            if (stats.battery != null) {
-                Text(
-                    text = "•",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                )
-                Text(
-                    text = if (stats.charging) "⚡${stats.battery}%" else "🔋${stats.battery}%",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                    color = if (!stats.charging && stats.battery!! < 20u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            // Battery / Power
+            Text(
+                text = "•",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            )
+            Text(
+                text = if (stats.battery != null) {
+                    if (stats.charging) "⚡${stats.battery}%" else "🔋${stats.battery}%"
+                } else {
+                    if (stats.charging) "⚡AC" else "⚡Plugged"
+                },
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                color = if (stats.battery != null && !stats.charging && stats.battery!! < 20u) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 

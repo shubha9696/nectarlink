@@ -137,9 +137,8 @@ Rectangle {
             }
         }
 
-        // Battery (if PC has a battery or is laptop)
+        // Power / Battery (shows percentage if laptop battery exists, or AC state if desktop)
         Row {
-            visible: hwPill.hasBattery
             spacing: 4
             anchors.verticalCenter: parent.verticalCenter
 
@@ -153,11 +152,13 @@ Rectangle {
             }
 
             Txt {
-                text: (hwPill.charging ? "⚡ " : "🔋 ") + hwPill.battery + "%"
+                text: hwPill.hasBattery
+                    ? ((hwPill.charging ? "⚡ " : "🔋 ") + hwPill.battery + "%")
+                    : (hwPill.charging ? "⚡ AC" : "⚡ Plugged")
                 role: "caption"
                 size: 11
                 weight: Font.DemiBold
-                color: (!hwPill.charging && hwPill.battery < 20) ? Theme.error : Theme.surfaceContent
+                color: (hwPill.hasBattery && !hwPill.charging && hwPill.battery < 20) ? Theme.error : Theme.surfaceContent
                 anchors.verticalCenter: parent.verticalCenter
             }
         }

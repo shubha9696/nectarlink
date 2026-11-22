@@ -2997,17 +2997,13 @@ private fun PcCard(
 
                     style = MaterialTheme.typography.labelLarge,
 
+                    maxLines = 1,
+
+                    overflow = TextOverflow.Ellipsis,
+
                     modifier = Modifier.weight(1f),
 
                 )
-
-                if (device.online && device.pcHwStats != null) {
-                    Spacer(Modifier.width(8.dp))
-                    app.nectarlink.android.ui.components.PcHwStatusPill(
-                        stats = device.pcHwStats,
-                        pcName = device.name,
-                    )
-                }
 
                 if (!device.online && !device.reconnect) {
 
@@ -3103,6 +3099,19 @@ private fun PcCard(
 
                 }
 
+            }
+
+            if (device.online && device.pcHwStats != null) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    app.nectarlink.android.ui.components.PcHwStatusPill(
+                        stats = device.pcHwStats,
+                        pcName = device.name,
+                    )
+                }
             }
 
             Spacer(Modifier.height(10.dp))
