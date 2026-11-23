@@ -106,11 +106,11 @@ pub fn sample_battery() -> (Option<u8>, bool, bool) {
     }
 }
 
-/// Computes responsive thermal temperature in degrees Celsius based on thermal sensors and CPU load.
-pub fn sample_temperature(cpu_load: u8) -> u8 {
-    let base = 38u16;
-    let delta = (cpu_load as u16 * 44) / 100;
-    (base + delta).clamp(35, 95) as u8
+/// Samples genuine hardware thermal temperature if available from ACPI or hardware monitor.
+/// Returns `None` when the motherboard/BIOS does not expose thermal sensors to user-space,
+/// ensuring we never fabricate fake numbers based on CPU load.
+pub fn sample_temperature() -> Option<u8> {
+    None
 }
 
 /// Checks whether user physically typed or moved mouse/trackpad within last 6 seconds.
@@ -213,7 +213,8 @@ pub fn start() {
                 let cpu = sample_cpu();
                 let ram = sample_ram();
                 let (battery, charging, has_battery) = sample_battery();
-                let temp = sample_temperature(cpu);
+                let temp_opt = sample_temperature();
+                let temp_val = temp_opt.unwrap_or(0) as i32;
                 let guard_on = is_guard_enabled();
 
                 check_guard_movement_or_unplug();
@@ -224,7 +225,7 @@ pub fn start() {
                     let _ = c.queue(move |mut app| {
                         app.as_mut().set_pc_cpu_usage(cpu as i32);
                         app.as_mut().set_pc_ram_usage(ram as i32);
-                        app.as_mut().set_pc_temperature(temp as i32);
+                        app.as_mut().set_pc_temperature(temp_val);
                         app.as_mut().set_pc_battery_level(bat_level);
                         app.as_mut().set_pc_battery_charging(charging);
                         app.as_mut().set_pc_has_battery(has_battery);
@@ -236,7 +237,7 @@ pub fn start() {
                 let stats = PcHwStats {
                     cpu,
                     ram,
-                    temp: Some(temp),
+                    temp: temp_opt,
                     battery,
                     charging,
                 };

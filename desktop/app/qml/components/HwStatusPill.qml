@@ -12,7 +12,8 @@ Rectangle {
 
     readonly property int cpu: Math.max(0, Math.min(100, AppController.pcCpuUsage))
     readonly property int ram: Math.max(0, Math.min(100, AppController.pcRamUsage))
-    readonly property int temp: Math.max(20, Math.min(110, AppController.pcTemperature > 0 ? AppController.pcTemperature : 42))
+    readonly property bool hasTemp: AppController.pcTemperature > 25 && AppController.pcTemperature != 20
+    readonly property int temp: AppController.pcTemperature
     readonly property int battery: Math.max(0, Math.min(100, AppController.pcBatteryLevel))
     readonly property bool charging: AppController.pcBatteryCharging
     readonly property bool hasBattery: AppController.pcHasBattery
@@ -118,18 +119,20 @@ Rectangle {
             }
         }
 
-        Txt {
-            text: "•"
-            role: "body"
-            size: 10
-            color: hwPill.sepColor
-            anchors.verticalCenter: parent.verticalCenter
-        }
-
-        // Temperature
+        // Temperature (only displayed when genuine hardware thermal sensor is available)
         Row {
-            spacing: 2
+            visible: hwPill.hasTemp
+            spacing: 5
             anchors.verticalCenter: parent.verticalCenter
+
+            Txt {
+                text: "•"
+                role: "body"
+                size: 10
+                color: hwPill.sepColor
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
             Txt {
                 text: hwPill.temp + "°C"
                 role: "caption"
@@ -230,7 +233,12 @@ Rectangle {
                 Txt { text: hwPill.ram + "% in use"; color: hwPill.valueColor; weight: Font.DemiBold; size: 12 }
 
                 Txt { text: qsTr("Temperature:"); color: hwPill.labelColor; size: 12 }
-                Txt { text: hwPill.temp + " °C"; color: hwPill.tempColor; weight: Font.DemiBold; size: 12 }
+                Txt {
+                    text: hwPill.hasTemp ? (hwPill.temp + " °C") : qsTr("Not exposed by BIOS");
+                    color: hwPill.hasTemp ? hwPill.tempColor : hwPill.labelColor;
+                    weight: Font.DemiBold;
+                    size: 12
+                }
 
                 Txt {
                     visible: hwPill.hasBattery

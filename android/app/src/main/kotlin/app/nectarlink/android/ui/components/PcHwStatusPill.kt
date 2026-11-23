@@ -46,7 +46,8 @@ fun PcHwStatusPill(
 
     var showDetails by remember { mutableStateOf(false) }
 
-    val temp = stats.temp?.toInt() ?: 42
+    val hasTemp = stats.temp != null && stats.temp!! > 25u && stats.temp!! != 20u
+    val temp = stats.temp?.toInt() ?: 0
     val tempColor = when {
         temp < 60 -> Color(0xFF4CAF50)
         temp < 75 -> Color(0xFFFF9800)
@@ -115,22 +116,24 @@ fun PcHwStatusPill(
                 )
             }
 
-            Text(
-                text = "•",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                color = sepColor,
-            )
-
-            // Temp
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
+            if (hasTemp) {
                 Text(
-                    text = "$temp°C",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
-                    color = tempColor,
+                    text = "•",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                    color = sepColor,
                 )
+
+                // Temp
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        text = "$temp°C",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                        color = tempColor,
+                    )
+                }
             }
 
             Text(
@@ -181,7 +184,11 @@ fun PcHwStatusPill(
                     Spacer(Modifier.height(4.dp))
                     Text("• Memory (RAM): ${stats.ram}% in use", style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(4.dp))
-                    Text("• Thermal Zone: $temp °C", style = MaterialTheme.typography.bodyMedium, color = tempColor)
+                    if (hasTemp) {
+                        Text("• Thermal Zone: $temp °C", style = MaterialTheme.typography.bodyMedium, color = tempColor)
+                    } else {
+                        Text("• Thermal Zone: Not exposed by BIOS/hardware", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     if (stats.battery != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
