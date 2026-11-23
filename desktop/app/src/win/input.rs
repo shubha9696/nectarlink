@@ -236,47 +236,42 @@ fn send_inputs(inputs: &[INPUT]) {
         fn mouse_event(dwFlags: u32, dx: u32, dy: u32, dwData: u32, dwExtraInfo: usize);
     }
 
-    // 1. Try standard SendInput first (fastest, lowest latency, direct on normal desktop)
+    // 1. Direct Win32 SendInput (fastest, lowest latency, direct on normal desktop)
     let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
     if sent > 0 {
         return;
     }
 
-    // 2. If SendInput failed (e.g. UIPI boundary, secure desktop, or lock screen),
-    // route through helper pipe and fallback to keybd_event / mouse_event
+    // 2. Direct in-process fallback using mouse_event / keybd_event.
+    // Executes in microseconds and NEVER blocks or touches named pipes.
     for input in inputs {
         match input.r#type {
             INPUT_KEYBOARD => {
                 let ki = unsafe { input.Anonymous.ki };
-                let msg = format!("KEY {} {} {}\n", ki.wVk.0, ki.wScan, ki.dwFlags.0);
-                if !send_to_lock_pipe(&msg) {
-                    unsafe {
-                        keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
-                    }
+                unsafe {
+                    keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
                 }
             }
             INPUT_MOUSE => {
                 let mi = unsafe { input.Anonymous.mi };
-                let move_flags = mi.dwFlags.0 & (MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
-                if move_flags != 0 {
-                    let msg = format!("MOUSE {} {} {} 0\n", move_flags, mi.dx, mi.dy);
-                    if !send_to_lock_pipe(&msg) {
-                        unsafe {
-                            mouse_event(move_flags, mi.dx as u32, mi.dy as u32, 0, 0);
-                        }
-                    }
-                }
-                let btn_flags = mi.dwFlags.0 & !(MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
-                if btn_flags != 0 {
-                    let msg = format!("MOUSE {} {} {} {}\n", btn_flags, mi.dx, mi.dy, mi.mouseData);
-                    if !send_to_lock_pipe(&msg) {
-                        unsafe {
-                            mouse_event(btn_flags, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
-                        }
-                    }
+                unsafe {
+                    mouse_event(mi.dwFlags.0, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
                 }
             }
             _ => {}
+        }
+    }
+
+    // 3. ONLY when the workstation is actually locked (Winlogon / UAC Secure Desktop),
+    // forward keyboard / unlock events to the SYSTEM lock screen helper pipe.
+    // Realtime mouse and touch movements are never sent to the pipe to prevent deadlocks.
+    if is_screen_locked() {
+        for input in inputs {
+            if input.r#type == INPUT_KEYBOARD {
+                let ki = unsafe { input.Anonymous.ki };
+                let msg = format!("KEY {} {} {}\n", ki.wVk.0, ki.wScan, ki.dwFlags.0);
+                let _ = send_to_lock_pipe(&msg);
+            }
         }
     }
 }
@@ -367,9 +362,9 @@ pub fn mirror_touch(action: TouchAction, x: f32, y: f32) {
             if let Ok(mut s) = STATE.lock() {
                 s.held_left = true;
             }
+            // Move cursor to absolute position and press left button atomically in one event
             send_inputs(&[
-                mouse_input(ax, ay, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE),
-                mouse_input(ax, ay, 0, MOUSEEVENTF_LEFTDOWN),
+                mouse_input(ax, ay, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN),
             ]);
         }
         TouchAction::Move => {
@@ -379,9 +374,9 @@ pub fn mirror_touch(action: TouchAction, x: f32, y: f32) {
             if let Ok(mut s) = STATE.lock() {
                 s.held_left = false;
             }
+            // Move cursor to absolute position and release left button atomically in one event
             send_inputs(&[
-                mouse_input(ax, ay, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE),
-                mouse_input(ax, ay, 0, MOUSEEVENTF_LEFTUP),
+                mouse_input(ax, ay, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP),
             ]);
         }
     }

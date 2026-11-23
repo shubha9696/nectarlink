@@ -607,7 +607,25 @@ namespace NectarLinkUnlockHelper
 
         static bool LaunchInSession(uint sessionId, string arguments)
         {
-            Log("LaunchInSession: targeting session " + sessionId + " with args: " + arguments);
+            string exePath = Assembly.GetExecutingAssembly().Location;
+            if (!File.Exists(exePath))
+            {
+                string[] candidates = new string[] {
+                    @"C:\Program Files\Nectarlink\unlock_helper.exe",
+                    @"C:\nectarlink-app\unlock_helper.exe",
+                    @"C:\nectarlink\unlock_helper.exe"
+                };
+                foreach (var c in candidates)
+                {
+                    if (File.Exists(c)) { exePath = c; break; }
+                }
+            }
+            return LaunchAppInSession(sessionId, exePath, arguments, true);
+        }
+
+        static bool LaunchAppInSession(uint sessionId, string exePath, string arguments, bool waitForExit)
+        {
+            Log("LaunchAppInSession: target session " + sessionId + ", exe: " + exePath + " " + arguments);
             EnablePrivilege("SeDebugPrivilege");
             EnablePrivilege("SeAssignPrimaryTokenPrivilege");
             EnablePrivilege("SeIncreaseQuotaPrivilege");
@@ -616,63 +634,63 @@ namespace NectarLinkUnlockHelper
 
             IntPtr hPrimaryToken = IntPtr.Zero;
 
-            // Strategy 1: Find winlogon.exe in target session (runs as SYSTEM directly on target session's desktop)
+            // Strategy 1: Find active user token in target session via WTSQueryUserToken
             try
             {
-                Process[] procs = Process.GetProcessesByName("winlogon");
-                foreach (var p in procs)
+                IntPtr hUserToken;
+                if (WTSQueryUserToken(sessionId, out hUserToken))
                 {
-                    if (p.SessionId == (int)sessionId)
+                    DuplicateTokenEx(hUserToken, 0x000F01FF, IntPtr.Zero, 2, 1, out hPrimaryToken);
+                    CloseHandle(hUserToken);
+                    if (hPrimaryToken != IntPtr.Zero)
                     {
-                        IntPtr hProc = OpenProcess(0x1FFFFF /* PROCESS_ALL_ACCESS */, false, p.Id);
-                        if (hProc != IntPtr.Zero)
-                        {
-                            IntPtr hToken;
-                            if (OpenProcessToken(hProc, 0x000F01FF /* TOKEN_ALL_ACCESS */, out hToken))
-                            {
-                                DuplicateTokenEx(hToken, 0x000F01FF, IntPtr.Zero, 2, 1, out hPrimaryToken);
-                                CloseHandle(hToken);
-                            }
-                            CloseHandle(hProc);
-                            if (hPrimaryToken != IntPtr.Zero)
-                            {
-                                Log("LaunchInSession: successfully duplicated winlogon token for session " + sessionId);
-                                break;
-                            }
-                        }
+                        Log("LaunchAppInSession: obtained user token via WTSQueryUserToken for session " + sessionId);
                     }
                 }
             }
             catch (Exception ex)
             {
-                Log("LaunchInSession winlogon token error: " + ex.Message);
+                Log("LaunchAppInSession WTSQueryUserToken error: " + ex.Message);
             }
 
-            // Strategy 2: Fall back to WTSQueryUserToken
+            // Strategy 2: If no user logged in yet (at boot lock screen), duplicate winlogon.exe token
             if (hPrimaryToken == IntPtr.Zero)
             {
                 try
                 {
-                    IntPtr hUserToken;
-                    if (WTSQueryUserToken(sessionId, out hUserToken))
+                    Process[] procs = Process.GetProcessesByName("winlogon");
+                    foreach (var p in procs)
                     {
-                        DuplicateTokenEx(hUserToken, 0x000F01FF, IntPtr.Zero, 2, 1, out hPrimaryToken);
-                        CloseHandle(hUserToken);
-                        if (hPrimaryToken != IntPtr.Zero)
+                        if (p.SessionId == (int)sessionId)
                         {
-                            Log("LaunchInSession: obtained token via WTSQueryUserToken for session " + sessionId);
+                            IntPtr hProc = OpenProcess(0x1FFFFF, false, p.Id);
+                            if (hProc != IntPtr.Zero)
+                            {
+                                IntPtr hToken;
+                                if (OpenProcessToken(hProc, 0x000F01FF, out hToken))
+                                {
+                                    DuplicateTokenEx(hToken, 0x000F01FF, IntPtr.Zero, 2, 1, out hPrimaryToken);
+                                    CloseHandle(hToken);
+                                }
+                                CloseHandle(hProc);
+                                if (hPrimaryToken != IntPtr.Zero)
+                                {
+                                    Log("LaunchAppInSession: successfully duplicated winlogon token for session " + sessionId);
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Log("LaunchInSession WTSQueryUserToken error: " + ex.Message);
+                    Log("LaunchAppInSession winlogon token error: " + ex.Message);
                 }
             }
 
             if (hPrimaryToken == IntPtr.Zero)
             {
-                Log("LaunchInSession: failed to obtain token for session " + sessionId);
+                Log("LaunchAppInSession: failed to obtain token for session " + sessionId);
                 return false;
             }
 
@@ -680,24 +698,11 @@ namespace NectarLinkUnlockHelper
             {
                 STARTUPINFO si = new STARTUPINFO();
                 si.cb = Marshal.SizeOf(si);
-                si.lpDesktop = null;
+                si.lpDesktop = @"winsta0\default";
                 si.dwFlags = 1; // STARTF_USESHOWWINDOW
                 si.wShowWindow = 0; // SW_HIDE
 
                 PROCESS_INFORMATION pi;
-                string exePath = Assembly.GetExecutingAssembly().Location;
-                if (!File.Exists(exePath))
-                {
-                    string[] candidates = new string[] {
-                        @"C:\Program Files\Nectarlink\unlock_helper.exe",
-                        @"C:\nectarlink-app\unlock_helper.exe",
-                        @"C:\nectarlink\unlock_helper.exe"
-                    };
-                    foreach (var c in candidates)
-                    {
-                        if (File.Exists(c)) { exePath = c; break; }
-                    }
-                }
                 string cmdLine = "\"" + exePath + "\" " + arguments;
 
                 IntPtr lpEnv = IntPtr.Zero;
@@ -712,18 +717,19 @@ namespace NectarLinkUnlockHelper
                 }
                 catch (Exception ex)
                 {
-                    Log("LaunchInSession: CreateEnvironmentBlock ex=" + ex.Message);
+                    Log("LaunchAppInSession: CreateEnvironmentBlock ex=" + ex.Message);
                 }
 
-                bool ok = CreateProcessAsUser(hPrimaryToken, null, cmdLine, IntPtr.Zero, IntPtr.Zero, false, creationFlags, lpEnv, @"C:\nectarlink", ref si, out pi);
+                string workingDir = Path.GetDirectoryName(exePath);
+                bool ok = CreateProcessAsUser(hPrimaryToken, null, cmdLine, IntPtr.Zero, IntPtr.Zero, false, creationFlags, lpEnv, workingDir, ref si, out pi);
                 if (!ok)
                 {
                     int err = Marshal.GetLastWin32Error();
-                    Log("LaunchInSession: CreateProcessAsUser failed with error " + err + ". Trying CreateProcessWithTokenW...");
-                    ok = CreateProcessWithTokenW(hPrimaryToken, 0, null, cmdLine, creationFlags, lpEnv, @"C:\nectarlink", ref si, out pi);
+                    Log("LaunchAppInSession: CreateProcessAsUser failed with error " + err + ". Trying CreateProcessWithTokenW...");
+                    ok = CreateProcessWithTokenW(hPrimaryToken, 0, null, cmdLine, creationFlags, lpEnv, workingDir, ref si, out pi);
                     if (!ok)
                     {
-                        Log("LaunchInSession: CreateProcessWithTokenW failed with error " + Marshal.GetLastWin32Error());
+                        Log("LaunchAppInSession: CreateProcessWithTokenW failed with error " + Marshal.GetLastWin32Error());
                     }
                 }
 
@@ -735,11 +741,14 @@ namespace NectarLinkUnlockHelper
 
                 if (ok)
                 {
-                    Log("LaunchInSession: successfully spawned PID " + pi.dwProcessId + " into session " + sessionId);
-                    WaitForSingleObject(pi.hProcess, 15000);
-                    uint exitCode = 0;
-                    GetExitCodeProcess(pi.hProcess, out exitCode);
-                    Log("LaunchInSession: PID " + pi.dwProcessId + " exited with code 0x" + exitCode.ToString("X"));
+                    Log("LaunchAppInSession: successfully spawned PID " + pi.dwProcessId + " into session " + sessionId);
+                    if (waitForExit)
+                    {
+                        WaitForSingleObject(pi.hProcess, 15000);
+                        uint exitCode = 0;
+                        GetExitCodeProcess(pi.hProcess, out exitCode);
+                        Log("LaunchAppInSession: PID " + pi.dwProcessId + " exited with code 0x" + exitCode.ToString("X"));
+                    }
                     CloseHandle(pi.hProcess);
                     CloseHandle(pi.hThread);
                     return true;
@@ -747,10 +756,77 @@ namespace NectarLinkUnlockHelper
             }
             catch (Exception ex)
             {
-                Log("LaunchInSession CreateProcessAsUser exception: " + ex.Message);
+                Log("LaunchAppInSession exception: " + ex.Message);
                 if (hPrimaryToken != IntPtr.Zero) CloseHandle(hPrimaryToken);
             }
             return false;
+        }
+
+        static DateTime lastAppLaunchAttempt = DateTime.MinValue;
+
+        static void EnsureNectarLinkRunning()
+        {
+            try
+            {
+                if ((DateTime.Now - lastAppLaunchAttempt).TotalSeconds < 5)
+                {
+                    return;
+                }
+
+                uint activeSession = GetActiveConsoleSession();
+                if (activeSession == 0xFFFFFFFF) return;
+
+                // Check if nectarlink-desktop is already running in activeSession
+                bool running = false;
+                Process[] procs = Process.GetProcessesByName("nectarlink-desktop");
+                foreach (var p in procs)
+                {
+                    try
+                    {
+                        if (p.SessionId == (int)activeSession && !p.HasExited)
+                        {
+                            running = true;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (running) return;
+
+                lastAppLaunchAttempt = DateTime.Now;
+
+                // Candidate paths for nectarlink-desktop.exe
+                string[] candidates = new string[] {
+                    @"C:\Program Files\Nectarlink\nectarlink-desktop.exe",
+                    @"C:\nectarlink-app\nectarlink-desktop.exe",
+                    @"C:\nectarlink\nectarlink-desktop.exe"
+                };
+
+                string targetExe = null;
+                foreach (var c in candidates)
+                {
+                    if (File.Exists(c)) { targetExe = c; break; }
+                }
+
+                if (targetExe == null) return;
+
+                Log("EnsureNectarLinkRunning: nectarlink-desktop not found in session " + activeSession + ". Auto-launching at boot/restart...");
+
+                string dataDirArg = "";
+                string userDir = @"C:\Users\shubh\AppData\Local\Nectarlink";
+                if (Directory.Exists(userDir))
+                {
+                    dataDirArg = " --data-dir \"" + userDir + "\"";
+                }
+
+                string args = "--minimized" + dataDirArg;
+                LaunchAppInSession(activeSession, targetExe, args, false);
+            }
+            catch (Exception ex)
+            {
+                Log("EnsureNectarLinkRunning error: " + ex.Message);
+            }
         }
 
         static void CleanRegistryDuplicates()
@@ -851,12 +927,7 @@ namespace NectarLinkUnlockHelper
                     break;
 
                 case "TOUCH":
-                    if (mySession == 0)
-                    {
-                        uint activeSession = GetActiveConsoleSession();
-                        LaunchInSession(activeSession, line);
-                    }
-                    else if (parts.Length >= 4)
+                    if (parts.Length >= 4)
                     {
                         string action = parts[1].ToLowerInvariant();
                         float fx = 0f, fy = 0f;
@@ -879,12 +950,7 @@ namespace NectarLinkUnlockHelper
                     break;
 
                 case "CLICK":
-                    if (mySession == 0)
-                    {
-                        uint activeSession = GetActiveConsoleSession();
-                        LaunchInSession(activeSession, line);
-                    }
-                    else if (parts.Length >= 3)
+                    if (parts.Length >= 3)
                     {
                         float fx = 0f, fy = 0f;
                         float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out fx);
@@ -894,20 +960,15 @@ namespace NectarLinkUnlockHelper
 
                         AttachInputDesktop();
                         mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, ax, ay, 0, UIntPtr.Zero);
-                        Thread.Sleep(20);
+                        Thread.Sleep(10);
                         mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-                        Thread.Sleep(30);
+                        Thread.Sleep(15);
                         mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
                     }
                     break;
 
                 case "MOUSE":
-                    if (mySession == 0)
-                    {
-                        uint activeSession = GetActiveConsoleSession();
-                        LaunchInSession(activeSession, line);
-                    }
-                    else if (parts.Length >= 5)
+                    if (parts.Length >= 5)
                     {
                         uint flags = 0, dx = 0, dy = 0, data = 0;
                         uint.TryParse(parts[1], out flags);
@@ -921,12 +982,7 @@ namespace NectarLinkUnlockHelper
                     break;
 
                 case "KEY":
-                    if (mySession == 0)
-                    {
-                        uint activeSession = GetActiveConsoleSession();
-                        LaunchInSession(activeSession, line);
-                    }
-                    else if (parts.Length >= 4)
+                    if (parts.Length >= 4)
                     {
                         byte vk = 0, scan = 0;
                         uint flags = 0;
@@ -940,34 +996,18 @@ namespace NectarLinkUnlockHelper
                     break;
 
                 case "ENTER":
-                    if (mySession == 0)
-                    {
-                        uint activeSession = GetActiveConsoleSession();
-                        LaunchInSession(activeSession, "--enter");
-                    }
-                    else
-                    {
-                        AttachInputDesktop();
-                        SendKey(0x0D, 0x1C);
-                    }
+                    AttachInputDesktop();
+                    SendKey(0x0D, 0x1C);
                     break;
 
                 case "BACKSPACE":
-                    if (mySession == 0)
+                    int count = 1;
+                    if (parts.Length > 1) int.TryParse(parts[1], out count);
+                    AttachInputDesktop();
+                    for (int k = 0; k < count; k++)
                     {
-                        uint activeSession = GetActiveConsoleSession();
-                        LaunchInSession(activeSession, line);
-                    }
-                    else
-                    {
-                        int count = 1;
-                        if (parts.Length > 1) int.TryParse(parts[1], out count);
-                        AttachInputDesktop();
-                        for (int i = 0; i < Math.Max(1, count); i++)
-                        {
-                            SendKey(0x08, 0x0E);
-                            Thread.Sleep(15);
-                        }
+                        SendKey(0x08, 0x0E);
+                        Thread.Sleep(15);
                     }
                     break;
 
@@ -1004,9 +1044,10 @@ namespace NectarLinkUnlockHelper
                     try
                     {
                         EnsureDesktopsAccessible();
+                        EnsureNectarLinkRunning();
                     }
                     catch { }
-                    Thread.Sleep(1500);
+                    Thread.Sleep(2000);
                 }
             }) { IsBackground = true };
             secThread.Start();
