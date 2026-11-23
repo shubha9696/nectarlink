@@ -153,8 +153,9 @@ pub fn is_screen_locked() -> bool {
 
     let hdesk = unsafe { OpenInputDesktop(0, 0, 0x0001 /* DESKTOP_READOBJECTS */) };
     if hdesk == 0 {
-        // Access denied or cannot open input desktop -> secure desktop (Winlogon / UAC) is active!
-        return true;
+        // If OpenInputDesktop fails (e.g. non-elevated process querying while an admin/UAC window exists),
+        // do not assume the screen is locked, because SendInput may still succeed on the current desktop.
+        return false;
     }
     let mut buf = [0u8; 128];
     let mut needed = 0u32;
@@ -166,7 +167,7 @@ pub fn is_screen_locked() -> bool {
         let name = String::from_utf8_lossy(&buf[..len]);
         name.to_lowercase() != "default"
     } else {
-        true
+        false
     };
     unsafe { CloseDesktop(hdesk); }
     locked
@@ -174,16 +175,19 @@ pub fn is_screen_locked() -> bool {
 
 pub fn send_to_lock_pipe(cmd: &str) -> bool {
     use std::fs::OpenOptions;
-    use std::io::{BufRead, BufReader, Write};
-    let is_realtime = cmd.starts_with("TOUCH") || cmd.starts_with("MOVE");
+    use std::io::Write;
+    let is_realtime = cmd.starts_with("TOUCH") || cmd.starts_with("MOVE") || cmd.starts_with("KEY") || cmd.starts_with("MOUSE");
     let max_attempts = if is_realtime { 1 } else { 2 };
     for attempt in 0..max_attempts {
         if let Ok(file) = OpenOptions::new().read(true).write(true).open(r"\\.\pipe\nectarlink_lock_input") {
             let mut writer = std::io::BufWriter::new(&file);
             if writer.write_all(cmd.as_bytes()).is_ok() && writer.flush().is_ok() {
-                let mut reader = BufReader::new(&file);
-                let mut reply = String::new();
-                let _ = reader.read_line(&mut reply);
+                if !is_realtime {
+                    use std::io::BufRead;
+                    let mut reader = std::io::BufReader::new(&file);
+                    let mut reply = String::new();
+                    let _ = reader.read_line(&mut reply);
+                }
                 return true;
             }
         }
@@ -232,63 +236,47 @@ fn send_inputs(inputs: &[INPUT]) {
         fn mouse_event(dwFlags: u32, dx: u32, dy: u32, dwData: u32, dwExtraInfo: usize);
     }
 
-    let locked = is_screen_locked();
-    if locked {
-        for input in inputs {
-            match input.r#type {
-                INPUT_KEYBOARD => {
-                    let ki = unsafe { input.Anonymous.ki };
-                    let msg = format!("KEY {} {} {}\n", ki.wVk.0, ki.wScan, ki.dwFlags.0);
-                    if !send_to_lock_pipe(&msg) {
-                        unsafe {
-                            keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
-                        }
-                    }
-                }
-                INPUT_MOUSE => {
-                    let mi = unsafe { input.Anonymous.mi };
-                    let move_flags = mi.dwFlags.0 & (MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
-                    if move_flags != 0 {
-                        let msg = format!("MOUSE {} {} {} 0\n", move_flags, mi.dx, mi.dy);
-                        if !send_to_lock_pipe(&msg) {
-                            unsafe {
-                                mouse_event(move_flags, mi.dx as u32, mi.dy as u32, 0, 0);
-                            }
-                        }
-                    }
-                    let btn_flags = mi.dwFlags.0 & !(MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
-                    if btn_flags != 0 {
-                        let msg = format!("MOUSE {} {} {} {}\n", btn_flags, mi.dx, mi.dy, mi.mouseData);
-                        if !send_to_lock_pipe(&msg) {
-                            unsafe {
-                                mouse_event(btn_flags, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
+    // 1. Try standard SendInput first (fastest, lowest latency, direct on normal desktop)
+    let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
+    if sent > 0 {
         return;
     }
 
-    sync_input_desktop();
-    // SAFETY: `inputs` is a valid slice of `INPUT` structs.
-    let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
-    if sent == 0 {
-        // Fallback for secure desktop / lock screen where UIPI blocks SendInput
-        for input in inputs {
-            match input.r#type {
-                INPUT_KEYBOARD => unsafe {
-                    let ki = input.Anonymous.ki;
-                    keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
-                },
-                INPUT_MOUSE => unsafe {
-                    let mi = input.Anonymous.mi;
-                    mouse_event(mi.dwFlags.0, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
-                },
-                _ => {}
+    // 2. If SendInput failed (e.g. UIPI boundary, secure desktop, or lock screen),
+    // route through helper pipe and fallback to keybd_event / mouse_event
+    for input in inputs {
+        match input.r#type {
+            INPUT_KEYBOARD => {
+                let ki = unsafe { input.Anonymous.ki };
+                let msg = format!("KEY {} {} {}\n", ki.wVk.0, ki.wScan, ki.dwFlags.0);
+                if !send_to_lock_pipe(&msg) {
+                    unsafe {
+                        keybd_event(ki.wVk.0 as u8, ki.wScan as u8, ki.dwFlags.0, ki.dwExtraInfo);
+                    }
+                }
             }
+            INPUT_MOUSE => {
+                let mi = unsafe { input.Anonymous.mi };
+                let move_flags = mi.dwFlags.0 & (MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
+                if move_flags != 0 {
+                    let msg = format!("MOUSE {} {} {} 0\n", move_flags, mi.dx, mi.dy);
+                    if !send_to_lock_pipe(&msg) {
+                        unsafe {
+                            mouse_event(move_flags, mi.dx as u32, mi.dy as u32, 0, 0);
+                        }
+                    }
+                }
+                let btn_flags = mi.dwFlags.0 & !(MOUSEEVENTF_MOVE.0 | MOUSEEVENTF_ABSOLUTE.0);
+                if btn_flags != 0 {
+                    let msg = format!("MOUSE {} {} {} {}\n", btn_flags, mi.dx, mi.dy, mi.mouseData);
+                    if !send_to_lock_pipe(&msg) {
+                        unsafe {
+                            mouse_event(btn_flags, mi.dx as u32, mi.dy as u32, mi.mouseData, mi.dwExtraInfo);
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -374,17 +362,6 @@ pub fn mirror_touch(action: TouchAction, x: f32, y: f32) {
     let ax = (x.clamp(0.0, 1.0) * 65535.0).round() as i32;
     let ay = (y.clamp(0.0, 1.0) * 65535.0).round() as i32;
 
-    if is_screen_locked() {
-        let action_str = match action {
-            TouchAction::Down => "down",
-            TouchAction::Move => "move",
-            TouchAction::Up => "up",
-        };
-        let msg = format!("TOUCH {} {:.5} {:.5}\n", action_str, x.clamp(0.0, 1.0), y.clamp(0.0, 1.0));
-        if send_to_lock_pipe(&msg) {
-            return;
-        }
-    }
     match action {
         TouchAction::Down => {
             if let Ok(mut s) = STATE.lock() {
