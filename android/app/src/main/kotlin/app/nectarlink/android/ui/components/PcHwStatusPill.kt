@@ -46,8 +46,8 @@ fun PcHwStatusPill(
 
     var showDetails by remember { mutableStateOf(false) }
 
-    val hasTemp = stats.temp != null && stats.temp!! > 25u && stats.temp!! != 20u
     val temp = stats.temp?.toInt() ?: 0
+    val hasTemp = stats.temp != null && temp > 25 && temp != 20
     val tempColor = when {
         temp < 60 -> Color(0xFF4CAF50)
         temp < 75 -> Color(0xFFFF9800)
@@ -89,7 +89,7 @@ fun PcHwStatusPill(
                 Text(
                     text = "${stats.cpu}%",
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
-                    color = if (stats.cpu > 80u) MaterialTheme.colorScheme.error else valueColor,
+                    color = if (stats.cpu.toInt() > 80) MaterialTheme.colorScheme.error else valueColor,
                 )
             }
 
@@ -112,7 +112,7 @@ fun PcHwStatusPill(
                 Text(
                     text = "${stats.ram}%",
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
-                    color = if (stats.ram > 85u) MaterialTheme.colorScheme.error else valueColor,
+                    color = if (stats.ram.toInt() > 85) MaterialTheme.colorScheme.error else valueColor,
                 )
             }
 
@@ -166,7 +166,7 @@ fun PcHwStatusPill(
                         if (stats.charging) "AC" else "Plugged"
                     },
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
-                    color = if (stats.battery != null && !stats.charging && stats.battery!! < 20u) MaterialTheme.colorScheme.error else valueColor,
+                    color = if (stats.battery != null && !stats.charging && stats.battery!!.toInt() < 20) MaterialTheme.colorScheme.error else valueColor,
                 )
             }
         }

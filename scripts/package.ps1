@@ -298,8 +298,40 @@ if ($StageOnly) { return }
 # ---- Installer ----
 Step "Installer ($Arch)"
 $makensis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
-if (-not $makensis) { $makensis = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe' }
-if (-not (Test-Path $makensis)) { throw "NSIS (makensis) not found" }
+if (-not $makensis -or -not (Test-Path $makensis)) {
+    $candidates = @(
+        Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe',
+        Join-Path $env:ProgramFiles 'NSIS\makensis.exe',
+        "C:\Program Files (x86)\NSIS\makensis.exe",
+        "C:\Program Files\NSIS\makensis.exe"
+    )
+    foreach ($cand in $candidates) {
+        if ($cand -and (Test-Path $cand)) {
+            $makensis = $cand
+            break
+        }
+    }
+}
+if (-not $makensis -or -not (Test-Path $makensis)) {
+    Write-Host "makensis not found. Attempting fallback installation via choco..."
+    if (Get-Command choco -ErrorAction SilentlyContinue) {
+        choco install nsis --yes --no-progress
+    }
+    $candidates = @(
+        (Get-Command makensis -ErrorAction SilentlyContinue).Source,
+        Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe',
+        Join-Path $env:ProgramFiles 'NSIS\makensis.exe',
+        "C:\Program Files (x86)\NSIS\makensis.exe",
+        "C:\Program Files\NSIS\makensis.exe"
+    )
+    foreach ($cand in $candidates) {
+        if ($cand -and (Test-Path $cand)) {
+            $makensis = $cand
+            break
+        }
+    }
+}
+if (-not $makensis -or -not (Test-Path $makensis)) { throw "NSIS (makensis) not found" }
 $out = Join-Path $package "Nectarlink-$version-$Arch-setup.exe"
 Invoke-Native "makensis" {
     & $makensis /V2 "/DVERSION=$numeric" "/DDISPLAY_VERSION=$version" "/DARCH=$Arch" "/DSTAGE=$stage" `
