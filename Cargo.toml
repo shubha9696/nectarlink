@@ -14,7 +14,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 rust-version = "1.97"
 authors = ["The NectarLink contributors"]
@@ -26,10 +26,10 @@ repository = "https://github.com/thtbee/nectarlink"
 name = "Pollen"
 
 [workspace.dependencies]
-nectarlink-adb = { path = "core/nectarlink-adb", version = "1.0.0" }
-nectarlink-protocol = { path = "core/nectarlink-protocol", version = "1.0.0" }
-nectarlink-core = { path = "core/nectarlink-core", version = "1.0.0" }
-nectarlink-vcam = { path = "desktop/vcam", version = "1.0.0" }
+nectarlink-adb = { path = "core/nectarlink-adb", version = "1.0.1" }
+nectarlink-protocol = { path = "core/nectarlink-protocol", version = "1.0.1" }
+nectarlink-core = { path = "core/nectarlink-core", version = "1.0.1" }
+nectarlink-vcam = { path = "desktop/vcam", version = "1.0.1" }
 
 anyhow = "1"
 ciborium = "0.2"

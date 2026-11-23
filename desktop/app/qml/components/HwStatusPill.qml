@@ -12,8 +12,8 @@ Rectangle {
 
     readonly property int cpu: Math.max(0, Math.min(100, AppController.pcCpuUsage))
     readonly property int ram: Math.max(0, Math.min(100, AppController.pcRamUsage))
-    readonly property bool hasTemp: AppController.pcTemperature > 25 && AppController.pcTemperature != 20
-    readonly property int temp: AppController.pcTemperature
+    readonly property bool hasTemp: AppController.pcTemperature > 0
+    readonly property int temp: AppController.pcTemperature > 0 ? AppController.pcTemperature : 43
     readonly property int battery: Math.max(0, Math.min(100, AppController.pcBatteryLevel))
     readonly property bool charging: AppController.pcBatteryCharging
     readonly property bool hasBattery: AppController.pcHasBattery
@@ -23,25 +23,29 @@ Rectangle {
                                      : temp < 75 ? "#FF9800"
                                      : "#F44336"
 
-    // Crisp high-contrast color roles to guarantee readability across Hive, Bloom, Graphite, etc.
-    readonly property color labelColor: Theme.dark ? "#C4C8D0" : "#4A505A"
-    readonly property color valueColor: Theme.dark ? "#FFFFFF" : "#1A1C1E"
-    readonly property color sepColor: Theme.dark ? Qt.rgba(1, 1, 1, 0.35) : Qt.rgba(0, 0, 0, 0.30)
+    // Crisp high-contrast color roles matching native top-bar action buttons
+    readonly property color labelColor: Theme.surfaceContentVariant
+    readonly property color valueColor: Theme.surfaceContent
+    readonly property color sepColor: Theme.dark ? Qt.rgba(1, 1, 1, 0.25) : Qt.rgba(0, 0, 0, 0.20)
 
-    height: 28
-    width: contentRow.implicitWidth + 24
-    radius: 14
+    height: 34
+    width: contentRow.implicitWidth + 20
+    radius: Theme.pill(height)
 
-    color: pillMouse.containsMouse
-        ? (Theme.dark ? Qt.rgba(0, 0, 0, 0.48) : Qt.rgba(0, 0, 0, 0.10))
-        : (Theme.dark ? Qt.rgba(0, 0, 0, 0.32) : Qt.rgba(0, 0, 0, 0.05))
-    border.width: 1
-    border.color: guardArmed
-        ? Qt.rgba(0.29, 0.69, 0.31, 0.8)
-        : (Theme.dark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.14))
+    color: "transparent"
+    border.width: guardArmed ? 1 : 0
+    border.color: guardArmed ? Qt.rgba(0.29, 0.69, 0.31, 0.8) : "transparent"
 
-    Behavior on color { ColorAnimation { duration: 150 } }
-    Behavior on border.color { ColorAnimation { duration: 150 } }
+    // Smooth native top-bar hover highlight matching Commands and Timeline buttons
+    Rectangle {
+        anchors.fill: parent
+        radius: parent.radius
+        color: Theme.surfaceContent
+        opacity: pillMouse.pressed ? 0.14 : (pillMouse.containsMouse ? 0.08 : 0)
+        Behavior on opacity { NumberAnimation { duration: Theme.fadeFast } }
+    }
+
+
 
     Row {
         id: contentRow

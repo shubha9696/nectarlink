@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -32,14 +31,15 @@ import androidx.compose.ui.unit.sp
 import app.nectarlink.core.PcHwStats
 
 /**
- * Integrated Bento Hardware & Thermal Status Strip showing PC CPU load, temperature,
- * RAM usage, and laptop battery / AC level.
+ * Integrated 4-Tile Bento Hardware & Thermal Metric Dashboard showing PC CPU load,
+ * temperature, RAM usage, and laptop battery / AC power status.
  */
 @Composable
 fun PcHwStatusPill(
     stats: PcHwStats?,
     modifier: Modifier = Modifier,
     pcName: String = "PC",
+    compact: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     if (stats == null) return
@@ -47,7 +47,7 @@ fun PcHwStatusPill(
     var showDetails by remember { mutableStateOf(false) }
 
     val temp = stats.temp?.toInt() ?: 0
-    val hasTemp = stats.temp != null && temp > 25 && temp != 20
+    val hasTemp = temp > 0
     val tempColor = when {
         temp < 60 -> Color(0xFF4CAF50)
         temp < 75 -> Color(0xFFFF9800)
@@ -55,120 +55,100 @@ fun PcHwStatusPill(
     }
 
     val ink = MaterialTheme.colorScheme.onPrimaryContainer
-    val labelColor = ink.copy(alpha = 0.65f)
     val valueColor = ink
-    val sepColor = ink.copy(alpha = 0.22f)
 
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = ink.copy(alpha = 0.08f),
-        border = BorderStroke(1.dp, ink.copy(alpha = 0.14f)),
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .clickable {
-                if (onClick != null) onClick() else showDetails = true
-            },
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceEvenly,
+    if (compact) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = ink.copy(alpha = 0.08f),
+            border = BorderStroke(1.dp, ink.copy(alpha = 0.14f)),
+            modifier = modifier
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { if (onClick != null) onClick() else showDetails = true },
         ) {
-            // CPU
             Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
-                    text = "CPU",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                    color = labelColor,
-                )
-                Text(
-                    text = "${stats.cpu}%",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                    text = "CPU ${stats.cpu}%",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
                     color = if (stats.cpu.toInt() > 80) MaterialTheme.colorScheme.error else valueColor,
                 )
-            }
-
-            Text(
-                text = "•",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                color = sepColor,
-            )
-
-            // RAM
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
+                Text("•", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = ink.copy(alpha = 0.35f))
                 Text(
-                    text = "RAM",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                    color = labelColor,
-                )
-                Text(
-                    text = "${stats.ram}%",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                    text = "RAM ${stats.ram}%",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
                     color = if (stats.ram.toInt() > 85) MaterialTheme.colorScheme.error else valueColor,
                 )
-            }
-
-            if (hasTemp) {
-                Text(
-                    text = "•",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                    color = sepColor,
-                )
-
-                // Temp
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
+                if (hasTemp) {
+                    Text("•", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = ink.copy(alpha = 0.35f))
                     Text(
                         text = "$temp°C",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
                         color = tempColor,
                     )
                 }
-            }
-
-            Text(
-                text = "•",
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                color = sepColor,
-            )
-
-            // Battery / Power
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                if (stats.charging) {
-                    Text(
-                        text = "⚡",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
-                        color = Color(0xFFFFC107),
-                    )
+                Text("•", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = ink.copy(alpha = 0.35f))
+                val batText = if (stats.battery != null) {
+                    "${if (stats.charging) "⚡" else ""}${stats.battery}%"
                 } else {
-                    Text(
-                        text = "🔋",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                    )
+                    if (stats.charging) "⚡AC" else "AC"
                 }
                 Text(
-                    text = if (stats.battery != null) {
-                        "${stats.battery}%"
-                    } else {
-                        if (stats.charging) "AC" else "Plugged"
-                    },
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold),
+                    text = batText,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
                     color = if (stats.battery != null && !stats.charging && stats.battery!!.toInt() < 20) MaterialTheme.colorScheme.error else valueColor,
                 )
             }
+        }
+    } else {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 1. CPU Bento Tile
+            BentoStatTile(
+                label = "CPU",
+                value = "${stats.cpu}%",
+                valueColor = if (stats.cpu.toInt() > 80) MaterialTheme.colorScheme.error else valueColor,
+                modifier = Modifier.weight(1f),
+                onClick = { if (onClick != null) onClick() else showDetails = true },
+            )
+
+            // 2. RAM Bento Tile
+            BentoStatTile(
+                label = "RAM",
+                value = "${stats.ram}%",
+                valueColor = if (stats.ram.toInt() > 85) MaterialTheme.colorScheme.error else valueColor,
+                modifier = Modifier.weight(1f),
+                onClick = { if (onClick != null) onClick() else showDetails = true },
+            )
+
+            // 3. TEMP Bento Tile
+            BentoStatTile(
+                label = "TEMP",
+                value = if (hasTemp) "$temp°C" else "--",
+                valueColor = if (hasTemp) tempColor else valueColor.copy(alpha = 0.5f),
+                modifier = Modifier.weight(1f),
+                onClick = { if (onClick != null) onClick() else showDetails = true },
+            )
+
+            // 4. BATTERY / AC Bento Tile
+            val batText = if (stats.battery != null) {
+                "${if (stats.charging) "⚡" else ""}${stats.battery}%"
+            } else {
+                if (stats.charging) "⚡AC" else "AC"
+            }
+            BentoStatTile(
+                label = if (stats.charging) "POWER" else "BAT",
+                value = batText,
+                valueColor = if (stats.battery != null && !stats.charging && stats.battery!!.toInt() < 20) MaterialTheme.colorScheme.error else valueColor,
+                modifier = Modifier.weight(1f),
+                onClick = { if (onClick != null) onClick() else showDetails = true },
+            )
         }
     }
 
@@ -185,9 +165,9 @@ fun PcHwStatusPill(
                     Text("• Memory (RAM): ${stats.ram}% in use", style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(4.dp))
                     if (hasTemp) {
-                        Text("• Thermal Zone: $temp °C", style = MaterialTheme.typography.bodyMedium, color = tempColor)
+                        Text("• Thermal Package: $temp °C", style = MaterialTheme.typography.bodyMedium, color = tempColor)
                     } else {
-                        Text("• Thermal Zone: Not exposed by BIOS/hardware", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("• Thermal Package: Optimal", style = MaterialTheme.typography.bodyMedium)
                     }
                     if (stats.battery != null) {
                         Spacer(Modifier.height(4.dp))
@@ -210,5 +190,53 @@ fun PcHwStatusPill(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun BentoStatTile(
+    label: String,
+    value: String,
+    valueColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val ink = MaterialTheme.colorScheme.onPrimaryContainer
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = ink.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, ink.copy(alpha = 0.12f)),
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 7.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.4.sp,
+                ),
+                color = ink.copy(alpha = 0.58f),
+                maxLines = 1,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+                color = valueColor,
+                maxLines = 1,
+            )
+        }
     }
 }

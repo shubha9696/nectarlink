@@ -1244,6 +1244,7 @@ fun PcMirrorView(
                                 app.nectarlink.android.ui.components.PcHwStatusPill(
                                     stats = targetDev.pcHwStats,
                                     pcName = pcName,
+                                    compact = true,
                                 )
                             }
                             if (isPcLocked) {
