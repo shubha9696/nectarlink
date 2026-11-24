@@ -223,6 +223,7 @@ mod imp {
         // Accept input unconditionally from paired peer without dropping
 
         // Always allow remote touch and mouse control from paired phone
+        win::input::sync_input_desktop();
         let _ = core_host::node();
         let _ = crate::input_share::enter_remote(*peer);
         match input {
@@ -1582,7 +1583,7 @@ mod imp {
     ) -> Option<(u32, u32)> {
         // SAFETY: Win32 GDI device context and bitmap calls with persistent caching across frames.
         unsafe {
-            crate::win::input::sync_input_desktop();
+            let desktop_changed = crate::win::input::sync_input_desktop();
             let hdc_screen = GetDC(None);
             if hdc_screen.is_invalid() {
                 return None;
@@ -1606,7 +1607,7 @@ mod imp {
 
             let res = CACHED.with(|cell| {
                 let mut c = cell.borrow_mut();
-                if c.cached_w != dst_w || c.cached_h != dst_h || c.hdc_mem.is_invalid() {
+                if desktop_changed || c.cached_w != dst_w || c.cached_h != dst_h || c.hdc_mem.is_invalid() {
                     c.cleanup();
                     let mem = CreateCompatibleDC(Some(hdc_screen));
                     if mem.is_invalid() {

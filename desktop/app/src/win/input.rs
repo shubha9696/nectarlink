@@ -262,15 +262,23 @@ fn send_inputs(inputs: &[INPUT]) {
         }
     }
 
-    // 3. ONLY when the workstation is actually locked (Winlogon / UAC Secure Desktop),
-    // forward keyboard / unlock events to the SYSTEM lock screen helper pipe.
-    // Realtime mouse and touch movements are never sent to the pipe to prevent deadlocks.
-    if is_screen_locked() {
+    // 3. Fallback when SendInput returned 0 (e.g. an elevated Administrator window or Task Manager has focus,
+    // blocked by Windows UIPI), OR when the screen is locked (Winlogon / UAC secure desktop).
+    // In these cases, forward mouse and keyboard events to the elevated SYSTEM lock helper pipe!
+    if sent == 0 || is_screen_locked() {
         for input in inputs {
-            if input.r#type == INPUT_KEYBOARD {
-                let ki = unsafe { input.Anonymous.ki };
-                let msg = format!("KEY {} {} {}\n", ki.wVk.0, ki.wScan, ki.dwFlags.0);
-                let _ = send_to_lock_pipe(&msg);
+            match input.r#type {
+                INPUT_KEYBOARD => {
+                    let ki = unsafe { input.Anonymous.ki };
+                    let msg = format!("KEY {} {} {}\n", ki.wVk.0, ki.wScan, ki.dwFlags.0);
+                    let _ = send_to_lock_pipe(&msg);
+                }
+                INPUT_MOUSE => {
+                    let mi = unsafe { input.Anonymous.mi };
+                    let msg = format!("MOUSE {} {} {} {}\n", mi.dwFlags.0, mi.dx, mi.dy, mi.mouseData);
+                    let _ = send_to_lock_pipe(&msg);
+                }
+                _ => {}
             }
         }
     }
@@ -359,8 +367,18 @@ pub fn mirror_touch(action: TouchAction, x: f32, y: f32) {
 
     match action {
         TouchAction::Down => {
-            if let Ok(mut s) = STATE.lock() {
+            let already_down = if let Ok(mut s) = STATE.lock() {
+                let prev = s.held_left;
                 s.held_left = true;
+                prev
+            } else {
+                false
+            };
+            if already_down {
+                // If previous Up was somehow missed, release it first so mouse drag isn't stuck!
+                send_inputs(&[
+                    mouse_input(ax, ay, 0, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP),
+                ]);
             }
             // Move cursor to absolute position and press left button atomically in one event
             send_inputs(&[

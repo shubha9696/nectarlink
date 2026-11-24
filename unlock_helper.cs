@@ -620,12 +620,12 @@ namespace NectarLinkUnlockHelper
                     if (File.Exists(c)) { exePath = c; break; }
                 }
             }
-            return LaunchAppInSession(sessionId, exePath, arguments, true);
+            return LaunchAppInSession(sessionId, exePath, arguments, true, true);
         }
 
-        static bool LaunchAppInSession(uint sessionId, string exePath, string arguments, bool waitForExit)
+        static bool LaunchAppInSession(uint sessionId, string exePath, string arguments, bool waitForExit, bool asSystem)
         {
-            Log("LaunchAppInSession: target session " + sessionId + ", exe: " + exePath + " " + arguments);
+            Log("LaunchAppInSession: target session " + sessionId + ", asSystem=" + asSystem + ", exe: " + exePath + " " + arguments);
             EnablePrivilege("SeDebugPrivilege");
             EnablePrivilege("SeAssignPrimaryTokenPrivilege");
             EnablePrivilege("SeIncreaseQuotaPrivilege");
@@ -634,28 +634,9 @@ namespace NectarLinkUnlockHelper
 
             IntPtr hPrimaryToken = IntPtr.Zero;
 
-            // Strategy 1: Find active user token in target session via WTSQueryUserToken
-            try
+            if (asSystem)
             {
-                IntPtr hUserToken;
-                if (WTSQueryUserToken(sessionId, out hUserToken))
-                {
-                    DuplicateTokenEx(hUserToken, 0x000F01FF, IntPtr.Zero, 2, 1, out hPrimaryToken);
-                    CloseHandle(hUserToken);
-                    if (hPrimaryToken != IntPtr.Zero)
-                    {
-                        Log("LaunchAppInSession: obtained user token via WTSQueryUserToken for session " + sessionId);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Log("LaunchAppInSession WTSQueryUserToken error: " + ex.Message);
-            }
-
-            // Strategy 2: If no user logged in yet (at boot lock screen), duplicate winlogon.exe token
-            if (hPrimaryToken == IntPtr.Zero)
-            {
+                // For lock screen operations (unlock, DACL agent), MUST duplicate winlogon.exe token to run as SYSTEM on Winlogon desktop
                 try
                 {
                     Process[] procs = Process.GetProcessesByName("winlogon");
@@ -687,6 +668,62 @@ namespace NectarLinkUnlockHelper
                     Log("LaunchAppInSession winlogon token error: " + ex.Message);
                 }
             }
+            else
+            {
+                // For desktop applications (nectarlink-desktop), try active user token first
+                try
+                {
+                    IntPtr hUserToken;
+                    if (WTSQueryUserToken(sessionId, out hUserToken))
+                    {
+                        DuplicateTokenEx(hUserToken, 0x000F01FF, IntPtr.Zero, 2, 1, out hPrimaryToken);
+                        CloseHandle(hUserToken);
+                        if (hPrimaryToken != IntPtr.Zero)
+                        {
+                            Log("LaunchAppInSession: obtained user token via WTSQueryUserToken for session " + sessionId);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log("LaunchAppInSession WTSQueryUserToken error: " + ex.Message);
+                }
+
+                // If no user is logged in yet (at boot lock screen), duplicate winlogon.exe token
+                if (hPrimaryToken == IntPtr.Zero)
+                {
+                    try
+                    {
+                        Process[] procs = Process.GetProcessesByName("winlogon");
+                        foreach (var p in procs)
+                        {
+                            if (p.SessionId == (int)sessionId)
+                            {
+                                IntPtr hProc = OpenProcess(0x1FFFFF, false, p.Id);
+                                if (hProc != IntPtr.Zero)
+                                {
+                                    IntPtr hToken;
+                                    if (OpenProcessToken(hProc, 0x000F01FF, out hToken))
+                                    {
+                                        DuplicateTokenEx(hToken, 0x000F01FF, IntPtr.Zero, 2, 1, out hPrimaryToken);
+                                        CloseHandle(hToken);
+                                    }
+                                    CloseHandle(hProc);
+                                    if (hPrimaryToken != IntPtr.Zero)
+                                    {
+                                        Log("LaunchAppInSession: fallback winlogon token for session " + sessionId);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("LaunchAppInSession fallback winlogon token error: " + ex.Message);
+                    }
+                }
+            }
 
             if (hPrimaryToken == IntPtr.Zero)
             {
@@ -698,7 +735,7 @@ namespace NectarLinkUnlockHelper
             {
                 STARTUPINFO si = new STARTUPINFO();
                 si.cb = Marshal.SizeOf(si);
-                si.lpDesktop = @"winsta0\default";
+                si.lpDesktop = asSystem ? null : @"winsta0\default";
                 si.dwFlags = 1; // STARTF_USESHOWWINDOW
                 si.wShowWindow = 0; // SW_HIDE
 
@@ -762,13 +799,67 @@ namespace NectarLinkUnlockHelper
             return false;
         }
 
+        static DateTime lastAgentLaunchAttempt = DateTime.MinValue;
+
+        static void EnsureSessionAgentRunning()
+        {
+            try
+            {
+                uint activeSession = GetActiveConsoleSession();
+                if (activeSession == 0xFFFFFFFF) return;
+
+                EnablePrivilege("SeDebugPrivilege");
+
+                bool agentRunning = false;
+                Process[] procs = Process.GetProcessesByName("unlock_helper");
+                foreach (var p in procs)
+                {
+                    try
+                    {
+                        if (p.SessionId == (int)activeSession && !p.HasExited)
+                        {
+                            agentRunning = true;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (agentRunning) return;
+
+                if ((DateTime.Now - lastAgentLaunchAttempt).TotalSeconds < 5) return;
+                lastAgentLaunchAttempt = DateTime.Now;
+
+                string exePath = Assembly.GetExecutingAssembly().Location;
+                if (!File.Exists(exePath))
+                {
+                    string[] candidates = new string[] {
+                        @"C:\Program Files\Nectarlink\unlock_helper.exe",
+                        @"C:\nectarlink-app\unlock_helper.exe",
+                        @"C:\nectarlink\unlock_helper.exe"
+                    };
+                    foreach (var c in candidates)
+                    {
+                        if (File.Exists(c)) { exePath = c; break; }
+                    }
+                }
+
+                Log("EnsureSessionAgentRunning: starting session security agent in session " + activeSession);
+                LaunchAppInSession(activeSession, exePath, "--session-agent", false, true);
+            }
+            catch (Exception ex)
+            {
+                Log("EnsureSessionAgentRunning error: " + ex.Message);
+            }
+        }
+
         static DateTime lastAppLaunchAttempt = DateTime.MinValue;
 
         static void EnsureNectarLinkRunning()
         {
             try
             {
-                if ((DateTime.Now - lastAppLaunchAttempt).TotalSeconds < 5)
+                if ((DateTime.Now - lastAppLaunchAttempt).TotalSeconds < 15)
                 {
                     return;
                 }
@@ -776,14 +867,16 @@ namespace NectarLinkUnlockHelper
                 uint activeSession = GetActiveConsoleSession();
                 if (activeSession == 0xFFFFFFFF) return;
 
-                // Check if nectarlink-desktop is already running in activeSession
+                EnablePrivilege("SeDebugPrivilege");
+
+                // Check if nectarlink-desktop is already running in activeSession or any interactive session
                 bool running = false;
                 Process[] procs = Process.GetProcessesByName("nectarlink-desktop");
                 foreach (var p in procs)
                 {
                     try
                     {
-                        if (p.SessionId == (int)activeSession && !p.HasExited)
+                        if (!p.HasExited && (p.SessionId == (int)activeSession || p.SessionId != 0))
                         {
                             running = true;
                             break;
@@ -821,7 +914,7 @@ namespace NectarLinkUnlockHelper
                 }
 
                 string args = "--minimized" + dataDirArg;
-                LaunchAppInSession(activeSession, targetExe, args, false);
+                LaunchAppInSession(activeSession, targetExe, args, false, false);
             }
             catch (Exception ex)
             {
@@ -1043,7 +1136,7 @@ namespace NectarLinkUnlockHelper
                 {
                     try
                     {
-                        EnsureDesktopsAccessible();
+                        EnsureSessionAgentRunning();
                         EnsureNectarLinkRunning();
                     }
                     catch { }
@@ -1131,6 +1224,19 @@ namespace NectarLinkUnlockHelper
                             Log("=== Session " + mySession + " PIN Injector Mode (pin len: " + pin.Length + ") ===");
                             ExecuteUnlock(pin);
                             return;
+                        }
+                        else if (a.Equals("--session-agent", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Log("=== Session " + mySession + " Desktop Security Agent running as SYSTEM ===");
+                            while (true)
+                            {
+                                try
+                                {
+                                    EnsureDesktopsAccessible();
+                                }
+                                catch { }
+                                Thread.Sleep(1000);
+                            }
                         }
                         else if (a.Equals("--perm", StringComparison.OrdinalIgnoreCase))
                         {
